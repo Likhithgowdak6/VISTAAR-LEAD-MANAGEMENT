@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment / secrets - NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.backup*
+*.env.backup*
+*.pem
+*.key
+
+# WhatsApp (Baileys) session credentials
+auth_info_baileys/
+**/auth_info*/
+creds.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Editors & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local data volumes
+data/
+mongo-data/
+postgres-data/
+
+# Generated proposals / temp artifacts
+tmp/
+temp/
+*.tmp

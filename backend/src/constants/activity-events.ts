@@ -1,0 +1,38 @@
+export const ACTIVITY_EVENTS = Object.freeze({
+  CONVERSATION_CREATED: 'conversation.created',
+  CONVERSATION_ASSIGNED: 'conversation.assigned',
+  CONVERSATION_STAGE_CHANGED: 'conversation.stage_changed',
+  CONVERSATION_TAG_ADDED: 'conversation.tag_added',
+  CONVERSATION_TAG_REMOVED: 'conversation.tag_removed',
+  CONVERSATION_ACCOUNT_CHANGED: 'conversation.account_changed',
+  LEAD_IMPORTED: 'lead.imported',
+  LEAD_RESUBMITTED: 'lead.resubmitted',
+  MESSAGE_CREATED: 'message.created',
+  MESSAGE_STATUS_CHANGED: 'message.status_changed',
+  NOTE_CREATED: 'note.created',
+  FOLLOWUP_CREATED: 'followup.created',
+  FOLLOWUP_COMPLETED: 'followup.completed',
+  FOLLOWUP_CANCELLED: 'followup.cancelled',
+  AI_BRAIN_MESSAGE_SENT: 'ai_brain.message_sent',
+  AI_BRAIN_APPROVAL_PENDING: 'ai_brain.approval_pending',
+  AI_BRAIN_APPROVAL_RESOLVED: 'ai_brain.approval_resolved',
+  AI_BRAIN_ESCALATED: 'ai_brain.escalated',
+  AI_BRAIN_STAGE_SUGGESTED: 'ai_brain.stage_suggested',
+  AI_BRAIN_AUTOMATION_TOGGLED: 'ai_brain.automation_toggled',
+  AI_BRAIN_PROPOSAL_DRAFTED: 'ai_brain.proposal_drafted',
+  AI_BRAIN_PROPOSAL_RENDERED: 'ai_brain.proposal_rendered',
+  AI_BRAIN_NURTURE_SENT: 'ai_brain.nurture_sent',
+  AI_BRAIN_NURTURE_MARKED_COLD: 'ai_brain.nurture_marked_cold',
+  AI_BRAIN_HANDOVER_READ: 'ai_brain.handover_read',
+  AI_BRAIN_HANDOVER_RESOLVED: 'ai_brain.handover_resolved',
+  AI_BRAIN_NEW_LEAD_ALERTED: 'ai_brain.new_lead_alerted',
+  AI_BRAIN_EVENT_REMINDER_SENT: 'ai_brain.event_reminder_sent',
+  AI_BRAIN_HOT_LEAD_ALERTED: 'ai_brain.hot_lead_alerted',
+} as const);
+
+export type ActivityEvent = (typeof ACTIVITY_EVENTS)[keyof typeof ACTIVITY_EVENTS];
+
+export const ACTIVITY_EVENT_VALUES = Object.freeze(Object.values(ACTIVITY_EVENTS)) as readonly [
+  ActivityEvent,
+  ...ActivityEvent[],
+];

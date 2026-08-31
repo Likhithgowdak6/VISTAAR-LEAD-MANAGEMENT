@@ -1,0 +1,78 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: wam-crm-ai-mongo
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'mongosh --quiet --eval ''try { quit(rs.status().ok ? 0 : 1) } catch (error) { quit(rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]}).ok ? 0 : 1) }''',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    container_name: wam-crm-ai-redis
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Only for ai-brain-service's LangGraph checkpoints ("which step is this conversation on,
+  # paused for approval"). It holds no business data - conversations, messages, leads all stay
+  # in Mongo above. Safe to wipe; a lost checkpoint just means an in-flight approval restarts.
+  ai-brain-db:
+    image: postgres:16-alpine
+    container_name: wam-crm-ai-ai-brain-db
+    environment:
+      POSTGRES_USER: ai_brain
+      POSTGRES_PASSWORD: ai_brain
+      POSTGRES_DB: ai_brain_checkpoints
+    ports:
+      - '5434:5432'
+    volumes:
+      - ai_brain_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ai_brain']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-brain-service:
+    build:
+      context: ./ai-brain-service
+    container_name: wam-crm-ai-ai-brain-service
+    depends_on:
+      ai-brain-db:
+        condition: service_healthy
+    ports:
+      - '8091:8091'
+    environment:
+      DATABASE_URL: postgresql://ai_brain:ai_brain@ai-brain-db:5432/ai_brain_checkpoints
+      SERVICE_API_KEY: ${AI_BRAIN_SERVICE_KEY:-}
+      LLM_PROVIDER: ${AI_BRAIN_LLM_PROVIDER:-groq}
+      LLM_API_KEY: ${AI_BRAIN_LLM_API_KEY:-}
+      LLM_MODEL: ${AI_BRAIN_LLM_MODEL:-openai/gpt-oss-120b}
+      # One model call's budget. Must stay under the backend's AI_BRAIN_REQUEST_TIMEOUT_MS, or
+      # this service keeps spending quota on an answer the caller already gave up waiting for.
+      LLM_TIMEOUT_SECONDS: ${AI_BRAIN_LLM_TIMEOUT_SECONDS:-20}
+      LLM_MAX_RETRIES: ${AI_BRAIN_LLM_MAX_RETRIES:-1}
+      MAX_QUALIFYING_QUESTIONS: ${AI_BRAIN_MAX_QUALIFYING_QUESTIONS:-6}
+
+volumes:
+  mongo_data:
+  redis_data:
+  ai_brain_db_data:
