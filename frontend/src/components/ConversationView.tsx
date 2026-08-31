@@ -13,6 +13,7 @@ import { useAuth } from '../auth/AuthContext';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
+import ConversationSummaryPanel from './ConversationSummaryPanel';
 import EmptyState from './EmptyState';
 import LeadPanel from './lead/LeadPanel';
 import MessageComposer from './MessageComposer';
@@ -275,6 +276,8 @@ const ConversationView = ({ conversationId }: Props) => {
             </button>
           </div>
         </header>
+
+        <ConversationSummaryPanel key={conversationId} conversationId={conversationId} />
 
         {orderedMessages.length === 0 ? (
           <div className="flex-1 bg-slate-100">

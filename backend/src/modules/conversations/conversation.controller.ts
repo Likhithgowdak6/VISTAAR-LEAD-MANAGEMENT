@@ -1,4 +1,8 @@
 import { requireAuthContext } from '../../middleware/auth.middleware.js';
+import {
+  getConversationSummaryForActor,
+  regenerateConversationSummaryForActor,
+} from '../ai-brain/conversation-summary.service.js';
 import { asyncHandler } from '../../utils/async-handler.js';
 import { createHttpError } from '../../utils/http-error.js';
 import { parseWithSchema } from '../../utils/parse-with-schema.js';
@@ -20,6 +24,7 @@ import {
   conversationIdParamsSchema,
   conversationMessagesQuerySchema,
   listConversationsQuerySchema,
+  regenerateConversationSummaryBodySchema,
   sendMessageBodySchema,
 } from './conversation.validation.js';
 
@@ -290,6 +295,80 @@ export const getConversationLeadSubmissions = asyncHandler(async (req, res) => {
     res.status(200).json({
       data: submissions,
       meta: { count: submissions.length },
+    });
+  } catch (error: unknown) {
+    mapConversationError(error);
+  }
+});
+
+/**
+ * The AI's catch-up read of this thread, as stored. Never generates one - opening a conversation
+ * must not cost an ai-brain-service call - so a thread nobody has asked about yet answers 200
+ * with `data: null` and the UI offers the button.
+ */
+export const getConversationSummary = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+
+  try {
+    const result = await getConversationSummaryForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actorId: auth.user._id,
+    });
+
+    res.status(200).json({
+      data: result.summary,
+      meta: {
+        regenerated: result.regenerated,
+        unavailable: result.unavailable,
+      },
+    });
+  } catch (error: unknown) {
+    mapConversationError(error);
+  }
+});
+
+/**
+ * Asks for a fresh read. A summary that is still current is returned untouched (`regenerated:
+ * false`) unless `force` is set. If ai-brain-service cannot answer, this still succeeds with
+ * whatever was stored and `unavailable: true` - a summariser that is down must never break the
+ * conversation view.
+ */
+export const regenerateConversationSummary = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+
+  const body = parseWithSchema({
+    schema: regenerateConversationSummaryBodySchema,
+    value: req.body ?? {},
+    source: 'Body',
+  });
+
+  try {
+    const result = await regenerateConversationSummaryForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actorId: auth.user._id,
+      force: body.force,
+    });
+
+    res.status(200).json({
+      data: result.summary,
+      meta: {
+        regenerated: result.regenerated,
+        unavailable: result.unavailable,
+      },
     });
   } catch (error: unknown) {
     mapConversationError(error);

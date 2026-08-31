@@ -83,26 +83,90 @@ export const buildApprovalCardText = ({
   `New draft for ${leadDisplayName}:\n"${previewDraft(draft)}"\n\nReply ${code} 1 to send, ${code} 2 to revise, ${code} 3 to skip.`;
 
 /**
+ * The two lines of the AI's catch-up read that fit on a phone. The full summary lives in the
+ * dashboard (see conversation-summary.service.ts); this is the part worth carrying into
+ * WhatsApp, and nothing more.
+ */
+export interface HandoverCardSummary {
+  headline: string;
+  suggestedNextStep: string;
+  /** Messages have arrived since it was read. Said out loud rather than quietly implied. */
+  stale?: boolean;
+}
+
+const MAX_SUMMARY_LINE_LENGTH = 160;
+
+const summaryLine = (text: string | undefined | null): string => {
+  const trimmed = (text ?? '').replace(/\s+/g, ' ').trim();
+  return trimmed.length > MAX_SUMMARY_LINE_LENGTH
+    ? `${trimmed.slice(0, MAX_SUMMARY_LINE_LENGTH).trimEnd()}…`
+    : trimmed;
+};
+
+/**
+ * The summary block appended to a handover card. Empty string when there is nothing worth
+ * saying - a card with a blank "Where it stands:" under it is worse than a card without one.
+ */
+export const buildHandoverSummaryBlock = (summary?: HandoverCardSummary | null): string => {
+  if (!summary) {
+    return '';
+  }
+
+  const headline = summaryLine(summary.headline);
+  const nextStep = summaryLine(summary.suggestedNextStep);
+
+  if (!headline && !nextStep) {
+    return '';
+  }
+
+  const lines: string[] = [];
+
+  if (headline) {
+    lines.push(`Where it stands: ${headline}`);
+  }
+  if (nextStep) {
+    lines.push(`Next: ${nextStep}`);
+  }
+  if (summary.stale) {
+    lines.push('(Read before the latest messages.)');
+  }
+
+  return lines.join('\n');
+};
+
+/**
  * The morning handover read's card (Phase 5). Deliberately a question, not an action: the AI
  * never silently closes a deal off its own reading, because a mis-read on a closed deal is
  * expensive. `verdict` is the reading that raised the card and decides what 1/2/3 mean.
+ *
+ * This is the "owner is coming back to this thread" moment, so it carries the two-line catch-up
+ * above the question when one has already been generated - the owner should be able to answer
+ * 1/2/3 without opening the thread and scrolling it. Only a STORED summary ever reaches here;
+ * the morning read never generates one (see handover-read.service.ts on why).
  */
 export const buildHandoverCardText = ({
   leadDisplayName,
   verdict,
   code,
+  summary,
 }: {
   leadDisplayName: string;
   verdict: string;
   code: string;
+  summary?: HandoverCardSummary | null;
 }): string => {
-  if (verdict === AI_BRAIN_OUTCOME_DECISIONS.WON || verdict === AI_BRAIN_OUTCOME_DECISIONS.LOST) {
-    const label = verdict === AI_BRAIN_OUTCOME_DECISIONS.WON ? 'Won' : 'Lost';
+  const question =
+    verdict === AI_BRAIN_OUTCOME_DECISIONS.WON || verdict === AI_BRAIN_OUTCOME_DECISIONS.LOST
+      ? (() => {
+          const label = verdict === AI_BRAIN_OUTCOME_DECISIONS.WON ? 'Won' : 'Lost';
 
-    return `${leadDisplayName} — looks like this one's ${label}. Reply ${code} 1 to mark it ${label}, ${code} 2 if it's still open, ${code} 3 to leave it with you.`;
-  }
+          return `${leadDisplayName} — looks like this one's ${label}. Reply ${code} 1 to mark it ${label}, ${code} 2 if it's still open, ${code} 3 to leave it with you.`;
+        })()
+      : `${leadDisplayName} — I can't tell where this stands. Reply ${code} 1 if you're on it, ${code} 2 if I should follow up, ${code} 3 if it's finished.`;
 
-  return `${leadDisplayName} — I can't tell where this stands. Reply ${code} 1 if you're on it, ${code} 2 if I should follow up, ${code} 3 if it's finished.`;
+  const block = buildHandoverSummaryBlock(summary);
+
+  return block ? `${block}\n\n${question}` : question;
 };
 
 // --------------------------------------------------------------------------
@@ -328,6 +392,8 @@ export interface SendHandoverCardParams {
   /** `won` / `lost` / `unclear` - the reading of the conversation that raised this card. */
   verdict: string;
   code: string;
+  /** The stored catch-up read, when there is one. Omitted leaves the card exactly as it was. */
+  summary?: HandoverCardSummary | null;
   notifyOwner?: NotifyOwnerFn;
   logger?: Logger;
 }
@@ -341,6 +407,7 @@ export const sendHandoverCard = async ({
   leadDisplayName,
   verdict,
   code,
+  summary,
   notifyOwner = getOwnerNotifyService().notifyOwner,
   logger = defaultLogger,
 }: SendHandoverCardParams): Promise<void> => {
@@ -348,7 +415,7 @@ export const sendHandoverCard = async ({
     await notifyOwner({
       accountId,
       organizationId,
-      text: buildHandoverCardText({ leadDisplayName, verdict, code }),
+      text: buildHandoverCardText({ leadDisplayName, verdict, code, summary }),
     });
   } catch (error: unknown) {
     const err = error as { code?: unknown; name?: unknown };

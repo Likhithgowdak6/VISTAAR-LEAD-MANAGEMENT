@@ -48,6 +48,7 @@ const {
   markOptedOut,
   mergeConversationAiContext,
   releaseEventReminderClaim,
+  updateConversationSummary,
   updateLeadScore,
 } = await import('./conversation.repository.js');
 
@@ -653,6 +654,67 @@ describe('releaseEventReminderClaim', () => {
       { _id: 'conv-1', organizationId },
       { $set: { eventReminderSentAt: null } },
       expect.objectContaining({ returnDocument: 'after' }),
+    );
+  });
+});
+
+// --------------------------------------------------------------------------
+// The owner's catch-up read. What matters here is that the summary and its staleness clock are
+// written in one $set: a count that could be updated without the text it describes would let a
+// stale summary claim to be current.
+// --------------------------------------------------------------------------
+describe('updateConversationSummary', () => {
+  const summary = {
+    headline: 'Riya wants candid wedding photography in Pune on 14 Feb.',
+    whatTheyAskedFor: 'Two days of candid coverage.',
+    whereItStands: 'We quoted the two-photographer option; she said she would check.',
+    openQuestions: ['Is 14 Feb confirmed?'],
+    suggestedNextStep: 'Ask whether 14 Feb is fixed.',
+  };
+
+  it('writes the summary, the time and the count it was read from together', async () => {
+    const exec = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+    mocks.findOneAndUpdate.mockReturnValue({ exec });
+    const generatedAt = new Date('2026-08-31T09:00:00.000Z');
+
+    await updateConversationSummary({
+      conversationId: 'conv-1',
+      organizationId,
+      summary,
+      messageCount: 12,
+      generatedAt,
+    });
+
+    expect(mocks.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'conv-1', organizationId },
+      {
+        $set: {
+          aiSummary: summary,
+          aiSummaryGeneratedAt: generatedAt,
+          aiSummaryMessageCount: 12,
+        },
+      },
+      expect.objectContaining({ returnDocument: 'after', runValidators: true }),
+    );
+  });
+
+  it('is organization-scoped - a summary can never be written across a tenant boundary', async () => {
+    const exec = vi.fn().mockResolvedValue(null);
+    mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+    await expect(
+      updateConversationSummary({
+        conversationId: 'conv-1',
+        organizationId: 'someone-else',
+        summary,
+        messageCount: 1,
+      }),
+    ).resolves.toBeNull();
+
+    expect(mocks.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: 'someone-else' }),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });

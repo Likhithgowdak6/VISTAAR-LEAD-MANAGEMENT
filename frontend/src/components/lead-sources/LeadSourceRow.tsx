@@ -14,12 +14,15 @@ type Props = {
 const SYNC_BADGE: Readonly<Record<string, string>> = {
   ok: 'bg-emerald-50 text-emerald-700',
   failed: 'bg-red-50 text-red-700',
+  // Deliberately not the same red as a failed sync: this one will not fix itself.
+  needs_attention: 'bg-amber-100 text-amber-800',
   pending: 'bg-slate-100 text-slate-600',
 };
 
 const SYNC_LABEL: Readonly<Record<string, string>> = {
   ok: 'Syncing',
   failed: 'Sync failed',
+  needs_attention: 'Needs attention',
   pending: 'Not synced yet',
 };
 
@@ -32,6 +35,8 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
     accounts.find((account) => account.id === leadSource.whatsappAccountId)?.name ??
     'Unknown number';
   const isPaused = leadSource.status === 'paused';
+  // A source stored before the field existed has no `kind` on the wire: it is a sheet.
+  const isMeta = leadSource.kind === 'meta_lead_ads';
 
   const run = async (action: string, task: () => Promise<unknown>) => {
     setBusy(action);
@@ -113,14 +118,31 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
               : null}
           </p>
 
-          <a
-            href={leadSource.sheetUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-block text-xs font-medium text-blue-600 hover:text-blue-700"
-          >
-            Open sheet
-          </a>
+          {isMeta ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Meta Lead Ads ·{' '}
+              <span className="font-medium text-slate-700">
+                {leadSource.meta.pageName ?? leadSource.meta.pageId ?? 'Unknown page'}
+              </span>{' '}
+              · {leadSource.meta.formName ?? (leadSource.meta.formId ? 'One form' : 'Every form')}
+              {/* Four characters, so an admin rotating a token can tell which one is stored.
+                  The token itself is never sent to the browser. */}
+              {leadSource.meta.accessTokenLast4 ? (
+                <span className="text-slate-400"> · token ····{leadSource.meta.accessTokenLast4}</span>
+              ) : null}
+            </p>
+          ) : null}
+
+          {!isMeta && leadSource.sheetUrl ? (
+            <a
+              href={leadSource.sheetUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              Open sheet
+            </a>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
@@ -159,9 +181,18 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
         </div>
       </div>
 
-      {/* The sheet's own failure message, written for an admin ("not link-shared"). */}
-      {leadSource.lastError && leadSource.lastSyncStatus === 'failed' ? (
-        <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">
+      {/* The importer's own failure message, written for an admin ("not link-shared", "the
+          token has expired"). Never Meta's raw prose, and never a URL. */}
+      {leadSource.lastError &&
+      (leadSource.lastSyncStatus === 'failed' ||
+        leadSource.lastSyncStatus === 'needs_attention') ? (
+        <p
+          className={`mt-2 rounded-lg px-2 py-1.5 text-xs ${
+            leadSource.lastSyncStatus === 'needs_attention'
+              ? 'bg-amber-50 text-amber-800'
+              : 'bg-red-50 text-red-700'
+          }`}
+        >
           {leadSource.lastError}
         </p>
       ) : null}

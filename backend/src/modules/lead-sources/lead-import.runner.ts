@@ -8,9 +8,12 @@ export interface CreateLeadImportRunnerOptions {
 }
 
 /**
- * Polls every active lead source on an interval. Same shape as the realtime outbox and delivery
- * runners: re-entrancy guarded so a slow sheet fetch cannot overlap itself, timer `unref`ed so
- * it never holds the process open, and tick errors logged rather than thrown.
+ * Polls every active lead source on an interval — Google Sheets and Meta Lead Ads forms alike;
+ * `drain()` picks the importer per source, so there is one runner and one interval for both.
+ *
+ * Same shape as the realtime outbox and delivery runners: re-entrancy guarded so a slow sheet
+ * fetch or a slow Graph call cannot overlap itself, timer `unref`ed so it never holds the process
+ * open, and tick errors logged rather than thrown.
  */
 export const createLeadImportRunner = ({
   config = env,

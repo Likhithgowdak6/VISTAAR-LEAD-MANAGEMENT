@@ -1,6 +1,8 @@
 import { type HydratedDocument } from 'mongoose';
 
+import { env, type Env } from '../../config/env.js';
 import { ACCOUNT_STATUSES } from '../../constants/account-statuses.js';
+import { LEAD_SOURCE_KINDS } from '../../constants/lead-source-kinds.js';
 import { type LeadSourceStatus } from '../../constants/lead-source-statuses.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { type UserDocument } from '../users/user.model.js';
@@ -12,10 +14,17 @@ import {
   createLeadSource,
   deleteLeadSource,
   findLeadSourceById,
+  findLeadSourceByIdWithSecrets,
   findLeadSourcesByOrganization,
   updateLeadSource,
 } from './lead-source.repository.js';
 import { serializeLeadSource, type SerializedLeadSource } from './lead-source.serializer.js';
+import {
+  listMetaLeadForms as defaultListMetaLeadForms,
+  testMetaConnection as defaultTestMetaConnection,
+  type MetaConnectionTest,
+  type MetaLeadFormSummary,
+} from './meta-graph.client.js';
 
 type Actor = Pick<UserDocument, '_id'> | HydratedDocument<UserDocument>;
 
@@ -124,6 +133,165 @@ export const createLeadSourceForActor = async ({
   }
 };
 
+/**
+ * The Meta Lead Ads twin of the function above.
+ *
+ * Kept separate rather than folded in behind a flag: the two kinds share no required field except
+ * a name and a destination number, and a single function taking "either a sheet URL, or a page
+ * id, a form id and a credential" would be a union pretending to be a signature.
+ */
+export interface CreateMetaLeadSourceForActorParams {
+  organizationId: ObjectIdLike;
+  actor: Actor;
+  name: string;
+  accessToken: string;
+  pageId: string;
+  pageName?: string | null;
+  /** `null`/omitted means every lead form on the page, resolved fresh on every poll. */
+  formId?: string | null;
+  formName?: string | null;
+  whatsappAccountId: ObjectIdLike;
+  defaultCountryCode: string;
+  aiContextEnabled: boolean;
+  columnMapping?: Partial<LeadSourceColumnMapping>;
+  importExisting: boolean;
+  config?: Env;
+  now?: Date;
+}
+
+const assertMetaLeadAdsEnabled = (config: Env): void => {
+  if (config.META_LEAD_ADS_ENABLED !== true) {
+    throw new Error('META_LEAD_ADS_DISABLED');
+  }
+};
+
+/**
+ * A page-wide source and a single-form source on the same page would both import that form's
+ * leads, each against its own ledger. The unique index catches an exact repeat; this catches the
+ * overlap, which a partial index cannot express.
+ */
+const assertNoOverlappingMetaSource = async ({
+  organizationId,
+  pageId,
+  formId,
+}: {
+  organizationId: ObjectIdLike;
+  pageId: string;
+  formId: string | null;
+}): Promise<void> => {
+  const existing = await findLeadSourcesByOrganization({ organizationId, limit: 200 });
+
+  const overlaps = existing.some((leadSource) => {
+    if (leadSource.kind !== LEAD_SOURCE_KINDS.META_LEAD_ADS) {
+      return false;
+    }
+
+    if (leadSource.meta?.pageId !== pageId) {
+      return false;
+    }
+
+    const existingFormId = leadSource.meta?.formId ?? null;
+
+    // Either side covering the whole page swallows the other.
+    return existingFormId === null || formId === null || existingFormId === formId;
+  });
+
+  if (overlaps) {
+    throw new Error('LEAD_SOURCE_ALREADY_EXISTS');
+  }
+};
+
+export const createMetaLeadSourceForActor = async ({
+  organizationId,
+  actor,
+  name,
+  accessToken,
+  pageId,
+  pageName = null,
+  formId = null,
+  formName = null,
+  whatsappAccountId,
+  defaultCountryCode,
+  aiContextEnabled,
+  columnMapping,
+  importExisting,
+  config = env,
+  now = new Date(),
+}: CreateMetaLeadSourceForActorParams): Promise<SerializedLeadSource | null> => {
+  assertMetaLeadAdsEnabled(config);
+  await assertAccountUsable({ organizationId, whatsappAccountId });
+  await assertNoOverlappingMetaSource({ organizationId, pageId, formId });
+
+  try {
+    const leadSource = await createLeadSource({
+      organizationId,
+      name,
+      kind: LEAD_SOURCE_KINDS.META_LEAD_ADS,
+      meta: { pageId, pageName, formId, formName, accessToken },
+      whatsappAccountId,
+      defaultCountryCode,
+      aiContextEnabled,
+      columnMapping,
+      importFromTime: importExisting ? BEGINNING_OF_TIME : now,
+      createdBy: actor._id,
+    });
+
+    return serializeLeadSource(leadSource);
+  } catch (error: unknown) {
+    if (isDuplicateKeyError(error)) {
+      throw new Error('LEAD_SOURCE_ALREADY_EXISTS', { cause: error });
+    }
+
+    throw error;
+  }
+};
+
+export interface TestMetaConnectionParams {
+  accessToken: string;
+  config?: Env;
+  testMetaConnection?: typeof defaultTestMetaConnection;
+}
+
+/**
+ * Checks a token the moment it is pasted, before anything is stored. The token arrives in the
+ * request body, is spent on one Graph call and is dropped — this path writes nothing at all.
+ */
+export const testMetaConnectionForActor = async ({
+  accessToken,
+  config = env,
+  testMetaConnection = defaultTestMetaConnection,
+}: TestMetaConnectionParams): Promise<MetaConnectionTest> => {
+  assertMetaLeadAdsEnabled(config);
+
+  return testMetaConnection({
+    accessToken,
+    timeoutMs: Number(config.META_GRAPH_TIMEOUT_MS ?? 15_000),
+  });
+};
+
+export interface ListMetaFormsParams {
+  accessToken: string;
+  pageId: string;
+  config?: Env;
+  listMetaLeadForms?: typeof defaultListMetaLeadForms;
+}
+
+/** The page's lead forms, so an admin picks one from a list instead of typing an id. */
+export const listMetaFormsForActor = async ({
+  accessToken,
+  pageId,
+  config = env,
+  listMetaLeadForms = defaultListMetaLeadForms,
+}: ListMetaFormsParams): Promise<MetaLeadFormSummary[]> => {
+  assertMetaLeadAdsEnabled(config);
+
+  return listMetaLeadForms({
+    accessToken,
+    pageId,
+    timeoutMs: Number(config.META_GRAPH_TIMEOUT_MS ?? 15_000),
+  });
+};
+
 export interface UpdateLeadSourceForActorParams {
   organizationId: ObjectIdLike;
   leadSourceId: ObjectIdLike;
@@ -134,6 +302,10 @@ export interface UpdateLeadSourceForActorParams {
   aiContextEnabled?: boolean;
   status?: LeadSourceStatus;
   columnMapping?: Partial<LeadSourceColumnMapping>;
+  /** Meta sources only: rotate the stored token. Never echoed back. */
+  accessToken?: string;
+  formId?: string | null;
+  formName?: string | null;
 }
 
 export const updateLeadSourceForActor = async ({
@@ -146,11 +318,21 @@ export const updateLeadSourceForActor = async ({
   aiContextEnabled,
   status,
   columnMapping,
+  accessToken,
+  formId,
+  formName,
 }: UpdateLeadSourceForActorParams): Promise<SerializedLeadSource | null> => {
   const leadSource = await findLeadSourceById({ leadSourceId, organizationId });
 
   if (!leadSource) {
     throw new Error('LEAD_SOURCE_NOT_FOUND');
+  }
+
+  const isMeta = leadSource.kind === LEAD_SOURCE_KINDS.META_LEAD_ADS;
+
+  // Storing a Meta credential against a sheet source would be a token nothing ever spends.
+  if (!isMeta && (accessToken !== undefined || formId !== undefined || formName !== undefined)) {
+    throw new Error('LEAD_SOURCE_NOT_META');
   }
 
   if (whatsappAccountId !== undefined) {
@@ -166,6 +348,9 @@ export const updateLeadSourceForActor = async ({
     aiContextEnabled,
     status,
     columnMapping,
+    metaAccessToken: accessToken,
+    metaFormId: formId,
+    metaFormName: formName,
     actorId: actor._id,
   });
 
@@ -207,7 +392,9 @@ export const syncLeadSourceNowForActor = async ({
   leadSourceId,
   leadImportService = createLeadImportService(),
 }: SyncLeadSourceNowParams): Promise<SerializedLeadSource | null> => {
-  const leadSource = await findLeadSourceById({ leadSourceId, organizationId });
+  // With secrets: a Meta source cannot be polled without its (encrypted) access token, and the
+  // plain lookup deliberately does not load it.
+  const leadSource = await findLeadSourceByIdWithSecrets({ leadSourceId, organizationId });
 
   if (!leadSource) {
     throw new Error('LEAD_SOURCE_NOT_FOUND');

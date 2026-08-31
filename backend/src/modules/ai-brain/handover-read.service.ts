@@ -46,6 +46,7 @@ import {
   upsertPendingApproval as defaultUpsertPendingApproval,
 } from './ai-brain-approval.repository.js';
 import { classifyConversationOutcome as defaultClassifyConversationOutcome } from './ai-brain.service.js';
+import { readStoredConversationSummary as defaultReadStoredConversationSummary } from './conversation-summary.service.js';
 import {
   sendApprovalCard as defaultSendApprovalCard,
   sendHandoverCard as defaultSendHandoverCard,
@@ -77,6 +78,7 @@ export interface CreateHandoverReadServiceOptions {
   conversationRepository?: HandoverConversationRepositoryLike;
   approvalRepository?: HandoverApprovalRepositoryLike;
   classifyConversationOutcome?: typeof defaultClassifyConversationOutcome;
+  readStoredConversationSummary?: typeof defaultReadStoredConversationSummary;
   sendApprovalCard?: typeof defaultSendApprovalCard;
   sendHandoverCard?: typeof defaultSendHandoverCard;
   createActivity?: typeof defaultCreateActivity;
@@ -120,6 +122,7 @@ export const createHandoverReadService = ({
     upsertPendingApproval: defaultUpsertPendingApproval,
   },
   classifyConversationOutcome = defaultClassifyConversationOutcome,
+  readStoredConversationSummary = defaultReadStoredConversationSummary,
   sendApprovalCard = defaultSendApprovalCard,
   sendHandoverCard = defaultSendHandoverCard,
   createActivity = defaultCreateActivity,
@@ -133,6 +136,35 @@ export const createHandoverReadService = ({
   type DueConversation = HydratedDocument<ConversationDocument>;
 
   type Outcome = 'handover' | 'reply' | 'waiting' | 'skipped';
+
+  /**
+   * The stored catch-up read for this lead, for the card only.
+   *
+   * READ ONLY, deliberately. This sweep runs over every conversation the owner took over, and
+   * each one already costs one ai-brain-service call for the outcome classifier; generating a
+   * summary here as well would double that against an 8,000-token-per-minute ceiling. So the
+   * card carries a summary when the owner (or the dashboard) has already asked for one, flagged
+   * stale when messages have arrived since, and carries nothing when there is none. Never fatal:
+   * a summary lookup that fails must not cost the owner the card itself.
+   */
+  const storedSummaryFor = async (conversation: DueConversation) => {
+    try {
+      const summary = await readStoredConversationSummary({
+        organizationId: conversation.organizationId,
+        conversation,
+      });
+
+      return summary
+        ? {
+            headline: summary.headline,
+            suggestedNextStep: summary.suggestedNextStep,
+            stale: summary.stale,
+          }
+        : null;
+    } catch {
+      return null;
+    }
+  };
 
   const raiseHandoverCard = async (
     conversation: DueConversation,
@@ -168,6 +200,7 @@ export const createHandoverReadService = ({
         leadDisplayName: conversation.displayName,
         verdict,
         code: approval.code,
+        summary: await storedSummaryFor(conversation),
       });
     }
   };

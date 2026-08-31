@@ -3,18 +3,24 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { createHttpError } from '../../utils/http-error.js';
 import { parseWithSchema } from '../../utils/parse-with-schema.js';
 
+import { LEAD_SOURCE_KINDS } from '../../constants/lead-source-kinds.js';
 import { LeadSourceError } from './lead-source.errors.js';
 import {
   createLeadSourceForActor,
+  createMetaLeadSourceForActor,
   deleteLeadSourceForActor,
   listLeadSourcesForOrganization,
+  listMetaFormsForActor,
   syncLeadSourceNowForActor,
+  testMetaConnectionForActor,
   updateLeadSourceForActor,
 } from './lead-source.service.js';
 import {
   createLeadSourceBodySchema,
   leadSourceIdParamsSchema,
   listLeadSourcesQuerySchema,
+  listMetaFormsBodySchema,
+  testMetaConnectionBodySchema,
   updateLeadSourceBodySchema,
 } from './lead-source.validation.js';
 
@@ -35,13 +41,24 @@ const leadSourceErrorMap = {
     statusCode: 400,
     message: 'The selected WhatsApp account does not exist.',
   },
+  LEAD_SOURCE_NOT_META: {
+    statusCode: 400,
+    message: 'Only a Meta Lead Ads source has an access token or a form.',
+  },
+  META_LEAD_ADS_DISABLED: {
+    statusCode: 400,
+    message:
+      'Meta Lead Ads importing is switched off on this server. Set META_LEAD_ADS_ENABLED=true and restart.',
+  },
 } as const;
 
 type LeadSourceErrorCode = keyof typeof leadSourceErrorMap;
 
 const mapLeadSourceError = (error: unknown): never => {
-  // Sheet failures carry an admin-facing message written by this module ("not link-shared"),
-  // so they are surfaced verbatim as a 502 — the request was fine, Google was the problem.
+  // Sheet and Graph failures carry an admin-facing message written by this module ("not
+  // link-shared", "the token has expired"), so they are surfaced verbatim as a 502 — the request
+  // was fine, the upstream was the problem. These messages are authored here and never echo
+  // Meta's own prose, so nothing in them can quote back a URL carrying the access token.
   if (error instanceof LeadSourceError) {
     throw createHttpError({
       statusCode: 502,
@@ -95,19 +112,81 @@ export const createLeadSource = asyncHandler(async (req, res) => {
   });
 
   try {
-    const leadSource = await createLeadSourceForActor({
-      organizationId: auth.organization._id,
-      actor: auth.user,
-      name: body.name,
-      sheetUrl: body.sheetUrl,
-      whatsappAccountId: body.whatsappAccountId,
-      defaultCountryCode: body.defaultCountryCode,
-      aiContextEnabled: body.aiContextEnabled,
-      columnMapping: body.columnMapping,
-      importExisting: body.importExisting,
-    });
+    const leadSource =
+      body.kind === LEAD_SOURCE_KINDS.META_LEAD_ADS
+        ? await createMetaLeadSourceForActor({
+            organizationId: auth.organization._id,
+            actor: auth.user,
+            name: body.name,
+            accessToken: body.accessToken,
+            pageId: body.pageId,
+            pageName: body.pageName,
+            formId: body.formId,
+            formName: body.formName,
+            whatsappAccountId: body.whatsappAccountId,
+            defaultCountryCode: body.defaultCountryCode,
+            aiContextEnabled: body.aiContextEnabled,
+            columnMapping: body.columnMapping,
+            importExisting: body.importExisting,
+          })
+        : await createLeadSourceForActor({
+            organizationId: auth.organization._id,
+            actor: auth.user,
+            name: body.name,
+            sheetUrl: body.sheetUrl,
+            whatsappAccountId: body.whatsappAccountId,
+            defaultCountryCode: body.defaultCountryCode,
+            aiContextEnabled: body.aiContextEnabled,
+            columnMapping: body.columnMapping,
+            importExisting: body.importExisting,
+          });
 
     res.status(201).json({ data: leadSource });
+  } catch (error: unknown) {
+    mapLeadSourceError(error);
+  }
+});
+
+/**
+ * "Does this token work, and what can it see?" — run before anything is saved, so an admin finds
+ * out at paste time rather than at the next poll.
+ *
+ * The token arrives in the body of a POST (never a query string, which servers and proxies log)
+ * and is discarded when the response is written. Nothing about this request is persisted.
+ */
+export const testMetaConnection = asyncHandler(async (req, res) => {
+  requireAuthContext(req);
+  const body = parseWithSchema({
+    schema: testMetaConnectionBodySchema,
+    value: req.body,
+    source: 'Body',
+  });
+
+  try {
+    const result = await testMetaConnectionForActor({ accessToken: body.accessToken });
+
+    res.status(200).json({ data: result });
+  } catch (error: unknown) {
+    mapLeadSourceError(error);
+  }
+});
+
+/** The lead forms on a page, so the admin picks one instead of typing an id. */
+export const listMetaForms = asyncHandler(async (req, res) => {
+  requireAuthContext(req);
+  const body = parseWithSchema({
+    schema: listMetaFormsBodySchema,
+    value: req.body,
+    source: 'Body',
+  });
+
+  try {
+    const forms = await listMetaFormsForActor({
+      accessToken: body.accessToken,
+      pageId: body.pageId,
+    });
+
+    res.status(200).json({ data: forms, meta: { count: forms.length } });
   } catch (error: unknown) {
     mapLeadSourceError(error);
   }
@@ -137,6 +216,9 @@ export const updateLeadSource = asyncHandler(async (req, res) => {
       aiContextEnabled: body.aiContextEnabled,
       status: body.status,
       columnMapping: body.columnMapping,
+      accessToken: body.accessToken,
+      formId: body.formId,
+      formName: body.formName,
     });
 
     res.status(200).json({ data: leadSource });

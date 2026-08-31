@@ -12,6 +12,7 @@ Endpoints:
   GET  /v1/conversations/{id}/pending        - what (if anything) is waiting on a human
   POST /v1/conversations/{id}/outcome        - AI opinion on won/lost/needs-attention
   POST /v1/conversations/{id}/followup       - draft a day-2/5/9/15 "still there?" nudge
+  POST /v1/conversations/{id}/summary        - the owner's catch-up read of the whole thread
   POST /v1/proposals/generate                - facts -> proposal JSON
   POST /v1/proposals/revise                  - proposal JSON + instruction -> updated JSON
   POST /v1/proposals/render                  - proposal JSON + template -> docx/pdf
@@ -25,7 +26,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import followup, outcome, proposals
+from app import followup, outcome, proposals, summary
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -181,6 +182,34 @@ def conversation_followup(conversation_id: str, body: FollowupIn) -> FollowupOut
         style_examples=body.style_examples,
     )
     return FollowupOut(message=message)
+
+
+# --------------------------------------------------------------------------
+class SummaryIn(BaseModel):
+    facts: dict[str, Any] = Field(default_factory=dict)
+    transcript: list[dict[str, str]] = Field(default_factory=list)
+    category: str = "unknown"
+    knowledge_text: str = ""
+
+
+class SummaryOut(BaseModel):
+    headline: str = ""
+    what_they_asked_for: str = ""
+    where_it_stands: str = ""
+    open_questions: list[str] = Field(default_factory=list)
+    suggested_next_step: str = ""
+
+
+@app.post("/v1/conversations/{conversation_id}/summary", dependencies=[Depends(require_service_key)])
+def conversation_summary(conversation_id: str, body: SummaryIn) -> SummaryOut:
+    return SummaryOut(
+        **summary.summarize(
+            facts=body.facts,
+            transcript=body.transcript,
+            category=body.category,
+            knowledge_text=body.knowledge_text,
+        )
+    )
 
 
 # --------------------------------------------------------------------------

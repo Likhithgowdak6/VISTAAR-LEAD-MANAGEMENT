@@ -215,6 +215,27 @@ export const findMessagesByConversationCursor = ({
     .exec();
 };
 
+export interface CountMessagesByConversationParams {
+  organizationId?: ObjectIdLike;
+  conversationId?: ObjectIdLike;
+}
+
+/**
+ * How many messages this thread holds, in total. Used as the staleness clock for a stored
+ * conversation summary (see ai-brain/conversation-summary.service.ts): a summary generated from
+ * N messages is current until an N+1th arrives. A count rather than a timestamp because it is
+ * the thing the summary was actually built from, and because it cannot drift when a message is
+ * backdated by the provider.
+ */
+export const countMessagesByConversation = ({
+  organizationId,
+  conversationId,
+}: CountMessagesByConversationParams = {}) =>
+  Message.countDocuments({
+    organizationId,
+    conversationId,
+  }).exec();
+
 export interface ClaimNextOutboundMessageParams {
   organizationId?: ObjectIdLike;
   whatsappAccountId?: ObjectIdLike;

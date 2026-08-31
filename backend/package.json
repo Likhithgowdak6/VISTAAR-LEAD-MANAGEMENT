@@ -15,6 +15,7 @@
     "seed:super-admin": "tsx src/seed-super-admin.ts",
     "seed:dev-users": "tsx src/scripts/seed-dev-users.ts",
     "verify:indexes": "tsx src/scripts/verify-indexes.ts",
+    "migrate:lead-source-indexes": "tsx src/scripts/migrate-lead-source-indexes.ts",
     "backfill:lid-phones": "tsx src/scripts/backfill-lid-phones.ts",
     "generate:encryption-key": "tsx src/scripts/generate-encryption-key.ts",
     "encryption:rotation:dry-run": "tsx src/scripts/key-rotation-dry-run.ts",

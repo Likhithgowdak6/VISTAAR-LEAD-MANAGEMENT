@@ -8,6 +8,18 @@ import {
 } from '../../constants/conversation-statuses.js';
 import { DEFAULT_LEAD_SCORE_BAND } from './lead-score.js';
 
+/** The structured shape ai-brain-service's `/summary` endpoint returns, stored verbatim. */
+export interface ConversationAiSummary {
+  /** One line: who this is and what they want. */
+  headline: string;
+  whatTheyAskedFor: string;
+  /** What has actually happened, what was quoted or promised and by whom. */
+  whereItStands: string;
+  /** What is still unanswered, from either side. Empty is a correct answer. */
+  openQuestions: string[];
+  suggestedNextStep: string;
+}
+
 export interface ConversationDocument {
   _id: Types.ObjectId;
   organizationId: Types.ObjectId;
@@ -75,6 +87,16 @@ export interface ConversationDocument {
   /** When the owner's "🔥 hot lead" WhatsApp alert was sent. Claimed atomically, exactly like
    *  `newLeadAlertSentAt`, so a score oscillating around 80 can only ever alert once. */
   leadScoreHotAlertSentAt: Date | null;
+  /** The AI's catch-up read of this whole thread - what the owner sees instead of scrolling
+   *  twenty messages. Named `aiSummary` rather than `summary` because `summary` above is the
+   *  human-written CRM note and the two must not overwrite each other. Null until someone asks
+   *  for one: it is generated on demand, never on every inbound message. */
+  aiSummary: ConversationAiSummary | null;
+  /** When `aiSummary` was written. */
+  aiSummaryGeneratedAt: Date | null;
+  /** How many messages the thread held when `aiSummary` was written. A summary is stale - and
+   *  only then worth paying the AI to redo - once the thread has more messages than this. */
+  aiSummaryMessageCount: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -298,6 +320,34 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
 
     leadScoreHotAlertSentAt: {
       type: Date,
+      default: null,
+    },
+
+    // Stored as a nested object rather than five flat columns because it is written and read as
+    // one thing - the AI produces all five fields in a single call, and a half-updated summary
+    // would be worse than none. `_id: false`: it is a value, not a sub-document with identity.
+    aiSummary: {
+      type: new mongoose.Schema<ConversationAiSummary>(
+        {
+          headline: { type: String, trim: true, maxlength: 200, default: '' },
+          whatTheyAskedFor: { type: String, trim: true, maxlength: 2000, default: '' },
+          whereItStands: { type: String, trim: true, maxlength: 2000, default: '' },
+          openQuestions: { type: [String], default: () => [] },
+          suggestedNextStep: { type: String, trim: true, maxlength: 500, default: '' },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+
+    aiSummaryGeneratedAt: {
+      type: Date,
+      default: null,
+    },
+
+    aiSummaryMessageCount: {
+      type: Number,
+      min: 0,
       default: null,
     },
   },

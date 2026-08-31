@@ -81,3 +81,16 @@ export const conversationActivityQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   skip: z.coerce.number().int().min(0).default(0),
 });
+
+/**
+ * The explicit "(re)generate the summary" action. `force` is the escape hatch for a second
+ * reading of the same messages; without it a summary that is still current is served back
+ * unchanged rather than costing an ai-brain-service call. An absent body means `force: false`.
+ */
+export const regenerateConversationSummaryBodySchema = z
+  .object({
+    // A plain boolean, not `z.coerce.boolean()`: this is a JSON body, and coercion would read
+    // the string "false" as true.
+    force: z.boolean().default(false),
+  })
+  .default({ force: false });

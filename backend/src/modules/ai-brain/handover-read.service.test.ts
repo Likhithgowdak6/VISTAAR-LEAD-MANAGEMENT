@@ -50,6 +50,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
   const classifyConversationOutcome = vi
     .fn()
     .mockResolvedValue({ decision: 'wait', message: '', reasoning: 'still thinking' });
+  const readStoredConversationSummary = vi.fn().mockResolvedValue(null);
   const sendApprovalCard = vi.fn().mockResolvedValue(undefined);
   const sendHandoverCard = vi.fn().mockResolvedValue(undefined);
   const createActivity = vi.fn().mockResolvedValue(undefined);
@@ -62,6 +63,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     conversationRepository: conversationRepository as never,
     approvalRepository: approvalRepository as never,
     classifyConversationOutcome: classifyConversationOutcome as never,
+    readStoredConversationSummary: readStoredConversationSummary as never,
     sendApprovalCard: sendApprovalCard as never,
     sendHandoverCard: sendHandoverCard as never,
     createActivity: createActivity as never,
@@ -77,6 +79,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     conversationRepository,
     approvalRepository,
     classifyConversationOutcome,
+    readStoredConversationSummary,
     sendApprovalCard,
     sendHandoverCard,
     createActivity,
@@ -118,6 +121,79 @@ describe('runMorningRead - due-conversation lookup', () => {
     expect(h.conversationRepository.findConversationsDueForHandoverRead).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-9' }),
     );
+  });
+});
+
+describe('runMorningRead - the catch-up summary on the handover card', () => {
+  const stored = {
+    headline: 'Riya wants candid wedding photography in Pune on 14 Feb.',
+    whatTheyAskedFor: 'Two days of candid coverage.',
+    whereItStands: 'We quoted the two-photographer option; she said she would check.',
+    openQuestions: ['Is 14 Feb confirmed?'],
+    suggestedNextStep: 'Ask whether 14 Feb is fixed.',
+    generatedAt: '2026-08-24T09:00:00.000Z',
+    messageCount: 12,
+    currentMessageCount: 12,
+    stale: false,
+  };
+
+  it('carries the STORED summary onto the card - the sweep never generates one', async () => {
+    const h = createHarness();
+    withOneBatch(h.conversationRepository.findConversationsDueForHandoverRead, [baseConversation()]);
+    h.classifyConversationOutcome.mockResolvedValue({
+      decision: 'unclear',
+      message: '',
+      reasoning: 'cannot tell',
+    });
+    h.readStoredConversationSummary.mockResolvedValue(stored);
+
+    await h.service.runMorningRead({});
+
+    // One ai-brain-service call for this conversation, not two: the summary read is a lookup.
+    expect(h.classifyConversationOutcome).toHaveBeenCalledTimes(1);
+    expect(h.readStoredConversationSummary).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      conversation: expect.objectContaining({ _id: 'conv-1' }),
+    });
+    expect(h.sendHandoverCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: {
+          headline: stored.headline,
+          suggestedNextStep: stored.suggestedNextStep,
+          stale: false,
+        },
+      }),
+    );
+  });
+
+  it('passes no summary when the lead has never been summarised', async () => {
+    const h = createHarness();
+    withOneBatch(h.conversationRepository.findConversationsDueForHandoverRead, [baseConversation()]);
+    h.classifyConversationOutcome.mockResolvedValue({
+      decision: 'won',
+      message: '',
+      reasoning: 'they paid',
+    });
+
+    await h.service.runMorningRead({});
+
+    expect(h.sendHandoverCard).toHaveBeenCalledWith(expect.objectContaining({ summary: null }));
+  });
+
+  it('still sends the card when the summary lookup itself blows up', async () => {
+    const h = createHarness();
+    withOneBatch(h.conversationRepository.findConversationsDueForHandoverRead, [baseConversation()]);
+    h.classifyConversationOutcome.mockResolvedValue({
+      decision: 'won',
+      message: '',
+      reasoning: 'they paid',
+    });
+    h.readStoredConversationSummary.mockRejectedValue(new Error('MongoNetworkError'));
+
+    const result = await h.service.runMorningRead({});
+
+    expect(h.sendHandoverCard).toHaveBeenCalledWith(expect.objectContaining({ summary: null }));
+    expect(result).toMatchObject({ handoverCards: 1, failed: 0 });
   });
 });
 

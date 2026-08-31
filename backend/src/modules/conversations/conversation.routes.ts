@@ -20,7 +20,9 @@ import {
   getConversationActivity,
   getConversationLeadSubmissions,
   getConversationMessages,
+  getConversationSummary,
   listConversations,
+  regenerateConversationSummary,
   sendConversationMessage,
 } from './conversation.controller.js';
 
@@ -45,6 +47,14 @@ conversationRouter.get(
   '/:conversationId/lead-submissions',
   requireConversationsRead,
   getConversationLeadSubmissions,
+);
+// The AI's catch-up read of the thread. GET only ever serves what is stored; POST is the
+// explicit "(re)generate", which is the ONLY thing that spends an ai-brain-service call.
+conversationRouter.get('/:conversationId/summary', requireConversationsRead, getConversationSummary);
+conversationRouter.post(
+  '/:conversationId/summary',
+  requireAiGenerate,
+  regenerateConversationSummary,
 );
 conversationRouter.patch(
   '/:conversationId/assignment',

@@ -44,6 +44,60 @@ export interface SerializedConversation {
   updatedAt: string | null;
 }
 
+/**
+ * The AI's catch-up read of a thread, as the dashboard and the owner's WhatsApp card see it.
+ *
+ * `stale` is computed at read time rather than stored: staleness is a comparison between what
+ * the summary was built from and what the thread holds NOW, so a stored flag would go wrong the
+ * moment the next message lands.
+ */
+export interface SerializedConversationSummary {
+  headline: string;
+  whatTheyAskedFor: string;
+  whereItStands: string;
+  openQuestions: string[];
+  suggestedNextStep: string;
+  generatedAt: string | null;
+  /** How many messages the summary was read from. */
+  messageCount: number | null;
+  /** How many the thread holds now. */
+  currentMessageCount: number;
+  /** True once new messages have arrived since - the cue to offer "regenerate". */
+  stale: boolean;
+}
+
+export const serializeConversationSummary = (
+  conversation: unknown,
+  currentMessageCount: number,
+): SerializedConversationSummary | null => {
+  const value = toPlainObject(conversation);
+  const summary = value?.aiSummary ? toPlainObject(value.aiSummary) : null;
+
+  if (!summary) {
+    return null;
+  }
+
+  const messageCount =
+    typeof value?.aiSummaryMessageCount === 'number' ? value.aiSummaryMessageCount : null;
+
+  return {
+    headline: typeof summary.headline === 'string' ? summary.headline : '',
+    whatTheyAskedFor: typeof summary.whatTheyAskedFor === 'string' ? summary.whatTheyAskedFor : '',
+    whereItStands: typeof summary.whereItStands === 'string' ? summary.whereItStands : '',
+    openQuestions: Array.isArray(summary.openQuestions)
+      ? summary.openQuestions.map((question) => String(question))
+      : [],
+    suggestedNextStep:
+      typeof summary.suggestedNextStep === 'string' ? summary.suggestedNextStep : '',
+    generatedAt: serializeDate(value?.aiSummaryGeneratedAt),
+    messageCount,
+    currentMessageCount,
+    // A summary written before the count was recorded cannot prove it is current, so it is not
+    // trusted to be - the owner is offered a regenerate rather than shown an unverifiable read.
+    stale: messageCount === null || currentMessageCount > messageCount,
+  };
+};
+
 export const serializeConversation = (conversation: unknown): SerializedConversation | null => {
   const value = toPlainObject(conversation);
 

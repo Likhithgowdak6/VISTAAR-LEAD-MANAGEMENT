@@ -88,12 +88,101 @@ and there is no CORS to configure.
 ### Feature flags worth knowing
 
 Everything risky is off by default. `WHATSAPP_ENABLED`, `WHATSAPP_OUTBOUND_DELIVERY_ENABLED`,
-`AI_BRAIN_ENABLED`, `NURTURE_ENABLED`, `DAILY_JOBS_ENABLED` and `EVENT_REMINDERS_ENABLED` each
-gate a subsystem, so a plain API server or a test run never sends anything.
+`AI_BRAIN_ENABLED`, `NURTURE_ENABLED`, `DAILY_JOBS_ENABLED`, `EVENT_REMINDERS_ENABLED`,
+`LEAD_IMPORT_ENABLED` and `META_LEAD_ADS_ENABLED` each gate a subsystem, so a plain API server or
+a test run never sends anything — or, for the last two, never reaches out to Google or Meta.
 
 `WHATSAPP_TEST_ALLOWED_NUMBERS` is a test-phase safety net: a CSV of phone numbers that are the
 *only* numbers the system will talk to. Leave it empty in production; set it while testing so a
 stray message cannot reach a real lead.
+
+## Meta Lead Ads: pulling leads straight from Meta
+
+Leads can reach the CRM two ways, and both end up in the same inbox with the same de-duplication:
+
+- **Google Sheet** — Meta writes leads into a link-shared sheet and the CRM polls its CSV export.
+  No Google credentials; the sheet just has to be "anyone with the link can view".
+- **Meta Lead Ads (direct)** — the CRM asks the Graph API for the form's leads itself. No sheet.
+
+The direct path is off until it is configured. Turn it on with `META_LEAD_ADS_ENABLED=true` in
+`backend/.env` (and `LEAD_IMPORT_ENABLED=true`, which is what actually starts the poller), restart
+the backend, then go to **Lead sources → Meta Lead Ads** and paste a Page access token.
+
+### What the client has to do on Meta's side
+
+1. **A Meta app** (developers.facebook.com) with the *Facebook Login* and *Webhooks/Marketing API*
+   products as appropriate. The token is generated against this app.
+2. **Connect the page to the app.** A Page access token only reads a page's leads if that page is
+   linked to the app — through Business Manager, or by the page admin authorising the app.
+3. **Permissions on the token.** At minimum:
+   - `leads_retrieval` — read the leads a form has collected. This is the one that matters.
+   - `pages_show_list` — list the pages the person administers, so the dashboard can offer a
+     picker instead of asking for a page id.
+   - `pages_read_engagement` — read the page's own metadata (its name, its lead forms).
+
+   Meta has been known to also require `pages_manage_ads` to list `leadgen_forms` on some app
+   configurations. **We have not been able to verify this against a live app**, so if the "test
+   connection" step succeeds but the form list comes back empty, add `pages_manage_ads` and try
+   again. Picking "Every form on this page" does not need the form list, so that is the workaround
+   in the meantime.
+4. **Lead access for the person generating the token.** Reading leads needs more than page admin
+   in some Business Manager setups — Meta calls it *Leads Access*, assigned per page under
+   Business Settings. If the token tests fine but every form returns zero leads, this is the usual
+   cause.
+5. **App Review.** `leads_retrieval` normally requires App Review before the app can be used by
+   anyone who does not have a role (admin/developer/tester) on the app itself. For a single
+   business using its own app on its own page, giving the token's owner a role on the app avoids
+   review; a wider rollout does not.
+
+### Getting a long-lived Page access token
+
+Short-lived tokens die in about an hour, which is no use to a poller. The usual exchange is:
+
+1. Get a short-lived **User** access token for someone with admin rights on the page (Graph API
+   Explorer, with the permissions above ticked).
+2. Exchange it for a long-lived User token (~60 days):
+   `GET /oauth/access_token?grant_type=fb_exchange_token&client_id=<app-id>&client_secret=<app-secret>&fb_exchange_token=<short-lived-token>`
+3. Call `GET /me/accounts` **with that long-lived User token**. The `access_token` on each page in
+   the response is a long-lived **Page** access token, and page tokens derived this way do not
+   carry their own expiry.
+
+Paste that Page token into the dashboard. Do not put it in `.env` and do not commit it anywhere —
+it is stored AES-GCM encrypted in the database, is never returned by any API response, and the
+dashboard only ever shows its last four characters.
+
+### Tokens still expire, and what happens when one does
+
+"Does not expire" is not the same as "works forever". A Page token stops working when the person
+it was derived from changes their password, when the app's permissions are revoked or the app is
+removed from the page, when Meta invalidates it for a security event, or when that person loses
+their page role. Meta answers those with error code `190`.
+
+When that happens the source is marked **Needs attention** on the Lead sources page — a distinct
+state from "Sync failed", precisely because no amount of retrying will fix it — with the reason
+written out in plain language. The fix is to generate a new Page access token and paste it in;
+nothing else about the source needs changing, and the lead history it already imported is
+untouched. Leads submitted while the token was dead are picked up on the next successful poll,
+because the source's watermark only advances over leads it actually imported.
+
+Rate limits and Meta outages are treated differently: those are recorded as an ordinary failed
+sync and simply retried on the next tick.
+
+### Notes for whoever maintains this
+
+- The Graph API version is pinned in **one** constant, `META_GRAPH_API_VERSION` in
+  `backend/src/modules/lead-sources/meta-graph.client.ts`. Meta supports a version for roughly two
+  years and then starts rejecting calls to it, so check it against Meta's Graph API changelog
+  periodically and bump it deliberately.
+- Adding the Meta source kind changed one database index. `LeadSource`'s unique
+  `(organizationId, sheetId, gid)` index is now partial, filtered on the presence of a `sheetId`,
+  so Meta sources (which have none) do not all collide on a single null key. MongoDB cannot change
+  an index's options in place, so on an existing database run it once:
+  ```bash
+  cd backend && npm run migrate:lead-source-indexes -- --apply
+  ```
+  Existing sheet sources keep importing throughout — the index guards *creating* a duplicate
+  source, it is not something the poller reads. Without the migration, sheet sources are entirely
+  unaffected and only the creation of a second Meta source would fail.
 
 ## Tests
 

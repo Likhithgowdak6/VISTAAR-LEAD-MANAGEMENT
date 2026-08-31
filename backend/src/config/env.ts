@@ -153,6 +153,20 @@ const envSchema = z.object({
   // Ceiling per source per tick, so a first sync of a large sheet cannot monopolise the loop.
   LEAD_IMPORT_MAX_ROWS_PER_TICK: z.coerce.number().int().min(1).max(2000).default(200),
 
+  // Pulling leads straight off the Meta Graph API instead of a spreadsheet. Off until the client
+  // has an app with `leads_retrieval` and a Page access token to paste in — with it false the
+  // dashboard refuses to create or test a Meta source and the importer skips them, so nothing
+  // here can reach out to Meta by accident. See the Meta Lead Ads section of the root README.
+  META_LEAD_ADS_ENABLED: booleanString.default(false),
+
+  // Per-request ceiling for a Graph call. A hung fetch must never wedge the import tick.
+  META_GRAPH_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
+
+  // Cursor pages one source may walk in one tick, the Graph-API twin of
+  // LEAD_IMPORT_MAX_ROWS_PER_TICK: a form with a year of history is drained over several ticks
+  // rather than holding the loop open.
+  META_GRAPH_MAX_PAGES_PER_TICK: z.coerce.number().int().min(1).max(100).default(10),
+
   // ADR-005's disable switch: AI features stay off until explicitly enabled.
   AI_ENABLED: booleanString.default(false),
 

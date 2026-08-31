@@ -40,6 +40,7 @@ import { type UserDocument } from '../users/user.model.js';
 import * as aiBrainClient from './ai-brain.client.js';
 import { type AiBrainProposalContent } from './ai-brain.client.js';
 import { buildAiBrainContext } from './ai-brain-context.service.js';
+import { buildTranscript } from './ai-brain-transcript.js';
 import {
   findPendingApprovalForConversation,
   listPendingApprovals,
@@ -528,23 +529,6 @@ export const setAutomationForActor = async ({
 // --------------------------------------------------------------------------
 const OUTCOME_TRANSCRIPT_MESSAGE_LIMIT = 40;
 const PROPOSAL_TRANSCRIPT_MESSAGE_LIMIT = 60;
-
-interface TranscriptTurn {
-  role: string;
-  text: string;
-}
-
-/** Oldest-first, blank-bodied messages dropped, each turn labelled `lead` or `us`. */
-const buildTranscript = (
-  recentMessages: readonly { body?: string | null; direction?: string }[],
-): TranscriptTurn[] =>
-  [...recentMessages]
-    .reverse()
-    .filter((message) => (message.body ?? '').trim() !== '')
-    .map((message) => ({
-      role: message.direction === MESSAGE_DIRECTIONS.IN ? 'lead' : 'us',
-      text: message.body ?? '',
-    }));
 
 export interface ClassifyConversationOutcomeParams {
   organizationId: ObjectIdLike;

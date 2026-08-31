@@ -1,6 +1,11 @@
 import mongoose, { type Model, type Types } from 'mongoose';
 
 import {
+  LEAD_SOURCE_KINDS,
+  LEAD_SOURCE_KIND_VALUES,
+  type LeadSourceKind,
+} from '../../constants/lead-source-kinds.js';
+import {
   LEAD_SOURCE_STATUSES,
   LEAD_SOURCE_STATUS_VALUES,
   LEAD_SOURCE_SYNC_STATUSES,
@@ -8,6 +13,7 @@ import {
   type LeadSourceStatus,
   type LeadSourceSyncStatus,
 } from '../../constants/lead-source-statuses.js';
+import { encryptedFieldSchema, type EncryptedField } from '../security/encrypted-field.schema.js';
 
 /**
  * Overrides for the standard Meta export column names. Every field is optional: the importer
@@ -23,6 +29,29 @@ export interface LeadSourceColumnMapping {
   email: string | null;
 }
 
+/**
+ * Everything a Meta Lead Ads source needs *except* the credential itself, which lives in the
+ * top-level `encryptedMetaAccessToken` so it can be `select: false` and stay out of every query
+ * that does not explicitly ask for it.
+ */
+export interface LeadSourceMetaConfig {
+  pageId: string | null;
+  /** Cached for the dashboard, so a configured source reads as a page name, not an id. */
+  pageName: string | null;
+  /** `null` means "every lead form on this page". */
+  formId: string | null;
+  formName: string | null;
+  /** Last four characters of the stored token — enough to recognise it, useless to replay. */
+  accessTokenLast4: string | null;
+  accessTokenSetAt: Date | null;
+  /**
+   * Newest `created_time` this source has successfully imported. The next poll asks Meta only
+   * for leads created after it, so a form with a year of history is walked once, not every tick.
+   * Purely an optimisation: `LeadSubmission`'s unique index is still what stops a double import.
+   */
+  lastLeadCreatedAt: Date | null;
+}
+
 export interface LeadSourceSyncCounts {
   imported: number;
   duplicates: number;
@@ -34,9 +63,16 @@ export interface LeadSourceDocument {
   _id: Types.ObjectId;
   organizationId: Types.ObjectId;
   name: string;
-  sheetUrl: string;
-  sheetId: string;
-  gid: string;
+  /** Which importer runs for this source. Absent on documents written before Meta support. */
+  kind: LeadSourceKind;
+  /** Google Sheet sources only; absent on a Meta source. */
+  sheetUrl: string | null;
+  sheetId: string | null;
+  gid: string | null;
+  /** Meta Lead Ads sources only. */
+  meta: LeadSourceMetaConfig;
+  /** The Page access token, AES-GCM encrypted. `select: false`; absent unless asked for. */
+  encryptedMetaAccessToken: EncryptedField | null;
   whatsappAccountId: Types.ObjectId;
   defaultCountryCode: string;
   status: LeadSourceStatus;
@@ -72,6 +108,21 @@ const leadSourceColumnMappingSchema = new mongoose.Schema<LeadSourceColumnMappin
   },
 );
 
+const leadSourceMetaSchema = new mongoose.Schema<LeadSourceMetaConfig>(
+  {
+    pageId: { type: String, trim: true, maxlength: 100, default: null },
+    pageName: { type: String, trim: true, maxlength: 200, default: null },
+    formId: { type: String, trim: true, maxlength: 100, default: null },
+    formName: { type: String, trim: true, maxlength: 200, default: null },
+    accessTokenLast4: { type: String, trim: true, maxlength: 4, default: null },
+    accessTokenSetAt: { type: Date, default: null },
+    lastLeadCreatedAt: { type: Date, default: null },
+  },
+  {
+    _id: false,
+  },
+);
+
 const leadSourceSyncCountsSchema = new mongoose.Schema<LeadSourceSyncCounts>(
   {
     imported: { type: Number, required: true, min: 0, default: 0 },
@@ -83,6 +134,14 @@ const leadSourceSyncCountsSchema = new mongoose.Schema<LeadSourceSyncCounts>(
     _id: false,
   },
 );
+
+/**
+ * `this` is the document being validated. A source with no `kind` at all is a sheet — see the
+ * default above — so anything that is not explicitly Meta must carry the sheet fields.
+ */
+function isGoogleSheetKind(this: { kind?: LeadSourceKind }): boolean {
+  return this.kind !== LEAD_SOURCE_KINDS.META_LEAD_ADS;
+}
 
 const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
   {
@@ -101,27 +160,53 @@ const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
       maxlength: 120,
     },
 
-    // The URL exactly as the admin pasted it, kept so the UI can link back to the sheet.
-    sheetUrl: {
+    // Defaulted, never required: every source written before Meta support exists without this
+    // field, and reading one back has to produce the sheet importer it has always been.
+    kind: {
       type: String,
       required: true,
+      enum: LEAD_SOURCE_KIND_VALUES,
+      default: LEAD_SOURCE_KINDS.GOOGLE_SHEET,
+    },
+
+    // The URL exactly as the admin pasted it, kept so the UI can link back to the sheet.
+    // Sheet-only from here down: `required` is a function so a Meta source is valid without
+    // them, while a sheet source still cannot be saved half-configured.
+    sheetUrl: {
+      type: String,
+      required: isGoogleSheetKind,
       trim: true,
       maxlength: 2000,
+      default: null,
     },
 
     sheetId: {
       type: String,
-      required: true,
+      required: isGoogleSheetKind,
       trim: true,
       maxlength: 200,
+      default: null,
     },
 
     gid: {
       type: String,
-      required: true,
+      required: isGoogleSheetKind,
       trim: true,
       maxlength: 40,
-      default: '0',
+      default: null,
+    },
+
+    meta: {
+      type: leadSourceMetaSchema,
+      default: () => ({}),
+    },
+
+    // Never returned by a plain query. The serializer builds an explicit allowlist and does not
+    // mention it either, so two independent things have to go wrong for a token to leave here.
+    encryptedMetaAccessToken: {
+      type: encryptedFieldSchema,
+      default: null,
+      select: false,
     },
 
     whatsappAccountId: {
@@ -214,6 +299,13 @@ const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
 
 // Two sources polling the same sheet tab would import every lead twice, each against its own
 // submission ledger. That is always a configuration mistake, so the database refuses it.
+//
+// Partial, and filtered on `sheetId` rather than on `kind`: a Meta source has no sheetId, and
+// without the filter every Meta source in an organization would collide on the same (org, null,
+// null) key. Filtering on the *presence of a string sheetId* also covers every document written
+// before `kind` existed, which a `{ kind: 'google_sheet' }` filter would silently drop out of the
+// index. Changing an existing index's options is not something MongoDB does in place — see
+// scripts/migrate-lead-source-indexes.ts.
 leadSourceSchema.index(
   {
     organizationId: 1,
@@ -222,6 +314,23 @@ leadSourceSchema.index(
   },
   {
     unique: true,
+    partialFilterExpression: { sheetId: { $type: 'string' } },
+  },
+);
+
+// The Meta equivalent: two sources polling the same page + form would double-import every lead.
+// A source set to "all forms on this page" stores `meta.formId: null`, so two of those on one
+// page collide too. Filtered on `meta.pageId` for the same reason as above — sheet sources, old
+// and new, simply are not in this index.
+leadSourceSchema.index(
+  {
+    organizationId: 1,
+    'meta.pageId': 1,
+    'meta.formId': 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: { 'meta.pageId': { $type: 'string' } },
   },
 );
 

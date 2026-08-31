@@ -18,6 +18,13 @@ export const LEAD_SOURCE_SYNC_STATUSES = Object.freeze({
   PENDING: 'pending',
   OK: 'ok',
   FAILED: 'failed',
+  /**
+   * Failed, and retrying will not fix it — a human has to go and do something. Today that means
+   * a Meta access token that expired or was revoked: every tick from now on will fail the same
+   * way until somebody pastes a new one, and a plain "sync failed" does not tell an admin the
+   * difference between "Meta hiccuped, it will catch up" and "your leads have stopped arriving".
+   */
+  NEEDS_ATTENTION: 'needs_attention',
 } as const);
 
 export type LeadSourceSyncStatus =

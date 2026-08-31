@@ -5,7 +5,11 @@ import { type ConversationStatus } from '../../constants/conversation-statuses.j
 import { type DatabaseSession } from '../../config/database.js';
 import { toObjectId } from '../../types/common.js';
 import { isUnansweredValue } from '../lead-sources/lead-field-rules.js';
-import { Conversation, type ConversationDocument } from './conversation.model.js';
+import {
+  Conversation,
+  type ConversationAiSummary,
+  type ConversationDocument,
+} from './conversation.model.js';
 import { eventDateFromFacts } from './event-date.js';
 
 /** Any value Mongoose will accept where an `_id` is expected. */
@@ -703,6 +707,51 @@ export const updateLeadScore = ({
         leadScore: score,
         leadScoreBand: band,
         leadScoreSignals: [...signals],
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface UpdateConversationSummaryParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  summary: ConversationAiSummary;
+  /** How many messages the thread held when this summary was read. The staleness clock. */
+  messageCount: number;
+  generatedAt?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Stores a freshly generated conversation summary, whole.
+ *
+ * Last-writer-wins like its neighbours, and safe to be: two concurrent regenerations read the
+ * same thread, so whichever lands second is at least as current as the one it replaced. The
+ * message count is written in the same `$set` as the text it describes - a summary whose
+ * staleness clock could be updated without its body would silently claim to be current.
+ */
+export const updateConversationSummary = ({
+  conversationId,
+  organizationId,
+  summary,
+  messageCount,
+  generatedAt = new Date(),
+  session,
+}: UpdateConversationSummaryParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: {
+        aiSummary: summary,
+        aiSummaryGeneratedAt: generatedAt,
+        aiSummaryMessageCount: messageCount,
       },
     } as UpdateQuery<ConversationDocument>,
     {

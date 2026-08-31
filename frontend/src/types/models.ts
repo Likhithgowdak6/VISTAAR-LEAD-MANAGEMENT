@@ -312,6 +312,26 @@ export interface AiBrainApproval {
   updatedAt: string | null;
 }
 
+/**
+ * The AI's catch-up read of a whole thread - what the owner sees instead of scrolling twenty
+ * messages. `stale` is worked out by the backend at read time by comparing `messageCount` (what
+ * the summary was read from) against `currentMessageCount` (what the thread holds now).
+ */
+export interface ConversationAiSummary {
+  /** One line: who this is and what they want. */
+  headline: string;
+  whatTheyAskedFor: string;
+  /** What has actually happened, what was quoted or promised and by whom. */
+  whereItStands: string;
+  /** What is still unanswered, from either side. Empty is a correct answer, not a gap. */
+  openQuestions: string[];
+  suggestedNextStep: string;
+  generatedAt: string | null;
+  messageCount: number | null;
+  currentMessageCount: number;
+  stale: boolean;
+}
+
 export interface AiBrainOutcome {
   decision: AiBrainOutcomeDecision;
   message: string;
@@ -353,14 +373,60 @@ export interface AiKnowledge {
 }
 
 export type LeadSourceStatus = 'active' | 'paused';
-export type LeadSourceSyncStatus = 'pending' | 'ok' | 'failed';
+/**
+ * `needs_attention` is not just a louder `failed`: it means every future poll will fail the same
+ * way until a person does something (today, pastes a fresh Meta token).
+ */
+export type LeadSourceSyncStatus = 'pending' | 'ok' | 'failed' | 'needs_attention';
+/** Where a source pulls from. Absent on the wire for sources created before Meta support. */
+export type LeadSourceKind = 'google_sheet' | 'meta_lead_ads';
+
+/**
+ * The Meta half of a lead source. There is deliberately no token field: the API reports only that
+ * one is stored and its last four characters.
+ */
+export interface LeadSourceMeta {
+  pageId: string | null;
+  pageName: string | null;
+  /** `null` means every lead form on the page. */
+  formId: string | null;
+  formName: string | null;
+  hasAccessToken: boolean;
+  accessTokenLast4: string | null;
+  accessTokenSetAt: string | null;
+  lastLeadCreatedAt: string | null;
+}
+
+/** A Facebook page a pasted token can act for. */
+export interface MetaPageSummary {
+  id: string;
+  name: string | null;
+}
+
+/** A lead form on a page, for the form picker. */
+export interface MetaLeadFormSummary {
+  id: string;
+  name: string | null;
+  status: string | null;
+}
+
+/** What the "test this token" probe reports back. */
+export interface MetaConnectionTest {
+  identity: MetaPageSummary;
+  pages: MetaPageSummary[];
+  /** True when the token is already page-scoped, so `pages` holds exactly that one page. */
+  pageScoped: boolean;
+}
 
 export interface LeadSource {
   id: string;
   organizationId: string | null;
   name: string;
-  sheetUrl: string;
-  gid: string;
+  kind: LeadSourceKind;
+  /** Google Sheet sources only; null on a Meta source. */
+  sheetUrl: string | null;
+  gid: string | null;
+  meta: LeadSourceMeta;
   whatsappAccountId: string | null;
   defaultCountryCode: string;
   status: LeadSourceStatus;

@@ -32,6 +32,7 @@ import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
   applyHandoverDecision,
   buildHandoverCardText,
+  buildHandoverSummaryBlock,
   classifyApprovalReplyText,
   handleOwnerApprovalReply,
   resolveApprovalTarget,
@@ -489,6 +490,73 @@ describe('buildHandoverCardText', () => {
     expect(text).toBe(
       "Riya Sharma — I can't tell where this stands. Reply H4 1 if you're on it, H4 2 if I should follow up, H4 3 if it's finished.",
     );
+  });
+});
+
+describe('the handover card\'s summary block', () => {
+  const summary = {
+    headline: 'Riya wants candid wedding photography in Pune on 14 Feb.',
+    suggestedNextStep: 'Confirm the date and send the two-photographer option.',
+  };
+
+  it('carries the catch-up read above the question, so the owner can answer without scrolling', () => {
+    const text = buildHandoverCardText({
+      leadDisplayName: 'Riya Sharma',
+      verdict: 'won',
+      code: 'H4',
+      summary,
+    });
+
+    expect(text).toBe(
+      'Where it stands: Riya wants candid wedding photography in Pune on 14 Feb.\n' +
+        'Next: Confirm the date and send the two-photographer option.\n\n' +
+        "Riya Sharma — looks like this one's Won. Reply H4 1 to mark it Won, H4 2 if it's still open, H4 3 to leave it with you.",
+    );
+  });
+
+  it('says out loud that the read predates the latest messages', () => {
+    expect(buildHandoverSummaryBlock({ ...summary, stale: true })).toContain(
+      '(Read before the latest messages.)',
+    );
+  });
+
+  it('leaves the card exactly as it was when there is no summary', () => {
+    const withNothing = buildHandoverCardText({
+      leadDisplayName: 'Riya Sharma',
+      verdict: 'unclear',
+      code: 'H4',
+    });
+
+    expect(withNothing).toBe(
+      "Riya Sharma — I can't tell where this stands. Reply H4 1 if you're on it, H4 2 if I should follow up, H4 3 if it's finished.",
+    );
+    expect(
+      buildHandoverCardText({
+        leadDisplayName: 'Riya Sharma',
+        verdict: 'unclear',
+        code: 'H4',
+        summary: { headline: '   ', suggestedNextStep: '' },
+      }),
+    ).toBe(withNothing);
+  });
+
+  it('drops a half-empty summary to the half that exists rather than printing a blank label', () => {
+    expect(buildHandoverSummaryBlock({ headline: '', suggestedNextStep: 'Call her.' })).toBe(
+      'Next: Call her.',
+    );
+    expect(buildHandoverSummaryBlock(null)).toBe('');
+  });
+
+  it('keeps the card readable on a phone: long lines are collapsed and truncated', () => {
+    const block = buildHandoverSummaryBlock({
+      headline: `${'wedding '.repeat(40)}`,
+      suggestedNextStep: 'Call\n  her.',
+    });
+
+    const [headlineLine, nextLine] = block.split('\n');
+    expect(headlineLine!.length).toBeLessThanOrEqual('Where it stands: '.length + 161);
+    expect(headlineLine!.endsWith('…')).toBe(true);
+    expect(nextLine).toBe('Next: Call her.');
   });
 });
 

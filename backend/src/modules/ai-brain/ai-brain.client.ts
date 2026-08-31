@@ -192,6 +192,36 @@ export const getFollowup = (
     style_examples: params.styleExamples ?? '',
   });
 
+export interface AiBrainSummaryResult {
+  headline: string;
+  what_they_asked_for: string;
+  where_it_stands: string;
+  open_questions: string[];
+  suggested_next_step: string;
+}
+
+/**
+ * The owner's catch-up read of a whole thread. Called on demand only - see
+ * conversation-summary.service.ts for the "regenerate when new messages have arrived, serve the
+ * stored one otherwise" policy that keeps this off the per-message path and inside the token
+ * budget.
+ */
+export const getSummary = (
+  conversationId: string,
+  params: {
+    facts: Record<string, unknown>;
+    transcript: { role: string; text: string }[];
+    category?: string;
+    knowledgeText?: string;
+  },
+): Promise<AiBrainSummaryResult> =>
+  request(`/v1/conversations/${conversationId}/summary`, {
+    facts: params.facts,
+    transcript: params.transcript,
+    category: params.category ?? 'unknown',
+    knowledge_text: params.knowledgeText ?? '',
+  });
+
 export interface AiBrainProposalContent {
   [key: string]: unknown;
 }

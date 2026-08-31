@@ -16,6 +16,7 @@ import {
   type AssignableRole,
   type AuthResponse,
   type Conversation,
+  type ConversationAiSummary,
   type ConversationDetail,
   type ConversationTagsResult,
   type FollowUpPriority,
@@ -25,6 +26,8 @@ import {
   type LeadSourceStatus,
   type LeadSubmission,
   type Message,
+  type MetaConnectionTest,
+  type MetaLeadFormSummary,
   type Note,
   type NoteVisibility,
   type OrganizationSettings,
@@ -117,6 +120,35 @@ export const getConversation = ({
   conversationId,
 }: ConversationIdParams): Promise<ApiSuccessResponse<ConversationDetail>> =>
   apiFetch(`/conversations/${conversationId}`, { token });
+
+/**
+ * The AI's catch-up read, as stored. A GET never generates one - opening a thread must not cost
+ * an ai-brain-service call - so `data` is null until someone has asked for a summary.
+ */
+export const getConversationSummary = ({
+  token,
+  conversationId,
+}: ConversationIdParams): Promise<ApiSuccessResponse<ConversationAiSummary | null>> =>
+  apiFetch(`/conversations/${conversationId}/summary`, { token });
+
+export interface RegenerateConversationSummaryParams extends ConversationIdParams {
+  /** Re-read the same messages anyway. Without it, a summary that is still current is served
+   *  back untouched rather than spending a call. */
+  force?: boolean;
+}
+
+export const regenerateConversationSummary = ({
+  token,
+  conversationId,
+  force,
+}: RegenerateConversationSummaryParams): Promise<
+  ApiSuccessResponse<ConversationAiSummary | null>
+> =>
+  apiFetch(`/conversations/${conversationId}/summary`, {
+    method: 'POST',
+    token,
+    body: { force: force ?? false },
+  });
 
 export interface GetMessagesParams extends ConversationIdParams {
   beforeSentAt?: string | null;
@@ -669,6 +701,7 @@ export interface CreateLeadSourceParams extends TokenParams {
   importExisting?: boolean;
 }
 
+/** Connects a Google Sheet. `kind` is omitted; the API defaults it, as it does for older clients. */
 export const createLeadSource = ({
   token,
   name,
@@ -684,6 +717,65 @@ export const createLeadSource = ({
     body: { name, sheetUrl, whatsappAccountId, defaultCountryCode, aiContextEnabled, importExisting },
   });
 
+export interface CreateMetaLeadSourceParams extends TokenParams {
+  name: string;
+  /** The Page access token. Sent once, stored encrypted, never returned by any endpoint. */
+  accessToken: string;
+  pageId: string;
+  pageName?: string | null;
+  /** Omit or pass null for every lead form on the page. */
+  formId?: string | null;
+  formName?: string | null;
+  whatsappAccountId: string;
+  defaultCountryCode?: string;
+  aiContextEnabled?: boolean;
+  importExisting?: boolean;
+}
+
+export const createMetaLeadSource = ({
+  token,
+  ...body
+}: CreateMetaLeadSourceParams): Promise<ApiSuccessResponse<LeadSource>> =>
+  apiFetch('/lead-sources', {
+    method: 'POST',
+    token,
+    body: { kind: 'meta_lead_ads', ...body },
+  });
+
+export interface TestMetaConnectionParams extends TokenParams {
+  accessToken: string;
+}
+
+/**
+ * Checks a pasted token before anything is saved, and reports the pages it can reach.
+ * POST, not GET: a token in a query string would be written to every access log on the way.
+ */
+export const testMetaLeadSourceConnection = ({
+  token,
+  accessToken,
+}: TestMetaConnectionParams): Promise<ApiSuccessResponse<MetaConnectionTest>> =>
+  apiFetch('/lead-sources/meta/test-connection', {
+    method: 'POST',
+    token,
+    body: { accessToken },
+  });
+
+export interface ListMetaLeadFormsParams extends TokenParams {
+  accessToken: string;
+  pageId: string;
+}
+
+export const listMetaLeadForms = ({
+  token,
+  accessToken,
+  pageId,
+}: ListMetaLeadFormsParams): Promise<ApiSuccessResponse<MetaLeadFormSummary[]>> =>
+  apiFetch('/lead-sources/meta/forms', {
+    method: 'POST',
+    token,
+    body: { accessToken, pageId },
+  });
+
 export interface UpdateLeadSourceParams extends TokenParams {
   leadSourceId: string;
   name?: string;
@@ -691,6 +783,10 @@ export interface UpdateLeadSourceParams extends TokenParams {
   defaultCountryCode?: string;
   aiContextEnabled?: boolean;
   status?: LeadSourceStatus;
+  /** Meta sources only: rotate the token, or repoint at a different form. */
+  accessToken?: string;
+  formId?: string | null;
+  formName?: string | null;
 }
 
 export const updateLeadSource = ({
