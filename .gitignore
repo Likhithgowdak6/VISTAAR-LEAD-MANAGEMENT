@@ -59,3 +59,12 @@ postgres-data/
 tmp/
 temp/
 *.tmp
+
+# Files the device bridge cannot delete, moved aside instead
+_to_delete/
+
+# Artefacts of a mistyped shell command (a stray `npm`, `tsx`, or a package
+# name used as a filename). Zero-byte files that are never source.
+backend/npm
+backend/tsx
+backend/wam-crm-ai-backend@*
