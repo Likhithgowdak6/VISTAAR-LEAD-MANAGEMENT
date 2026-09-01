@@ -4,16 +4,42 @@
  * fromMe/isSelfChat given the linked account's own JID, and how each media payload maps onto the
  * CRM's own message types and metadata (without anything ever being downloaded).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// normalizeBaileysInboundMessage now emits pipeline-trace stages 1-3, and pipeline-trace reads
+// WHATSAPP_TRACE_ENABLED off the env module - whose real implementation calls process.exit(1)
+// under vitest, where none of the required variables are set.
+vi.mock('../../../config/env.js', () => ({
+  env: {
+    NODE_ENV: 'test',
+    WHATSAPP_TRACE_ENABLED: false,
+  },
+}));
 
 import { MESSAGE_TYPES } from '../../../constants/message-types.js';
+import { createPipelineTrace, type PipelineTrace } from '../../../observability/pipeline-trace.js';
 import {
+  describeBaileysGatewayDrop,
   extractBaileysMedia,
   isSelfChatJid,
   normalizeBaileysInboundMessage,
   resolveBaileysMessageType,
   shouldIgnoreBaileysInboundMessage,
 } from './baileys.provider.js';
+
+/** A trace that records its lines, for the gateway-drop assertions below. */
+const recordingTrace = (): { trace: PipelineTrace; lines: string[] } => {
+  const lines: string[] = [];
+
+  return {
+    lines,
+    trace: createPipelineTrace({
+      seed: 'test-message-id',
+      config: { WHATSAPP_TRACE_ENABLED: true },
+      write: (line) => lines.push(line),
+    }),
+  };
+};
 
 const textMessage = (text = 'hi') => ({
   conversation: text,
@@ -291,5 +317,118 @@ describe('normalizeBaileysInboundMessage - media', () => {
       messageType: MESSAGE_TYPES.TEXT,
       media: null,
     });
+  });
+});
+
+describe('describeBaileysGatewayDrop', () => {
+  it('names the rule that dropped a group message', () => {
+    expect(
+      describeBaileysGatewayDrop({
+        key: { id: 'm1', remoteJid: '1203630@g.us' },
+        message: textMessage(),
+      }),
+    ).toContain('group chat');
+  });
+
+  it('names the rule that dropped a channel message', () => {
+    expect(
+      describeBaileysGatewayDrop({
+        key: { id: 'm1', remoteJid: '120363@newsletter' },
+        message: textMessage(),
+      }),
+    ).toContain('Channel');
+  });
+
+  it('names the rule that dropped a broadcast message', () => {
+    expect(
+      describeBaileysGatewayDrop({
+        key: { id: 'm1', remoteJid: 'status@broadcast' },
+        message: textMessage(),
+      }),
+    ).toContain('broadcast');
+  });
+
+  it('names a missing payload and a missing remoteJid separately', () => {
+    expect(describeBaileysGatewayDrop({ key: { id: 'm1', remoteJid: 'x@s.whatsapp.net' } })).toContain(
+      'no message payload',
+    );
+    expect(describeBaileysGatewayDrop({ key: { id: 'm1' }, message: textMessage() })).toContain(
+      'no remoteJid',
+    );
+  });
+
+  it('returns null for an ordinary 1:1 chat, and agrees with shouldIgnore', () => {
+    const message = {
+      key: { id: 'm1', remoteJid: '911234567890@s.whatsapp.net' },
+      message: textMessage(),
+    };
+
+    expect(describeBaileysGatewayDrop(message)).toBeNull();
+    expect(shouldIgnoreBaileysInboundMessage(message)).toBe(false);
+  });
+});
+
+describe('normalizeBaileysInboundMessage pipeline trace', () => {
+  it('says WHERE and WHY a gateway-filtered message stopped instead of dropping it silently', () => {
+    const { trace, lines } = recordingTrace();
+
+    const normalized = normalizeBaileysInboundMessage(
+      { key: { id: 'm1', remoteJid: '1203630@g.us' }, message: textMessage('hello') },
+      { trace },
+    );
+
+    expect(normalized).toBeNull();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(' 1/13');
+    expect(lines[1]).toContain('!!!');
+    expect(lines[1]).toContain(' 2/13');
+    expect(lines[1]).toContain('STOPPED');
+    expect(lines[1]).toContain('group chat');
+  });
+
+  it('prints all three provider stages for a message that gets through', () => {
+    const { trace, lines } = recordingTrace();
+
+    normalizeBaileysInboundMessage(
+      {
+        key: { id: 'm1', remoteJid: '911234567890@s.whatsapp.net' },
+        message: textMessage('need a photographer'),
+      },
+      { trace },
+    );
+
+    expect(lines).toHaveLength(3);
+    expect(lines.every((line) => line.includes('STOPPED'))).toBe(false);
+    expect(lines[2]).toContain(' 3/13');
+    expect(lines[2]).toContain('body="need a photographer"');
+  });
+
+  it('masks the sender JID on every provider line', () => {
+    const { trace, lines } = recordingTrace();
+
+    normalizeBaileysInboundMessage(
+      {
+        key: { id: 'm1', remoteJid: '911234567890@s.whatsapp.net' },
+        message: textMessage('hi'),
+      },
+      { trace },
+    );
+
+    expect(lines.join('\n')).not.toContain('911234567890');
+    expect(lines[0]).toContain('911***890@s.whatsapp.net');
+  });
+
+  it('writes nothing at all while WHATSAPP_TRACE_ENABLED is off', () => {
+    const write = vi.fn();
+
+    normalizeBaileysInboundMessage(
+      {
+        key: { id: 'm1', remoteJid: '911234567890@s.whatsapp.net' },
+        message: textMessage('hi'),
+      },
+      { trace: createPipelineTrace({ seed: 'm1', config: { WHATSAPP_TRACE_ENABLED: false }, write }) },
+    );
+
+    expect(write).not.toHaveBeenCalled();
   });
 });

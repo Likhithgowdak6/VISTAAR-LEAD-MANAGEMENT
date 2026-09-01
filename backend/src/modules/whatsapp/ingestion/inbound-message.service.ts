@@ -3,6 +3,12 @@ import { type HydratedDocument } from 'mongoose';
 import { logger as defaultLogger } from '../../../config/logger.js';
 import { CONVERSATION_STAGES } from '../../../constants/conversation-stages.js';
 import { MESSAGE_TYPES, type MessageType } from '../../../constants/message-types.js';
+import {
+  createPipelineTrace,
+  PIPELINE_STAGE,
+  preview as tracePreview,
+  type PipelineTrace,
+} from '../../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../../types/common.js';
 import { handleInboundMessageForAutomation as defaultHandleAutomation } from '../../ai-brain/ai-brain.service.js';
 import { sendNewLeadAlert as defaultSendNewLeadAlert } from '../../ai-brain/new-lead-alert.service.js';
@@ -160,6 +166,7 @@ export interface CreateInboundMessageIngestionServiceOptions {
     inboundText: string;
     messageType?: MessageType;
     isVoiceNote?: boolean;
+    traceId?: string;
   }) => Promise<void>;
   /**
    * Pings the owner's WhatsApp self-chat about a brand-new lead's first message. Held to the
@@ -183,6 +190,12 @@ export interface CreateInboundMessageIngestionServiceOptions {
   looksLikeForm?: (text: string | null | undefined) => boolean;
   /** Reads that pasted form into canonical facts + a category. Pure; injected for tests. */
   readPastedFormFacts?: (text: string) => LeadFormFacts;
+  /**
+   * Stages 7-9 of the pipeline trace, plus the opt-out stop that belongs to stage 10 because
+   * this is where it is actually decided. One trace per message, seeded with the same WhatsApp
+   * message id the provider and router used.
+   */
+  createTrace?: (options: { seed?: unknown }) => PipelineTrace;
   logger?: { error?: (...args: unknown[]) => void };
   now?: () => Date;
 }
@@ -226,6 +239,7 @@ export const createInboundMessageIngestionService = ({
   recomputeLeadScore = defaultRecomputeLeadScore,
   looksLikeForm = defaultLooksLikeForm,
   readPastedFormFacts = (text: string) => buildLeadFormFacts(parsePastedForm(text)),
+  createTrace = createPipelineTrace,
   logger = defaultLogger,
   now = () => new Date(),
 }: CreateInboundMessageIngestionServiceOptions = {}) => {
@@ -234,7 +248,15 @@ export const createInboundMessageIngestionService = ({
     whatsappAccountId,
     inboundMessage,
   }: IngestInboundMessageOptions = {}) => {
+    // Stages 7-9. Same seed as the provider and router stages, so all nine share one id.
+    const trace = createTrace({ seed: inboundMessage?.messageId });
+
     if (!inboundMessage || inboundMessage.eventType !== INBOUND_EVENT_TYPE) {
+      trace.stop(
+        PIPELINE_STAGE.INGEST_CONTACT,
+        `not an inbound message event (eventType=${inboundMessage?.eventType ?? 'none'})`,
+      );
+
       return {
         persisted: false,
         ignored: true,
@@ -242,6 +264,11 @@ export const createInboundMessageIngestionService = ({
     }
 
     if (!organizationId || !whatsappAccountId) {
+      trace.stop(
+        PIPELINE_STAGE.INGEST_CONTACT,
+        'no organization or WhatsApp account on the ingestion call - the session is not wired up',
+      );
+
       throw new WhatsAppProviderError('Inbound ingestion requires organization and account ids.', {
         code: 'WHATSAPP_INGESTION_CONTEXT_REQUIRED',
       });
@@ -251,6 +278,11 @@ export const createInboundMessageIngestionService = ({
     const providerContactKey = computeContactProviderKey(senderJid);
 
     if (!providerContactKey) {
+      trace.stop(
+        PIPELINE_STAGE.INGEST_CONTACT,
+        'the sender JID produced no contact key, so there is nobody to attach this message to',
+      );
+
       throw new WhatsAppProviderError('Inbound message is missing a usable sender JID.', {
         code: 'WHATSAPP_INGESTION_SENDER_MISSING',
       });
@@ -264,15 +296,22 @@ export const createInboundMessageIngestionService = ({
     const phone =
       extractPhoneFromJid(inboundMessage.senderPhoneJid) ?? extractPhoneFromJid(senderJid);
 
-    const { contact } = await contactRepository.findOrCreateContactByProviderKey({
-      organizationId,
-      providerContactKey,
-      displayName: resolveDisplayName(inboundMessage.pushName),
-      profileName: resolveProfileName(inboundMessage.pushName),
-      phone,
-      providerJids: normalizedJid ? [normalizedJid] : [],
-      source: 'whatsapp',
-    });
+    const { contact, created: contactCreated } =
+      await contactRepository.findOrCreateContactByProviderKey({
+        organizationId,
+        providerContactKey,
+        displayName: resolveDisplayName(inboundMessage.pushName),
+        profileName: resolveProfileName(inboundMessage.pushName),
+        phone,
+        providerJids: normalizedJid ? [normalizedJid] : [],
+        source: 'whatsapp',
+      });
+
+    trace.pass(PIPELINE_STAGE.INGEST_CONTACT, () => ({
+      contact: contact._id.toString(),
+      how: contactCreated ? 'created' : 'existing',
+      name: tracePreview(contact.displayName, 40),
+    }));
 
     // A contact created before its LID mapping was known has no stored phone. Fill it in on the
     // next inbound message so existing rows heal without a migration. The "only if missing"
@@ -295,6 +334,15 @@ export const createInboundMessageIngestionService = ({
         stage: CONVERSATION_STAGES.NEW,
       },
     })) as ConversationDocument;
+
+    trace.pass(PIPELINE_STAGE.INGEST_CONVERSATION, () => ({
+      conversation: conversation._id.toString(),
+      // upsertConversationForContact cannot report whether it inserted, so this reports the
+      // thing the owner actually wants to know instead: is this a brand-new thread?
+      how: conversation.lastMessageAt ? 'existing' : 'new thread',
+      stage: conversation.stage,
+      automation: conversation.aiAutomationEnabled ? 'on' : 'off',
+    }));
 
     // Read BEFORE this message is persisted and the preview is updated: no inbound message has
     // ever landed in this thread, so the one being ingested right now is the lead's first-ever
@@ -355,6 +403,12 @@ export const createInboundMessageIngestionService = ({
       });
     } catch (error: unknown) {
       if (isDuplicateKeyError(error)) {
+        trace.stop(
+          PIPELINE_STAGE.INGEST_MESSAGE,
+          'WhatsApp delivered this same message id again - already saved, so nothing more happens',
+          () => ({ conversation: conversation._id.toString() }),
+        );
+
         return {
           persisted: false,
           duplicate: true,
@@ -364,8 +418,19 @@ export const createInboundMessageIngestionService = ({
         };
       }
 
+      trace.fail(PIPELINE_STAGE.INGEST_MESSAGE, error, () => ({
+        conversation: conversation._id.toString(),
+      }));
+
       throw error;
     }
+
+    trace.pass(PIPELINE_STAGE.INGEST_MESSAGE, () => ({
+      message: message._id.toString(),
+      conversation: conversation._id.toString(),
+      type: messageType,
+      body: tracePreview(body),
+    }));
 
     // A caption wins over the label - it says more about the message than "📷 Photo" does. Only
     // a media message with nothing written on it falls back to the label, which is the whole
@@ -509,7 +574,15 @@ export const createInboundMessageIngestionService = ({
       }
     }
 
-    if (!optedOut) {
+    if (optedOut) {
+      // Decided here rather than in ai-brain.service, so this is where it has to be said: the
+      // message IS saved and visible in the dashboard, but no AI reply will ever follow it.
+      trace.stop(
+        PIPELINE_STAGE.AI_ELIGIBILITY,
+        'this lead has opted out, so the message is saved but the AI will not reply to it',
+        () => ({ conversation: conversation._id.toString() }),
+      );
+    } else {
       await handleAutomation?.({
         organizationId,
         conversation: conversationForAutomation,
@@ -517,6 +590,9 @@ export const createInboundMessageIngestionService = ({
         inboundText: body,
         messageType,
         isVoiceNote: inboundMedia?.isVoiceNote ?? false,
+        // Hands the AI stages this message's correlation id. They cannot derive it themselves:
+        // by then only the Mongo message id is in scope, not the WhatsApp one.
+        traceId: trace.id,
       });
     }
 

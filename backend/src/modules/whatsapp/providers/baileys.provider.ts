@@ -1,6 +1,13 @@
 import qrcodeTerminal from 'qrcode-terminal';
 
 import { MESSAGE_TYPES, type MessageType } from '../../../constants/message-types.js';
+import {
+  createPipelineTrace,
+  maskJid as maskTraceJid,
+  PIPELINE_STAGE,
+  preview as tracePreview,
+  type PipelineTrace,
+} from '../../../observability/pipeline-trace.js';
 import { createEncryptedBaileysAuthState } from '../auth-state/baileys-auth-state.adapter.js';
 import { WhatsAppProviderNotReadyError } from '../whatsapp.errors.js';
 import {
@@ -320,23 +327,63 @@ export const extractBaileysMedia = (
  *   @newsletter  WhatsApp Channels the connected number follows (job alerts, news feeds)
  *   @broadcast   status updates and broadcast-list traffic
  */
-export const isNonConversationalJid = (jid: unknown): boolean => {
+const NON_CONVERSATIONAL_JID_RULES = Object.freeze([
+  ['@g.us', 'group chat (@g.us) - a group is never a lead'],
+  ['@newsletter', 'WhatsApp Channel (@newsletter) - a channel is never a lead'],
+  ['@broadcast', 'broadcast or status list (@broadcast) - never a lead'],
+] as const);
+
+/** Which of the rules above a JID trips, in words, or null for an ordinary 1:1 chat. */
+export const describeNonConversationalJid = (jid: unknown): string | null => {
   const value = typeof jid === 'string' ? jid.trim().toLowerCase() : '';
 
-  return (
-    value.endsWith('@g.us') || value.endsWith('@newsletter') || value.endsWith('@broadcast')
-  );
+  return NON_CONVERSATIONAL_JID_RULES.find(([suffix]) => value.endsWith(suffix))?.[1] ?? null;
+};
+
+export const isNonConversationalJid = (jid: unknown): boolean =>
+  describeNonConversationalJid(jid) !== null;
+
+/**
+ * WHY the gateway filter would drop this message, in the owner's words, or null when it lets the
+ * message through. `shouldIgnoreBaileysInboundMessage` is this function's boolean, so the reason
+ * printed in a trace can never disagree with the decision actually taken.
+ *
+ * These four drops used to be entirely invisible: a message hitting one of them produced no log
+ * line anywhere, which is indistinguishable from WhatsApp never delivering it.
+ */
+export const describeBaileysGatewayDrop = (
+  message: BaileysInboundRawMessage = {},
+): string | null => {
+  const remoteJid = message?.key?.remoteJid;
+
+  if (!message?.message) {
+    return 'no message payload on the event (a receipt, reaction or protocol node, not a message)';
+  }
+
+  if (!remoteJid) {
+    return 'no remoteJid on the event, so there is no chat to attach it to';
+  }
+
+  return describeNonConversationalJid(remoteJid);
 };
 
 export const shouldIgnoreBaileysInboundMessage = (
   message: BaileysInboundRawMessage = {},
-): boolean => {
-  const remoteJid = message?.key?.remoteJid;
-
+): boolean =>
   // `fromMe` is intentionally NOT an ignore condition here: it must flow through so the
   // ingestion layer can tell an echo of our own send apart from the owner manually typing a
   // reply from their own phone (see automation/inbound-router.service.ts).
-  return !message?.message || !remoteJid || isNonConversationalJid(remoteJid);
+  describeBaileysGatewayDrop(message) !== null;
+
+/** The payload node WhatsApp actually sent, for the "a raw message arrived" trace line. */
+const rawPayloadKind = (message: BaileysInboundRawMessage = {}): string => {
+  const payload = message?.message;
+
+  if (!payload) {
+    return '(none)';
+  }
+
+  return Object.keys(payload)[0] ?? '(empty)';
 };
 
 export const isLidJid = (jid: unknown): jid is string =>
@@ -393,20 +440,54 @@ export const resolveLidPhoneJid = async ({ socket, jid }: ResolveLidPhoneJidOpti
 
 export const normalizeBaileysInboundMessage = (
   message: BaileysInboundRawMessage = {},
-  { ownJid }: { ownJid?: string | null } = {},
+  {
+    ownJid,
+    // Stages 1-3 of the pipeline trace. Created here rather than passed in from the socket
+    // handler because this is the only place that sees a message the gateway filter is about to
+    // drop - beyond this function that message no longer exists. Seeded with the WhatsApp
+    // message id so every later stage, in every other file, derives the same correlation id.
+    trace = createPipelineTrace({ seed: message?.key?.id }),
+  }: { ownJid?: string | null; trace?: PipelineTrace } = {},
 ): NormalizedInboundMessage | null => {
-  if (shouldIgnoreBaileysInboundMessage(message)) {
+  trace.pass(PIPELINE_STAGE.PROVIDER_RECEIVED, () => ({
+    from: maskTraceJid(message?.key?.participant || message?.key?.remoteJid),
+    chat: maskTraceJid(message?.key?.remoteJid),
+    node: rawPayloadKind(message),
+  }));
+
+  const gatewayDropReason = describeBaileysGatewayDrop(message);
+
+  if (gatewayDropReason !== null) {
+    trace.stop(PIPELINE_STAGE.PROVIDER_GATEWAY, gatewayDropReason, () => ({
+      chat: maskTraceJid(message?.key?.remoteJid),
+    }));
+
     return null;
   }
 
   const remoteJid = message.key?.remoteJid;
 
   if (!remoteJid) {
+    // Unreachable while describeBaileysGatewayDrop covers a missing remoteJid; kept as a type
+    // narrowing guard, and traced anyway so it can never become a silent drop.
+    trace.stop(PIPELINE_STAGE.PROVIDER_GATEWAY, 'no remoteJid on the event');
+
     return null;
   }
 
+  trace.pass(PIPELINE_STAGE.PROVIDER_GATEWAY, () => ({ verdict: 'not a group, channel or broadcast' }));
+
   const text = extractBaileysText(message);
   const media = extractBaileysMedia(message);
+  const messageType = resolveBaileysMessageType(message);
+
+  trace.pass(PIPELINE_STAGE.PROVIDER_NORMALIZED, () => ({
+    fromMe: Boolean(message.key?.fromMe),
+    isSelfChat: isSelfChatJid(remoteJid, ownJid),
+    type: messageType,
+    media: media ? (media.isVoiceNote ? 'voice-note' : (media.mimeType ?? 'yes')) : 'none',
+    body: tracePreview(text),
+  }));
 
   return {
     provider: WHATSAPP_PROVIDER_NAMES.BAILEYS,
@@ -419,7 +500,7 @@ export const normalizeBaileysInboundMessage = (
     senderJid: message.key?.participant || remoteJid,
     pushName: message.pushName ?? null,
     text,
-    messageType: resolveBaileysMessageType(message),
+    messageType,
     media,
     timestamp: message.messageTimestamp ?? null,
     fromMe: Boolean(message.key?.fromMe),

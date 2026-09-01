@@ -31,6 +31,9 @@ vi.mock('../automation/quiet-hours.js', () => ({
 
 const { createOutboundDeliveryService } = await import('./outbound-delivery.service.js');
 const quietHours = await import('../automation/quiet-hours.js');
+const { createPipelineTrace, deriveTraceId } = await import(
+  '../../../observability/pipeline-trace.js'
+);
 
 const baseMessage = (overrides: Record<string, unknown> = {}) => ({
   _id: 'message-1',
@@ -324,5 +327,129 @@ describe('deliverNext echo guard', () => {
       accountId: 'account-1',
       providerMessageId: 'wamid-1',
     });
+  });
+});
+
+describe('deliverNext - the pipeline trace (stage 13)', () => {
+  const createTracingHarness = (overrides: Record<string, unknown> = {}) => {
+    const lines: string[] = [];
+    const harness = createHarness({
+      createTrace: ({ seed }: { seed?: unknown }) =>
+        createPipelineTrace({
+          seed,
+          config: { WHATSAPP_TRACE_ENABLED: true },
+          write: (line) => lines.push(line),
+        }),
+      ...overrides,
+    });
+
+    return { ...harness, lines };
+  };
+
+  it('prints claimed, allowlist and sent for a successful delivery', async () => {
+    const h = createTracingHarness();
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ idempotencyKey: 'ai-brain-asked:msg-1' }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(h.lines).toHaveLength(3);
+    expect(h.lines[0]).toContain('step=claimed');
+    expect(h.lines[1]).toContain('step=allowlist');
+    expect(h.lines[2]).toContain('step=sent');
+    expect(h.lines.every((line) => line.includes('13/13'))).toBe(true);
+  });
+
+  it('reuses the idempotency key as the seed, so it matches the queued line printed earlier', async () => {
+    const h = createTracingHarness();
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ idempotencyKey: 'ai-brain-asked:msg-1' }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(h.lines[0]).toContain(`[wa ${deriveTraceId('ai-brain-asked:msg-1')}]`);
+  });
+
+  it('says loudly why the outbound allowlist blocked a send', async () => {
+    const h = createTracingHarness({
+      config: {
+        WHATSAPP_OUTBOUND_MAX_ATTEMPTS: 3,
+        WHATSAPP_OUTBOUND_LEASE_MS: 120000,
+        WHATSAPP_MAX_OUTBOUND_PER_MINUTE: 5,
+        WHATSAPP_SEND_TEXT_POC_ENABLED: true,
+        WHATSAPP_TEST_ALLOWED_NUMBERS: '8183003081',
+        NURTURE_STALE_AFTER_MS: 1_800_000,
+      },
+    });
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ idempotencyKey: 'k1' }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    const stops = h.lines.filter((line) => line.includes('STOPPED'));
+    expect(h.sessionService.sendTextMessage).not.toHaveBeenCalled();
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toContain('!!!');
+    expect(stops[0]).toContain('WHATSAPP_TEST_ALLOWED_NUMBERS');
+  });
+
+  it('reports a send failure with the reason instead of leaving the queue looking idle', async () => {
+    const h = createTracingHarness();
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ idempotencyKey: 'k2' }),
+    );
+    h.sessionService.sendTextMessage.mockRejectedValue(
+      Object.assign(new Error('socket closed'), { code: 'ECONNRESET' }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    const failures = h.lines.filter((line) => line.includes('FAILED'));
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('ECONNRESET');
+    expect(failures[0]).toContain('step=send');
+  });
+
+  it('prints quiet hours as a hold with the time it will actually go out, not as a drop', async () => {
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    const h = createTracingHarness();
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', idempotencyKey: 'k3', scheduledAt: null }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    const held = h.lines.filter((line) => line.includes('step=quiet-hours'));
+    expect(held).toHaveLength(1);
+    expect(held[0]).not.toContain('STOPPED');
+    expect(held[0]).toContain('sendAt=');
+  });
+
+  it('never prints the recipient number in full', async () => {
+    const h = createTracingHarness();
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ idempotencyKey: 'k4' }),
+    );
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(h.lines.join('\n')).not.toContain('919999999999');
+    expect(h.lines.join('\n')).toContain('***');
+  });
+
+  it('writes nothing at all while WHATSAPP_TRACE_ENABLED is off', async () => {
+    const write = vi.fn();
+    const h = createHarness({
+      createTrace: ({ seed }: { seed?: unknown }) =>
+        createPipelineTrace({ seed, config: { WHATSAPP_TRACE_ENABLED: false }, write }),
+    });
+    h.messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage());
+
+    await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(write).not.toHaveBeenCalled();
   });
 });

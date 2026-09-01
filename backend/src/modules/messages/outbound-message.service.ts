@@ -5,6 +5,12 @@ import { MESSAGE_AUTHORS, type MessageAuthor } from '../../constants/message-aut
 import { MESSAGE_STATUSES } from '../../constants/message-statuses.js';
 import { runInTransaction } from '../../config/database.js';
 import { env, type Env } from '../../config/env.js';
+import {
+  createPipelineTrace,
+  PIPELINE_STAGE,
+  preview as tracePreview,
+  type PipelineTrace,
+} from '../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity as defaultCreateActivity } from '../activity/activity-log.repository.js';
 import { type ConversationDocument } from '../conversations/conversation.model.js';
@@ -38,6 +44,16 @@ export interface CreateOutboundMessageServiceDeps {
   updateAssignment?: typeof defaultUpdateAssignment;
   createActivity?: typeof defaultCreateActivity;
   publishEvent?: typeof defaultEnqueueConversationChanged;
+  /**
+   * The first half of pipeline stage 13. It lives here rather than in the delivery service
+   * because this is the only moment the human-like send delay is known: between now and
+   * `scheduledAt` nothing is claimed and nothing is printed, so without this line "the agent
+   * did nothing" and "the agent is waiting until 15:42:10" look identical in the terminal.
+   *
+   * Seeded with the idempotency key, which is stable across restarts and is the one thing the
+   * delivery poller still has in hand when it claims this row minutes later.
+   */
+  createTrace?: (options: { seed?: unknown }) => PipelineTrace;
   config?: Env;
   now?: () => Date;
 }
@@ -74,6 +90,7 @@ export const createOutboundMessageService = ({
   updateAssignment = defaultUpdateAssignment,
   createActivity = defaultCreateActivity,
   publishEvent = defaultEnqueueConversationChanged,
+  createTrace = createPipelineTrace,
   config = env,
   now = () => new Date(),
 }: CreateOutboundMessageServiceDeps = {}) => {
@@ -175,6 +192,20 @@ export const createOutboundMessageService = ({
       };
       message = await findMessageByIdempotencyKey(findParams);
     }
+
+    const trace = createTrace({ seed: idempotencyKey });
+
+    trace.pass(PIPELINE_STAGE.OUTBOUND_DELIVERY, () => ({
+      step: 'queued',
+      message: message?._id?.toString(),
+      conversation: conversation._id.toString(),
+      author: authoredBy,
+      // The whole point of this line: an AI reply sits in the queue for a minute or two on
+      // purpose, and "nothing happened" has to read as "it goes out at 15:42:10".
+      sendAt: scheduledAt ?? 'immediately',
+      ...(created ? {} : { note: 'already queued under this idempotency key' }),
+      body: tracePreview(body),
+    }));
 
     return {
       created,

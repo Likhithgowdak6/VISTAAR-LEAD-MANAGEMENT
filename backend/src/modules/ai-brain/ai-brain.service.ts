@@ -19,6 +19,12 @@ import { PERMISSIONS, type Permission } from '../../constants/permissions.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { runInTransaction } from '../../config/database.js';
+import {
+  createPipelineTrace,
+  deriveTraceId,
+  PIPELINE_STAGE,
+  preview as tracePreview,
+} from '../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity } from '../activity/activity-log.repository.js';
 import { loadVisibleConversationForActor } from '../conversations/conversation.service.js';
@@ -40,6 +46,7 @@ import { type UserDocument } from '../users/user.model.js';
 import * as aiBrainClient from './ai-brain.client.js';
 import { type AiBrainProposalContent } from './ai-brain.client.js';
 import { buildAiBrainContext } from './ai-brain-context.service.js';
+import { CATEGORY_PLAYBOOKS } from './category-playbooks.js';
 import { buildTranscript } from './ai-brain-transcript.js';
 import {
   findPendingApprovalForConversation,
@@ -77,6 +84,13 @@ export interface HandleInboundForAutomationParams {
   messageType?: MessageType;
   /** True for a recorded voice note - the one media kind the AI cannot ever be given. */
   isVoiceNote?: boolean;
+  /**
+   * The pipeline-trace correlation id for the message that triggered this, handed over by
+   * ingestion. Only the Mongo message id is in scope here, so stages 10-12 cannot re-derive the
+   * WhatsApp-message-id-based id themselves. Absent (a non-WhatsApp caller, an older test) is
+   * fine: the trace falls back to deriving one from `inboundMessageId`.
+   */
+  traceId?: string;
 }
 
 /**
@@ -107,10 +121,38 @@ export const handleInboundMessageForAutomation = async ({
   inboundText,
   messageType,
   isVoiceNote,
+  traceId,
 }: HandleInboundForAutomationParams): Promise<void> => {
-  if (!env.AI_BRAIN_ENABLED || !conversation.aiAutomationEnabled) {
+  // Stages 10-12.
+  const trace = createPipelineTrace({ id: traceId, seed: inboundMessageId.toString() });
+
+  if (!env.AI_BRAIN_ENABLED) {
+    trace.stop(
+      PIPELINE_STAGE.AI_ELIGIBILITY,
+      'AI_BRAIN_ENABLED is false, so the AI brain is switched off for the whole system',
+      () => ({ conversation: conversation._id.toString() }),
+    );
+
     return;
   }
+
+  if (!conversation.aiAutomationEnabled) {
+    trace.stop(
+      PIPELINE_STAGE.AI_ELIGIBILITY,
+      conversation.aiAutomationPausedReason
+        ? `automation is paused for this conversation: ${conversation.aiAutomationPausedReason}`
+        : 'automation is off for this conversation',
+      () => ({ conversation: conversation._id.toString() }),
+    );
+
+    return;
+  }
+
+  // Wall-clock around the brain call only, read again in the catch below so a call that FAILED
+  // still reports how long it burned before it did. The owner has just moved from Groq to
+  // Claude and wants to see the difference; a slow model is otherwise indistinguishable from a
+  // stuck one.
+  let brainCallStartedAt: number | null = null;
 
   try {
     const alreadyPending = await findPendingApprovalForConversation({
@@ -121,6 +163,12 @@ export const handleInboundMessageForAutomation = async ({
     // A draft is already waiting on a human for this conversation - the lead sent another
     // message before it was actioned. Don't run the graph again underneath a live approval.
     if (alreadyPending) {
+      trace.stop(
+        PIPELINE_STAGE.AI_ELIGIBILITY,
+        'a drafted reply is already waiting for your approval on this conversation, so the AI will not draft another underneath it',
+        () => ({ conversation: conversation._id.toString() }),
+      );
+
       return;
     }
 
@@ -137,6 +185,12 @@ export const handleInboundMessageForAutomation = async ({
     ) {
       const reason = buildUnreadableMediaReason({ messageType, isVoiceNote });
       const doc = conversationDoc(conversation);
+
+      trace.stop(PIPELINE_STAGE.AI_ELIGIBILITY, reason, () => ({
+        conversation: conversation._id.toString(),
+        type: messageType,
+        escalated: 'owner alerted, automation paused',
+      }));
 
       await runInTransaction(async (session) => {
         await updateAutomationState({
@@ -178,7 +232,25 @@ export const handleInboundMessageForAutomation = async ({
       return;
     }
 
+    trace.pass(PIPELINE_STAGE.AI_ELIGIBILITY, () => ({
+      conversation: conversation._id.toString(),
+      stage: conversation.stage,
+      body: tracePreview(inboundText),
+    }));
+
     const context = await buildAiBrainContext({ organizationId, category: conversation.aiCategory });
+
+    trace.pass(PIPELINE_STAGE.AI_CONTEXT, () => ({
+      category: conversation.aiCategory || '(none)',
+      playbook: Object.hasOwn(CATEGORY_PLAYBOOKS, conversation.aiCategory ?? '')
+        ? conversation.aiCategory
+        : '(fallback)',
+      facts: Object.keys(conversation.aiFacts ?? {}).length,
+      asking: context.requiredFields.length,
+      knowledgeBase: context.knowledgeText.startsWith('(no knowledge base') ? 'none saved' : 'found',
+    }));
+
+    brainCallStartedAt = Date.now();
 
     const result = await aiBrainClient.sendLeadMessage(conversation._id.toString(), {
       text: inboundText,
@@ -191,6 +263,18 @@ export const handleInboundMessageForAutomation = async ({
       serviceBrief: context.serviceBrief,
       styleExamples: context.styleExamples,
     });
+
+    trace.pass(PIPELINE_STAGE.AI_DECISION, () => ({
+      decision: result.status,
+      ms: Date.now() - brainCallStartedAt!,
+      // The handover to the outbound half of the pipeline. Those stages run minutes later, out
+      // of a database row, so they derive their own id from the idempotency key - this is where
+      // the two ids are printed together.
+      ...(result.status === AI_BRAIN_RESULT_STATUSES.ASKED
+        ? { outbound: deriveTraceId(`ai-brain-asked:${inboundMessageId.toString()}`) }
+        : {}),
+      reply: tracePreview(result.message),
+    }));
 
     let escalated = false;
 
@@ -367,6 +451,12 @@ export const handleInboundMessageForAutomation = async ({
       });
     }
   } catch (error: unknown) {
+    trace.fail(PIPELINE_STAGE.AI_DECISION, error, () => ({
+      conversation: conversation._id.toString(),
+      ms: brainCallStartedAt === null ? undefined : Date.now() - brainCallStartedAt,
+      outcome: 'conversation left unautomated for this turn',
+    }));
+
     logger.error(
       { err: error, conversationId: conversation._id.toString() },
       'ai-brain-service call failed while handling an inbound message; conversation left unautomated for this turn.',

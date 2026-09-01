@@ -140,6 +140,13 @@ const envSchema = z.object({
 
   WHATSAPP_BUSINESS_TIMEZONE: z.string().default('Asia/Kolkata'),
 
+  // Step-by-step pipeline tracing for a message travelling through the system (see
+  // observability/pipeline-trace.ts): one aligned terminal line per stage, and a loud STOPPED
+  // line wherever a message is dropped. Off by default, same gating style as NURTURE_ENABLED /
+  // DAILY_JOBS_ENABLED - it is noisy and it prints message previews, so it is a thing you turn
+  // on while you are watching, not a thing that runs in production.
+  WHATSAPP_TRACE_ENABLED: booleanString.default(false),
+
   // Off until an admin has actually connected a sheet; the runner does nothing while false.
   LEAD_IMPORT_ENABLED: booleanString.default(false),
 

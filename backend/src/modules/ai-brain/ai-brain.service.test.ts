@@ -5,11 +5,12 @@
  * to ai-brain-service, transactions) is mocked; this test is only checking that this module
  * wires them together correctly for each result ai-brain-service can return.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AI_BRAIN_APPROVAL_RESOLUTIONS, AI_BRAIN_RESULT_STATUSES } from '../../constants/ai-brain-statuses.js';
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
+import { deriveTraceId } from '../../observability/pipeline-trace.js';
 import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 
 const mocks = vi.hoisted(() => ({
@@ -40,8 +41,12 @@ const mocks = vi.hoisted(() => ({
   recomputeLeadScore: vi.fn(),
 }));
 
+// Mutable so the pipeline-trace tests at the bottom can switch WHATSAPP_TRACE_ENABLED on for
+// themselves; every other test in this file runs with it off, exactly like production default.
+const envMock = vi.hoisted(() => ({ AI_BRAIN_ENABLED: true, WHATSAPP_TRACE_ENABLED: false }));
+
 vi.mock('../../config/env.js', () => ({
-  env: { AI_BRAIN_ENABLED: true },
+  env: envMock,
 }));
 
 vi.mock('../../config/database.js', () => ({
@@ -601,5 +606,155 @@ describe('checkOutcomeForActor', () => {
     expect(mocks.enqueueConversationChanged).toHaveBeenCalledWith(
       expect.objectContaining({ reason: REALTIME_REASONS.STAGE }),
     );
+  });
+});
+
+describe('handleInboundMessageForAutomation - the pipeline trace (stages 10-12)', () => {
+  let lines: string[];
+  let consoleLog: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    lines = [];
+    envMock.WHATSAPP_TRACE_ENABLED = true;
+    consoleLog = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+  });
+
+  afterEach(() => {
+    envMock.WHATSAPP_TRACE_ENABLED = false;
+    consoleLog.mockRestore();
+  });
+
+  const run = (conversation: Record<string, unknown> = {}) =>
+    handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true, ...conversation } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'do you shoot house-warmings?',
+      traceId: 'abcd1234',
+    });
+
+  it('names AI_BRAIN_ENABLED as the thing that stopped the message', async () => {
+    envMock.AI_BRAIN_ENABLED = false;
+
+    await run();
+
+    envMock.AI_BRAIN_ENABLED = true;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('10/13');
+    expect(lines[0]).toContain('STOPPED');
+    expect(lines[0]).toContain('AI_BRAIN_ENABLED is false');
+  });
+
+  it('quotes the pause reason when automation is off for this one conversation', async () => {
+    await run({
+      aiAutomationEnabled: false,
+      aiAutomationPausedReason: 'You replied here, so the AI stepped back.',
+    });
+
+    expect(lines[0]).toContain('STOPPED');
+    expect(lines[0]).toContain('You replied here');
+  });
+
+  it('says a draft is already waiting rather than going quiet', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue({ _id: 'approval-1' });
+
+    await run();
+
+    expect(lines.at(-1)).toContain('STOPPED');
+    expect(lines.at(-1)).toContain('already waiting for your approval');
+  });
+
+  it('says the AI cannot hear a voice note, on the same line that pauses the conversation', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.updateAutomationState.mockResolvedValue(null);
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: '',
+      messageType: 'audio' as never,
+      isVoiceNote: true,
+      traceId: 'abcd1234',
+    });
+
+    expect(lines[0]).toContain('STOPPED');
+    expect(lines[0]).toContain("can't listen to it");
+  });
+
+  it('reports the context it assembled and the decision the brain returned, with a latency', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.buildAiBrainContext.mockResolvedValue({
+      requiredFields: ['event_date', 'city'],
+      catalogText: '(none)',
+      knowledgeText: '- Company: we shoot weddings',
+      rulesText: '(none)',
+      serviceBrief: '(none)',
+      styleExamples: '(none)',
+    });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.AWAITING_APPROVAL,
+      message: 'Happy to help - what date is it?',
+      facts: {},
+      escalation_reason: '',
+    });
+    mocks.upsertPendingApproval.mockResolvedValue(null);
+
+    await run({ aiCategory: 'wedding', aiFacts: { city: 'Bangalore' } });
+
+    const context = lines.find((line) => line.includes('11/13'));
+    const decision = lines.find((line) => line.includes('12/13'));
+
+    expect(context).toContain('category=wedding');
+    expect(context).toContain('playbook=wedding');
+    expect(context).toContain('facts=1');
+    expect(context).toContain('knowledgeBase=found');
+    expect(decision).toContain('decision=awaiting_approval');
+    expect(decision).toMatch(/ms=\d+/);
+  });
+
+  it('prints the outbound correlation id on an "asked" decision, so the two halves join up', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'What city are you in?',
+      facts: {},
+      escalation_reason: '',
+    });
+    mocks.getOrCreateAiSystemUser.mockResolvedValue({ _id: 'ai-system-user' });
+
+    await run();
+
+    expect(lines.find((line) => line.includes('12/13'))).toContain(
+      `outbound=${deriveTraceId('ai-brain-asked:msg-1')}`,
+    );
+  });
+
+  it('reports a brain call that threw, with how long it burned first', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.sendLeadMessage.mockRejectedValue(new Error('brain unreachable'));
+
+    await run();
+
+    const failure = lines.find((line) => line.includes('FAILED'));
+    expect(failure).toContain('12/13');
+    expect(failure).toContain('brain unreachable');
+    expect(failure).toMatch(/ms=\d+/);
+  });
+
+  it('uses the correlation id ingestion handed over, not one of its own', async () => {
+    await run({ aiAutomationEnabled: false });
+
+    expect(lines[0]).toContain('[wa abcd1234]');
+  });
+
+  it('writes nothing at all while WHATSAPP_TRACE_ENABLED is off', async () => {
+    envMock.WHATSAPP_TRACE_ENABLED = false;
+
+    await run({ aiAutomationEnabled: false });
+
+    expect(lines).toHaveLength(0);
   });
 });

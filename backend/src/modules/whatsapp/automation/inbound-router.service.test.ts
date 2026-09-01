@@ -27,6 +27,10 @@ vi.mock('../../../config/database.js', () => ({
   runInTransaction: (command: (session: undefined) => unknown) => command(undefined),
 }));
 
+import {
+  createPipelineTrace,
+  deriveTraceId,
+} from '../../../observability/pipeline-trace.js';
 import { REALTIME_REASONS } from '../../realtime/realtime.events.js';
 import { createNumberAllowlist } from './allowlist.js';
 import { createInboundMessageRouter } from './inbound-router.service.js';
@@ -623,5 +627,186 @@ describe('routeInboundMessage - a blocked message is never silent', () => {
 
     expect(ingestInboundMessage).toHaveBeenCalledTimes(1);
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('routeInboundMessage - the pipeline trace (stages 4-6)', () => {
+  const createTracingHarness = ({
+    allowedNumbers = '',
+    ownerNumber = '',
+  }: { allowedNumbers?: string; ownerNumber?: string } = {}) => {
+    const lines: string[] = [];
+    const base = createHarness({ allowedNumbers, ownerNumber });
+    const ingestInboundMessage = vi.fn().mockResolvedValue(undefined);
+    const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+
+    const router = createInboundMessageRouter({
+      ingestInboundMessage,
+      allowlist: createNumberAllowlist(allowedNumbers),
+      ownerNumbers: createNumberAllowlist(ownerNumber),
+      echoGuardService: { isOwnMessage: vi.fn().mockResolvedValue(false) } as never,
+      handleOwnerSelfChatReply: vi.fn().mockResolvedValue(undefined),
+      contactRepository: base.contactRepository as never,
+      conversationRepository: base.conversationRepository as never,
+      computeContactProviderKey: vi.fn(() => null),
+      publishEvent: vi.fn(),
+      createTrace: ({ seed }) =>
+        createPipelineTrace({
+          seed,
+          config: { WHATSAPP_TRACE_ENABLED: true },
+          write: (line) => lines.push(line),
+        }),
+      logger,
+    });
+
+    return { router, lines, logger, ingestInboundMessage };
+  };
+
+  const leadMessage = (overrides: Record<string, unknown> = {}) => ({
+    fromMe: false,
+    isSelfChat: false,
+    messageId: 'trace-m1',
+    text: 'need a photographer for 14 Feb',
+    senderJid: '919876543210@s.whatsapp.net',
+    remoteJid: '919876543210@s.whatsapp.net',
+    ...overrides,
+  });
+
+  it('prints stages 4, 5 and 6 for a lead message that gets through', async () => {
+    const { router, lines, ingestInboundMessage } = createTracingHarness();
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(ingestInboundMessage).toHaveBeenCalledTimes(1);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain(' 4/13');
+    expect(lines[1]).toContain(' 5/13');
+    expect(lines[2]).toContain(' 6/13');
+    expect(lines.join('\n')).not.toContain('STOPPED');
+  });
+
+  it('shares its correlation id with the provider stages, derived from the same message id', async () => {
+    const { router, lines } = createTracingHarness();
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(lines[0]).toContain(`[wa ${deriveTraceId('trace-m1')}]`);
+  });
+
+  it('the owner-number drop becomes ONE trace stop, not a second competing log line', async () => {
+    const { router, lines, logger, ingestInboundMessage } = createTracingHarness({
+      ownerNumber: '9876543210',
+    });
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(ingestInboundMessage).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+    const stops = lines.filter((line) => line.includes('STOPPED'));
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toContain(' 5/13');
+    expect(stops[0]).toContain('!!!');
+    expect(stops[0]).toContain('WHATSAPP_OWNER_NUMBER');
+  });
+
+  it('the allowlist drop becomes ONE trace stop, not a second competing warn', async () => {
+    const { router, lines, logger, ingestInboundMessage } = createTracingHarness({
+      allowedNumbers: '8183003081',
+    });
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(ingestInboundMessage).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    const stops = lines.filter((line) => line.includes('STOPPED'));
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toContain(' 6/13');
+    expect(stops[0]).toContain('WHATSAPP_TEST_ALLOWED_NUMBERS');
+  });
+
+  it('never prints a lead phone number in full on any of those lines', async () => {
+    const { router, lines } = createTracingHarness({ allowedNumbers: '8183003081' });
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(lines.join('\n')).not.toContain('919876543210');
+    expect(lines.join('\n')).toContain('***');
+  });
+
+  it('reports a fromMe echo as HANDLED, not as an alarming stop', async () => {
+    const lines: string[] = [];
+    const router = createInboundMessageRouter({
+      ingestInboundMessage: vi.fn(),
+      allowlist: createNumberAllowlist(''),
+      ownerNumbers: createNumberAllowlist(''),
+      echoGuardService: { isOwnMessage: vi.fn().mockResolvedValue(true) } as never,
+      handleOwnerSelfChatReply: vi.fn(),
+      contactRepository: { findContactByProviderKey: vi.fn() } as never,
+      conversationRepository: {
+        findConversationByAccountAndContact: vi.fn(),
+        markOwnerTookOver: vi.fn(),
+      } as never,
+      computeContactProviderKey: vi.fn(() => null),
+      publishEvent: vi.fn(),
+      createTrace: ({ seed }) =>
+        createPipelineTrace({
+          seed,
+          config: { WHATSAPP_TRACE_ENABLED: true },
+          write: (line) => lines.push(line),
+        }),
+      logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+    });
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage({ fromMe: true }) as never,
+    });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(' 4/13');
+    expect(lines[0]).toContain('echo');
+    expect(lines[0]).toContain('branch=echo');
+
+    // An echo happens for EVERY message the agent sends, so it is the most routine event in the
+    // system. The `!!!` gutter exists to make a genuinely unwanted stop findable in a wall of
+    // terminal output; spending it on the routine case teaches the reader to skip `!!!`, which
+    // costs exactly the thing this trace was built for.
+    expect(lines[0]).toContain('HANDLED');
+    expect(lines[0]).not.toContain('STOPPED');
+    expect(lines[0]).not.toContain('!!!');
+  });
+
+  it('writes nothing at all while WHATSAPP_TRACE_ENABLED is off, and keeps the old warn', async () => {
+    const { router, ingestInboundMessage, logger } = createHarness({ allowedNumbers: '8183003081' });
+
+    await router.routeInboundMessage({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+      inboundMessage: leadMessage() as never,
+    });
+
+    expect(ingestInboundMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });

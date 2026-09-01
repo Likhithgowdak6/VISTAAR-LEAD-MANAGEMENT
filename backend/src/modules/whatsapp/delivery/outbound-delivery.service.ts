@@ -1,5 +1,12 @@
 import { env, type Env } from '../../../config/env.js';
 import { MESSAGE_AUTHORS } from '../../../constants/message-authors.js';
+import {
+  createPipelineTrace,
+  maskJid as maskTraceJid,
+  PIPELINE_STAGE,
+  preview as tracePreview,
+  type PipelineTrace,
+} from '../../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../../types/common.js';
 import { findContactPrivatePiiForInternalUse as defaultFindContactPrivatePiiForInternalUse } from '../../contacts/contact.repository.js';
 import { findConversationById as defaultFindConversationById } from '../../conversations/conversation.repository.js';
@@ -98,6 +105,12 @@ export interface CreateOutboundDeliveryServiceOptions {
   computeBackoffMs?: (attempts: number) => number;
   now?: () => Date;
   logger?: { error?: (...args: unknown[]) => void };
+  /**
+   * The second half of pipeline stage 13: claimed, allowlist, then sent or failed. Seeded with
+   * the claimed row's idempotency key, which is what makes these lines carry the same
+   * correlation id as the "queued" line printed minutes earlier by outbound-message.service.
+   */
+  createTrace?: (options: { seed?: unknown }) => PipelineTrace;
   echoGuardService?: EchoGuardService;
 }
 
@@ -161,6 +174,7 @@ export const createOutboundDeliveryService = ({
   computeBackoffMs = defaultComputeBackoffMs,
   now = () => new Date(),
   logger = console,
+  createTrace = createPipelineTrace,
   echoGuardService = createEchoGuardService(),
 }: CreateOutboundDeliveryServiceOptions) => {
   const maxAttempts = Number(config.WHATSAPP_OUTBOUND_MAX_ATTEMPTS ?? 3);
@@ -206,6 +220,18 @@ export const createOutboundDeliveryService = ({
       };
     }
 
+    // Same seed as the "queued" line printed when this row was created, so the whole of stage 13
+    // reads as one thread even though the two halves are minutes and a poll tick apart.
+    const trace = createTrace({ seed: message.idempotencyKey ?? message._id.toString() });
+
+    trace.pass(PIPELINE_STAGE.OUTBOUND_DELIVERY, () => ({
+      step: 'claimed',
+      message: message._id.toString(),
+      conversation: message.conversationId?.toString(),
+      author: message.authoredBy,
+      attempt: message.deliveryAttempts,
+    }));
+
     const privatePii = await contactRepository.findContactPrivatePiiForInternalUse({
       contactId: message.contactId,
       organizationId,
@@ -214,6 +240,12 @@ export const createOutboundDeliveryService = ({
     const recipient = resolveRecipient(privatePii);
 
     if (!recipient) {
+      trace.stop(
+        PIPELINE_STAGE.OUTBOUND_DELIVERY,
+        'the contact has no phone number and no provider JID, so there is no address to send to',
+        () => ({ step: 'recipient', message: message._id.toString() }),
+      );
+
       await messageRepository.markOutboundMessageFailed({
         messageId: message._id,
         organizationId,
@@ -237,6 +269,12 @@ export const createOutboundDeliveryService = ({
     // `<id>@lid` carrying no phone, so the contact's stored phone is offered alongside it -
     // checking the JID alone refuses a legitimate recipient whose number IS allowed.
     if (!allowlist.permits(recipient, privatePii?.phone)) {
+      trace.stop(
+        PIPELINE_STAGE.OUTBOUND_DELIVERY,
+        'recipient is not on WHATSAPP_TEST_ALLOWED_NUMBERS, so the send was blocked before it reached the socket',
+        () => ({ step: 'allowlist', to: maskTraceJid(recipient), message: message._id.toString() }),
+      );
+
       await messageRepository.markOutboundMessageFailed({
         messageId: message._id,
         organizationId,
@@ -254,6 +292,12 @@ export const createOutboundDeliveryService = ({
         reason: 'blocked_by_test_allowlist',
       };
     }
+
+    trace.pass(PIPELINE_STAGE.OUTBOUND_DELIVERY, () => ({
+      step: 'allowlist',
+      to: maskTraceJid(recipient),
+      verdict: allowlist.active ? 'allowed' : 'not configured (all recipients allowed)',
+    }));
 
     // (b) AI-authored guards: an opt-out check, a re-check that automation is still on, a
     // staleness check, and quiet hours. Human-authored messages (staff dashboard sends) skip all
@@ -273,6 +317,12 @@ export const createOutboundDeliveryService = ({
       // hide the one fact anybody auditing a complaint needs to see. This is the last line of
       // defence: it catches a message drafted and queued before the lead said stop.
       if (conversation?.optedOutAt) {
+        trace.stop(
+          PIPELINE_STAGE.OUTBOUND_DELIVERY,
+          'this lead asked us to stop messaging them after the reply was queued, so it is dropped rather than sent',
+          () => ({ step: 'opt-out', message: message._id.toString() }),
+        );
+
         await messageRepository.markOutboundMessageFailed({
           messageId: message._id,
           organizationId,
@@ -292,6 +342,14 @@ export const createOutboundDeliveryService = ({
       }
 
       if (!conversation || conversation.aiAutomationEnabled !== true) {
+        trace.stop(
+          PIPELINE_STAGE.OUTBOUND_DELIVERY,
+          conversation?.aiAutomationPausedReason
+            ? `automation was paused after the reply was queued: ${conversation.aiAutomationPausedReason}`
+            : 'automation is no longer on for this conversation, so the queued AI reply is dropped',
+          () => ({ step: 'automation', message: message._id.toString() }),
+        );
+
         await messageRepository.markOutboundMessageFailed({
           messageId: message._id,
           organizationId,
@@ -318,6 +376,16 @@ export const createOutboundDeliveryService = ({
         message.scheduledAt &&
         now().getTime() - message.scheduledAt.getTime() > config.NURTURE_STALE_AFTER_MS
       ) {
+        trace.stop(
+          PIPELINE_STAGE.OUTBOUND_DELIVERY,
+          'this reply sat in the queue past NURTURE_STALE_AFTER_MS - sending it now would read worse than silence, so it is dropped',
+          () => ({
+            step: 'staleness',
+            message: message._id.toString(),
+            queuedFor: message.scheduledAt,
+          }),
+        );
+
         await messageRepository.markOutboundMessageFailed({
           messageId: message._id,
           organizationId,
@@ -350,6 +418,15 @@ export const createOutboundDeliveryService = ({
           config.WHATSAPP_BUSINESS_TIMEZONE,
         );
 
+        // Not a stop: the reply is not lost, it is held. Printed as a pass with the time it
+        // will actually go out, which is the answer to "why has nothing happened".
+        trace.pass(PIPELINE_STAGE.OUTBOUND_DELIVERY, () => ({
+          step: 'quiet-hours',
+          message: message._id.toString(),
+          held: 'inside WHATSAPP_QUIET_HOURS - rescheduled, not dropped',
+          sendAt: nextAllowedTime,
+        }));
+
         await messageRepository.rescheduleOutboundMessage({
           messageId: message._id,
           organizationId,
@@ -380,6 +457,14 @@ export const createOutboundDeliveryService = ({
 
       // Every successful send is remembered so the echo guard can recognize our own message
       // when Baileys reflects it back as a `fromMe` inbound event.
+      trace.pass(PIPELINE_STAGE.OUTBOUND_DELIVERY, () => ({
+        step: 'sent',
+        message: message._id.toString(),
+        to: maskTraceJid(recipient),
+        providerMessageId: result?.providerMessageId ?? '(none returned)',
+        body: tracePreview(message.body),
+      }));
+
       await echoGuardService.remember({
         accountId: message.whatsappAccountId,
         providerMessageId: result?.providerMessageId ?? null,
@@ -396,6 +481,15 @@ export const createOutboundDeliveryService = ({
       const nextAttemptAt = permanent
         ? null
         : new Date(now().getTime() + computeBackoffMs(message.deliveryAttempts));
+
+      trace.fail(PIPELINE_STAGE.OUTBOUND_DELIVERY, error, () => ({
+        step: 'send',
+        message: message._id.toString(),
+        to: maskTraceJid(recipient),
+        outcome: permanent
+          ? 'permanent - no further attempts'
+          : `retrying at ${nextAttemptAt?.toTimeString().slice(0, 8) ?? 'unknown'}`,
+      }));
 
       const err = error as { code?: unknown; name?: unknown };
       logger?.error?.('Outbound delivery attempt failed safely.', {

@@ -136,6 +136,94 @@ a test run never sends anything — or, for the last two, never reaches out to G
 *only* numbers the system will talk to. Leave it empty in production; set it while testing so a
 stray message cannot reach a real lead.
 
+## Watching a message move through the pipeline
+
+A message that gets quietly dropped by a guard clause looks exactly like a message WhatsApp never
+delivered. `WHATSAPP_TRACE_ENABLED` exists so that can never happen: with it on, every stage a
+message passes through prints one aligned line, and every place a message stops prints a loud one
+saying which rule stopped it and why.
+
+```bash
+# backend/.env — off by default; turn it on while you are watching a live test
+WHATSAPP_TRACE_ENABLED=true
+```
+
+Then `npm run dev` in `backend/` and message the agent from your phone.
+
+### A healthy run
+
+```
+    15:41:08 [wa 3ec14a40]  1/13 provider · received    ok       from=918***081@s.whatsapp.net chat=918***081@s.whatsapp.net node=conversation
+    15:41:08 [wa 3ec14a40]  2/13 provider · gateway     ok       verdict="not a group, channel or broadcast"
+    15:41:08 [wa 3ec14a40]  3/13 provider · normalized  ok       fromMe=false isSelfChat=false type=text media=none body="Hi, do you shoot house-warmings? Need someone on 14 Feb in Bangalore"
+    15:41:09 [wa 3ec14a40]  4/13 router · fromMe branch ok       branch=lead fromMe=false
+    15:41:09 [wa 3ec14a40]  5/13 router · owner number  ok       ownerNumber="not configured"
+    15:41:09 [wa 3ec14a40]  6/13 router · allowlist     ok       allowlist=allowed
+    15:41:09 [wa 3ec14a40]  7/13 ingest · contact       ok       contact=68b1f0a4c2e19a4d3f0b1a21 how=created name="Riya Sharma"
+    15:41:09 [wa 3ec14a40]  8/13 ingest · conversation  ok       conversation=68b1f0a4c2e19a4d3f0b1a55 how="new thread" stage=new automation=on
+    15:41:09 [wa 3ec14a40]  9/13 ingest · message saved ok       message=68b1f0a4c2e19a4d3f0b1a77 conversation=68b1f0a4c2e19a4d3f0b1a55 type=text body="Hi, do you shoot house-warmings? Need someone on 14 Feb in Bangalore"
+    15:41:09 [wa 3ec14a40] 10/13 ai · eligibility       ok       conversation=68b1f0a4c2e19a4d3f0b1a55 stage=new body="Hi, do you shoot house-warmings? Need someone on 14 Feb in Bangalore"
+    15:41:09 [wa 3ec14a40] 11/13 ai · context           ok       category=house_warming playbook=house_warming facts=2 asking=5 knowledgeBase=found
+    15:41:10 [wa 3ec14a40] 12/13 ai · brain call        ok       decision=asked ms=1842 outbound=5cdcb94f reply="Happy to help with a house-warming. Is 14 Feb the date, and roughly how many gue…"
+    15:41:12 [wa 5cdcb94f] 13/13 outbound · delivery    ok       step=queued message=68b1f0a4c2e19a4d3f0b1a91 conversation=68b1f0a4c2e19a4d3f0b1a55 author=ai sendAt=15:42:10 body="Happy to help with a house-warming. Is 14 Feb the date, and roughly how many gue…"
+    15:42:12 [wa 5cdcb94f] 13/13 outbound · delivery    ok       step=claimed message=68b1f0a4c2e19a4d3f0b1a91 conversation=68b1f0a4c2e19a4d3f0b1a55 author=ai attempt=1
+    15:42:12 [wa 5cdcb94f] 13/13 outbound · delivery    ok       step=allowlist to=918***081 verdict=allowed
+    15:42:12 [wa 5cdcb94f] 13/13 outbound · delivery    ok       step=sent message=68b1f0a4c2e19a4d3f0b1a91 to=918***081 providerMessageId=3EB0FF11AA22BB33 body="Happy to help with a house-warming. Is 14 Feb the date, and roughly how many gue…"
+```
+
+### A stopped run
+
+```
+    15:46:30 [wa d7872370]  1/13 provider · received    ok       from=919***678@s.whatsapp.net chat=919***678@s.whatsapp.net node=conversation
+    15:46:30 [wa d7872370]  2/13 provider · gateway     ok       verdict="not a group, channel or broadcast"
+    15:46:30 [wa d7872370]  3/13 provider · normalized  ok       fromMe=false isSelfChat=false type=text media=none body="hello, is this Vistaar Media?"
+    15:46:31 [wa d7872370]  4/13 router · fromMe branch ok       branch=lead fromMe=false
+    15:46:31 [wa d7872370]  5/13 router · owner number  ok       ownerNumber="not configured"
+!!! 15:46:31 [wa d7872370]  6/13 router · allowlist     STOPPED  sender is not on WHATSAPP_TEST_ALLOWED_NUMBERS. A JID with no readable phone (an unmapped @lid) is refused too, since the allowlist fails closed  senderPhoneJid=(none) senderJid=919***678@s.whatsapp.net remoteJid=919***678@s.whatsapp.net
+```
+
+### How to read them
+
+Read right to left on the numbers first. **`6/13` followed by nothing means the message reached
+stage 6 of 13 and went no further** — and the `!!!` in the left margin plus the word `STOPPED`
+tell you that was a decision, not a crash, with the reason spelled out after it. The healthy run
+above reaches `13/13` and ends in `step=sent`; the stopped one ends at stage 6 because that phone
+number is not on `WHATSAPP_TEST_ALLOWED_NUMBERS`.
+
+There are four outcomes, and the gutter is the fast read:
+
+| Outcome | Gutter | Means |
+|---|---|---|
+| `ok` | blank | the stage passed, the message moved on |
+| `HANDLED` | blank | the message ended here and that is correct — an echo of our own send, a self-chat handed to the approval handler, the owner taking a chat over |
+| `STOPPED` | `!!!` | the message ended here and you may not have wanted that — refused by the allowlist, read as an owner decision, opted out, paused, quiet hours |
+| `FAILED` | `ERR` | the stage threw |
+
+`HANDLED` and `STOPPED` both end the message's journey; the split exists so `!!!` stays rare
+enough to mean something. Every message the agent sends produces an echo back from WhatsApp, so
+if echoes printed `!!!` there would be an alarm beside the most routine event in the system, and
+a reader who learns to skip `!!!` has lost the one thing this trace is for.
+
+The `[wa 3ec14a40]` is one message's correlation id, derived from its WhatsApp message id, so it
+survives a restart and stays the same across every file the message touches. Stage 12 prints
+`outbound=5cdcb94f` when the AI decides to answer: that is the id the reply itself travels under
+in stage 13, which runs minutes later out of a database row.
+
+Three other things worth knowing:
+
+- **Nothing happening is not the same as nothing to see.** An AI reply deliberately waits out a
+  human-like delay, which is why stage 13 prints `sendAt=15:42:10` the moment it is queued. Quiet
+  hours print the same way — held, with the time it will actually go out, not dropped.
+- **`ms=1842` on stage 12** is the round trip to `ai-brain-service`, which is where you see what
+  changing the model actually costs per reply.
+- **Phone numbers are always masked** (`918***081`) and message bodies are cut at 80 characters.
+  API keys, tokens and anything under a `phone`/`email` key never reach the line at all. It is
+  still test-time output, though — leave the flag off in production.
+
+Every stage number in these lines is a position in one ordered list, `PIPELINE_STAGES` in
+`backend/src/observability/pipeline-trace.ts`. That file owns the format and nothing else; adding
+a stage there renumbers the rest automatically.
+
 ## Meta Lead Ads: pulling leads straight from Meta
 
 Leads can reach the CRM two ways, and both end up in the same inbox with the same de-duplication:

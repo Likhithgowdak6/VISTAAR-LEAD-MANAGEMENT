@@ -16,6 +16,9 @@ vi.mock('../../../config/env.js', () => ({
 }));
 
 const { createInboundMessageIngestionService } = await import('./inbound-message.service.js');
+const { createPipelineTrace, deriveTraceId } = await import(
+  '../../../observability/pipeline-trace.js'
+);
 
 const inboundMessage = {
   eventType: 'message.received',
@@ -405,5 +408,130 @@ describe('ingestInboundMessage - inbound media', () => {
     expect(h.handleAutomation).toHaveBeenCalledWith(
       expect.objectContaining({ messageType: 'audio', isVoiceNote: true, inboundText: '' }),
     );
+  });
+});
+
+describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
+  const createTracingHarness = ({
+    conversation = {},
+    inbound = {},
+    optedOut = false,
+  }: {
+    conversation?: Record<string, unknown>;
+    inbound?: Record<string, unknown>;
+    optedOut?: boolean;
+  } = {}) => {
+    const lines: string[] = [];
+    const handleAutomation = vi.fn().mockResolvedValue(undefined);
+
+    const service = createInboundMessageIngestionService({
+      contactRepository: {
+        findOrCreateContactByProviderKey: vi.fn().mockResolvedValue({
+          contact: { _id: 'contact-1', displayName: 'Riya Sharma' },
+          created: true,
+        }),
+        attachContactPhoneIfMissing: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      conversationRepository: {
+        upsertConversationForContact: vi.fn().mockResolvedValue({
+          _id: 'conv-1',
+          stage: 'new',
+          aiAutomationEnabled: true,
+          optedOutAt: optedOut ? new Date() : null,
+          ...conversation,
+        }),
+        updateConversationPreview: vi.fn().mockResolvedValue(undefined),
+        markOptedOut: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      messageRepository: {
+        createInboundMessage: vi.fn().mockResolvedValue({ _id: 'msg-1', sentAt: new Date() }),
+      } as never,
+      computeContactProviderKey: () => 'provider-key-1',
+      extractPhoneFromJid: () => '919876543210',
+      normalizeProviderJid: (jid: unknown) => String(jid),
+      publishEvent: vi.fn().mockResolvedValue(undefined),
+      handleAutomation: handleAutomation as never,
+      sendNewLeadAlert: vi.fn().mockResolvedValue(undefined) as never,
+      sendOptOutAlert: vi.fn().mockResolvedValue(undefined) as never,
+      recomputeLeadScore: vi.fn().mockResolvedValue(undefined) as never,
+      createTrace: ({ seed }) =>
+        createPipelineTrace({
+          seed,
+          config: { WHATSAPP_TRACE_ENABLED: true },
+          write: (line) => lines.push(line),
+        }),
+      logger: { error: vi.fn() },
+      now: () => new Date('2026-08-25T03:00:00.000Z'),
+    });
+
+    return {
+      lines,
+      handleAutomation,
+      run: () =>
+        service.ingestInboundMessage({
+          organizationId: 'org-1',
+          whatsappAccountId: 'account-1',
+          inboundMessage: { ...inboundMessage, ...inbound } as never,
+        }),
+    };
+  };
+
+  it('prints contact, conversation and message-saved, with the conversation id on the last one', async () => {
+    const h = createTracingHarness();
+
+    await h.run();
+
+    expect(h.lines).toHaveLength(3);
+    expect(h.lines[0]).toContain(' 7/13');
+    expect(h.lines[0]).toContain('how=created');
+    expect(h.lines[1]).toContain(' 8/13');
+    expect(h.lines[2]).toContain(' 9/13');
+    expect(h.lines[2]).toContain('conversation=conv-1');
+    expect(h.lines[2]).toContain('message=msg-1');
+  });
+
+  it('carries the same correlation id the provider and router stages used', async () => {
+    const h = createTracingHarness();
+
+    await h.run();
+
+    expect(h.lines[0]).toContain(`[wa ${deriveTraceId('PROVIDER-MSG-1')}]`);
+  });
+
+  it('hands that id to the AI stages, which cannot derive it themselves', async () => {
+    const h = createTracingHarness();
+
+    await h.run();
+
+    expect(h.handleAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({ traceId: deriveTraceId('PROVIDER-MSG-1') }),
+    );
+  });
+
+  it('says out loud that an opted-out lead is saved but will never be replied to', async () => {
+    const h = createTracingHarness({ conversation: { optedOutAt: new Date() } });
+
+    await h.run();
+
+    const stops = h.lines.filter((line) => line.includes('STOPPED'));
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toContain('10/13');
+    expect(stops[0]).toContain('opted out');
+  });
+
+  it('truncates the message body rather than printing the whole thing', async () => {
+    const h = createTracingHarness({ inbound: { text: 'z'.repeat(400) } });
+
+    await h.run();
+
+    expect(h.lines[2]).toContain('…');
+    expect(h.lines[2]).not.toContain('z'.repeat(120));
+  });
+
+  it('writes nothing at all while WHATSAPP_TRACE_ENABLED is off', async () => {
+    const h = createHarness();
+
+    await expect(h.run()).resolves.toMatchObject({ persisted: true });
   });
 });
