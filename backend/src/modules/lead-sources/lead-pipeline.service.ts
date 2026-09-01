@@ -42,6 +42,10 @@ import {
 } from '../privacy/protected-pii.service.js';
 import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 import { publishConversationChanged as defaultPublishConversationChanged } from '../realtime/realtime.publisher.js';
+import {
+  createNumberAllowlist,
+  type NumberAllowlist,
+} from '../whatsapp/automation/allowlist.js';
 import { LeadSourceError, sanitizeLeadSourceErrorText } from './lead-source.errors.js';
 import { type LeadSourceDocument } from './lead-source.model.js';
 import {
@@ -54,6 +58,20 @@ import { type NormalizedMetaLead } from './meta-lead.mapper.js';
 export const LEAD_CONTACT_SOURCE = 'meta-lead-form';
 
 const WHATSAPP_JID_DOMAIN = 's.whatsapp.net';
+
+/**
+ * Enough of a phone to recognise in a log line without writing a lead's number into the logs -
+ * the same shape the inbound router's `maskJid` produces, so the two refusal lines read alike.
+ */
+const maskPhone = (phone: unknown): string => {
+  const value = typeof phone === 'string' ? phone.trim() : '';
+
+  if (value === '') {
+    return '(none)';
+  }
+
+  return value.length > 6 ? `${value.slice(0, 3)}***${value.slice(-3)}` : '***';
+};
 
 export const isDuplicateKeyError = (error: unknown): boolean =>
   Boolean(error && typeof error === 'object' && 'code' in error && error.code === 11000);
@@ -93,6 +111,12 @@ export interface LeadBatchResult {
 
 export interface CreateLeadPipelineOptions {
   config?: Env;
+  /**
+   * The same test-phase gate inbound WhatsApp enforces, applied to imported leads. Built from
+   * `WHATSAPP_TEST_ALLOWED_NUMBERS` unless a caller injects one; empty means unrestricted, which
+   * is normal production behaviour. Overridable so tests can drive the gate without touching env.
+   */
+  allowlist?: NumberAllowlist;
   contactRepository?: {
     findOrCreateContactByProviderKey: typeof defaultFindOrCreateContactByProviderKey;
     attachContactPhoneIfMissing: typeof defaultAttachContactPhoneIfMissing;
@@ -135,6 +159,7 @@ export interface CreateLeadPipelineOptions {
 
 export const createLeadPipeline = ({
   config = env,
+  allowlist = createNumberAllowlist(String(config?.WHATSAPP_TEST_ALLOWED_NUMBERS ?? '')),
   contactRepository = {
     findOrCreateContactByProviderKey: defaultFindOrCreateContactByProviderKey,
     attachContactPhoneIfMissing: defaultAttachContactPhoneIfMissing,
@@ -217,6 +242,34 @@ export const createLeadPipeline = ({
         lead,
         skipReason: lead.phone === null ? LEAD_SKIP_REASONS.NO_PHONE : LEAD_SKIP_REASONS.UNPARSABLE_PHONE,
       });
+
+      return 'skipped';
+    }
+
+    // The same test-phase gate inbound WhatsApp enforces, and for the same reason: with
+    // `WHATSAPP_TEST_ALLOWED_NUMBERS` set, a sheet or a Meta form must not be the back door that
+    // fills the dashboard with numbers the owner has restricted to one. Checked here, before any
+    // contact or conversation exists, so a refused lead leaves nothing behind. Judged as an
+    // ingestion gate rather than a send gate, so it fails closed exactly like the inbound one.
+    //
+    // Deliberately NOT written to the submission ledger. Every other skip reason is permanent -
+    // a row with no usable phone will still have none on the next poll - but this one is a
+    // configuration switch. A ledger row would mark the lead processed forever, so clearing the
+    // allowlist for production would silently leave every refused lead unimported. Leaving the
+    // ledger alone means the lead simply arrives on the first poll after the gate is lifted.
+    //
+    // Logged, and never quietly: a silent refusal is indistinguishable from "the sheet had no
+    // new rows", which makes a genuinely blocked lead impossible to diagnose from the outside.
+    // Warn level and masked, the same way the inbound router reports its drops.
+    if (!allowlist.permitsInboundJid(`${normalizedPhone}@${WHATSAPP_JID_DOMAIN}`, normalizedPhone)) {
+      logger.warn?.(
+        {
+          leadSourceId: leadSource._id.toString(),
+          externalId: lead.externalId,
+          phone: maskPhone(normalizedPhone),
+        },
+        'Lead refused: the phone is not on WHATSAPP_TEST_ALLOWED_NUMBERS. No contact or conversation was created, and nothing was written to the import ledger, so the lead will import on the first poll after the allowlist is cleared.',
+      );
 
       return 'skipped';
     }

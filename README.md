@@ -134,7 +134,12 @@ a test run never sends anything — or, for the last two, never reaches out to G
 
 `WHATSAPP_TEST_ALLOWED_NUMBERS` is a test-phase safety net: a CSV of phone numbers that are the
 *only* numbers the system will talk to. Leave it empty in production; set it while testing so a
-stray message cannot reach a real lead.
+stray message cannot reach a real lead. It gates three paths, all through the same matcher in
+`backend/src/modules/whatsapp/automation/allowlist.ts`: outbound sends, inbound messages (dropped
+before they are persisted), and **lead imports** — a sheet or Meta row whose phone is not allowed
+is refused before any contact or conversation is created, counted as `skipped`, and logged with
+the number masked. A refused lead is deliberately *not* written to the import ledger, so it
+imports normally on the first poll after the allowlist is cleared.
 
 ## Watching a message move through the pipeline
 
@@ -311,6 +316,48 @@ sync and simply retried on the next tick.
   Existing sheet sources keep importing throughout — the index guards *creating* a duplicate
   source, it is not something the poller reads. Without the migration, sheet sources are entirely
   unaffected and only the creation of a second Meta source would fail.
+
+## Resetting an install to a clean slate
+
+If a number was used for real testing before `WHATSAPP_TEST_ALLOWED_NUMBERS` existed, the
+dashboard ends up holding personal chats, channel spam and friends' messages. This puts the
+install back to how a freshly hosted one looks while keeping everything that was configured:
+
+```bash
+cd backend
+npm run reset:conversation-data                              # dry run, every organization
+npm run reset:conversation-data -- --organization vistaar    # dry run, one organization
+npm run reset:conversation-data -- --organization vistaar --apply
+```
+
+It is a **dry run unless `--apply` is passed**: with no flags it deletes nothing and prints, per
+collection, what it would delete and what it would keep. An unrecognised flag aborts rather than
+being ignored — a mistyped `--org vistaar` that was quietly dropped would widen the scope from one
+organization to all of them — and an `--organization` that matches nothing aborts before a single
+delete.
+
+**Deleted** (lead and conversation data): `Conversation`, `Message`, `Contact`, `ActivityLog`,
+`AiBrainApproval`, `AiDraft`, `FollowUpTask`, `Note`, `LeadSubmission`, `RealtimeOutboxEvent`,
+`IdempotencyRecord`.
+
+**Never touched** (configuration, identity, audit trail): `WhatsAppAuthState` — *the live WhatsApp
+session, so no QR re-scan* — `WhatsAppAccount`, `Organization` (including `ownerWhatsappNumber`),
+`User`, `RefreshSession`, `AiKnowledge`, `Stage`, `Tag`, `LeadSource`, `AuditLog`. After `--apply`
+the script re-counts all ten and says whether the numbers moved, so a surviving WhatsApp session is
+something the run proves rather than claims.
+
+Both lists are explicit in `backend/src/scripts/reset-conversation-data.ts`. A model in neither is
+never deleted, is printed loudly, and fails `reset-conversation-data.test.ts` until somebody puts
+it in a list on purpose.
+
+### The one warning to read before `--apply`
+
+`LeadSubmission` is not only imported form rows — it is the **import ledger** that stops an
+already-imported lead being imported twice. Deleting it makes every historical row look new, so if
+a Google Sheet or Meta source is connected and `LEAD_IMPORT_ENABLED=true`, the next poll re-imports
+the lot and refills the dashboard you just emptied. The dry run says so whenever any `LeadSource`
+exists. Before applying, do one of: pause or delete the sources, set `LEAD_IMPORT_ENABLED=false`,
+or move each source's `importFromTime` forward so the history falls outside the import window.
 
 ## Tests
 

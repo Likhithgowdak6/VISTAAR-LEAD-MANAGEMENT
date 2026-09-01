@@ -17,6 +17,7 @@
     "verify:indexes": "tsx src/scripts/verify-indexes.ts",
     "migrate:lead-source-indexes": "tsx src/scripts/migrate-lead-source-indexes.ts",
     "backfill:lid-phones": "tsx src/scripts/backfill-lid-phones.ts",
+    "reset:conversation-data": "tsx src/scripts/reset-conversation-data.ts",
     "generate:encryption-key": "tsx src/scripts/generate-encryption-key.ts",
     "encryption:rotation:dry-run": "tsx src/scripts/key-rotation-dry-run.ts",
     "phase5:create-poc-account": "tsx src/scripts/phase5-create-poc-account.ts",
