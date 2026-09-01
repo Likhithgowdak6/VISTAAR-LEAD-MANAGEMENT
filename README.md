@@ -72,18 +72,47 @@ npm run dev               # http://localhost:5173
 The Vite dev server proxies `/api` to the backend, so a single tunnel (ngrok, etc.) serves both
 and there is no CORS to configure.
 
-### Secrets you must set in `backend/.env`
+### Secrets you must set
+
+There are **two** env files, and the model key goes in the root one, not the backend one.
+
+`backend/.env` — the Node app:
 
 | Variable | What it is |
 |---|---|
 | `JWT_ACCESS_SECRET` | 32+ chars |
 | `ENCRYPTION_KEY_V1` | field-level encryption key |
 | `CONTACT_LOOKUP_HMAC_KEY` | blind-index key — **never rotate**, lookups would orphan |
-| `GROQ_API_KEY` | LLM provider key |
 | `AI_BRAIN_SERVICE_KEY` | shared secret between backend and ai-brain-service |
 | `SEED_SUPER_ADMIN_PASSWORD` | 12+ chars |
+| `ANTHROPIC_API_KEY` | only for the dashboard's own "draft a reply" button (`AI_ENABLED`); the agent does not use it |
 
-`.env` files are gitignored. Do not commit real keys.
+`.env` at the project root — read by `docker-compose`, configures the brain container:
+
+| Variable | What it is |
+|---|---|
+| `AI_BRAIN_SERVICE_KEY` | must match `backend/.env` exactly |
+| `AI_BRAIN_LLM_PROVIDER` | `anthropic` (default), `groq`, or `openai` |
+| `AI_BRAIN_LLM_API_KEY` | the model key — this is the one the sales agent thinks with |
+| `AI_BRAIN_LLM_MODEL` | defaults to `claude-haiku-4-5-20251001` |
+
+See `.env.example` in both places. `.env` files are gitignored. Do not commit real keys.
+
+### Changing the model
+
+Everything the agent says — qualifying questions, drafted replies, proposals, the won/lost
+call — runs through one key, set in the root `.env`. Switching provider or model is those three
+lines and `docker compose up -d --build ai-brain-service`; no code changes.
+
+The default is **Claude Haiku 4.5** ($1 per million input tokens, $5 output), which works out
+around $0.05 for a full lead conversation including a proposal. `claude-sonnet-5` is the step up
+for better judgement on the harder calls — reading discount pressure, writing a proposal someone
+will actually read — at roughly double that.
+
+One constraint if you raise the timeout: `AI_BRAIN_LLM_TIMEOUT_SECONDS` x
+(`AI_BRAIN_LLM_MAX_RETRIES` + 1) must stay **below** `backend/.env`'s
+`AI_BRAIN_REQUEST_TIMEOUT_MS`, or the brain spends money finishing an answer the backend has
+already given up on.
 
 ### Feature flags worth knowing
 
@@ -196,5 +225,6 @@ cd ai-brain-service && python smoke_test.py
 
 - **Baileys** is an unofficial WhatsApp Web library. There is a real account-ban risk; use a
   number you can afford to lose.
-- **Groq free tier** caps at 8,000 tokens/minute, which is the practical ceiling on how fast the
-  agent can think during a busy stretch.
+- **Model rate limits** are per usage tier on Anthropic (requests and tokens per minute). The
+  agent handles a 429 as a quota refusal rather than a bug and logs it distinctly, but it cannot
+  conjure headroom — a busy stretch on a low tier still means queued replies.

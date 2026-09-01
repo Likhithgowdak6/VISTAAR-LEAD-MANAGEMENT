@@ -131,7 +131,8 @@ def _chat(messages: list[dict], max_tokens: int, temperature: float, json_mode: 
     except Exception as exc:
         latency_ms = int((time.monotonic() - t0) * 1000)
         # A 429 is not a bug in the prompt or the code - it is the account's quota, and it needs
-        # to read that way in the logs. Groq's free tier is metered on tokens per minute, which a
+        # to read that way in the logs. Anthropic meters requests and tokens per minute by usage
+        # tier; Groq's free tier is metered on tokens per minute, which a
         # reasoning model with a long system prompt reaches in very few calls, so this is the
         # failure most likely to be met in practice.
         if _is_rate_limit(exc):
@@ -161,16 +162,73 @@ def _content_of(resp) -> tuple[str, str]:
     return (choice.message.content or "").strip(), (choice.finish_reason or "")
 
 
-def complete(system: str, user: str, max_tokens: int = 1200, temperature: float = 0.6) -> str:
-    if _is_anthropic():
+def _anthropic_messages(
+    system: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, str]:
+    """
+    One Anthropic call, returning (text, stop_reason) so the callers below can treat a truncated
+    or empty answer exactly as they do on the OpenAI path.
+
+    This exists so the Anthropic branch gets the same latency logging and the same "this was a
+    quota refusal, not a bad request" 429 message that _chat() gives the OpenAI branch. Without
+    it a rate-limited Claude key produced a bare traceback and no clue why.
+    """
+    t0 = time.monotonic()
+    purpose, conversation_id = _ctx.get()
+
+    try:
         resp = _get_client().messages.create(
             model=settings.llm_model,
             max_tokens=max_tokens,
             temperature=temperature,
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=messages,
         )
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        if _is_rate_limit(exc):
+            log.error(
+                "llm RATE LIMITED purpose=%s conversation=%s model=%s latency_ms=%s - the "
+                "provider refused on quota, not on the request. Lower the token budget, slow the "
+                "call rate, or raise the plan limit.",
+                purpose, conversation_id, settings.llm_model, latency_ms,
+            )
+        else:
+            log.error(
+                "llm call FAILED purpose=%s conversation=%s model=%s latency_ms=%s error=%s",
+                purpose, conversation_id, settings.llm_model, latency_ms, type(exc).__name__,
+            )
+        raise
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    log.info(
+        "llm call purpose=%s conversation=%s model=%s latency_ms=%s",
+        purpose, conversation_id, settings.llm_model, latency_ms,
+    )
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    return text, (resp.stop_reason or "")
+
+
+def complete(system: str, user: str, max_tokens: int = 1200, temperature: float = 0.6) -> str:
+    if _is_anthropic():
+        messages = [{"role": "user", "content": user}]
+        text, stop = _anthropic_messages(system, messages, max_tokens, temperature)
+
+        if not text:
+            log.warning(
+                "empty content from %s (stop_reason=%s, max_tokens=%s) - retrying bigger",
+                settings.llm_model, stop, max_tokens,
+            )
+            text, stop = _anthropic_messages(system, messages, max_tokens * 3, temperature)
+
+        if not text:
+            raise RuntimeError(
+                f"{settings.llm_model} returned no text twice (stop_reason={stop})."
+            )
+        return text
 
     messages = [
         {"role": "system", "content": system},
@@ -207,18 +265,29 @@ def complete_json(
     )
 
     if _is_anthropic():
-        resp = _get_client().messages.create(
-            model=settings.llm_model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=full_system,
-            messages=[
-                {"role": "user", "content": user},
-                {"role": "assistant", "content": "{"},
-            ],
-        )
-        raw = "{" + "".join(b.text for b in resp.content if b.type == "text")
-        return _loads(raw)
+        # Prefilling the assistant turn with "{" is what stops Claude prefacing the JSON with a
+        # sentence. The opening brace is not echoed back, so it is put back on below.
+        messages = [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": "{"},
+        ]
+        body, stop = _anthropic_messages(full_system, messages, max_tokens, temperature)
+
+        # stop_reason "max_tokens" means the JSON was cut off mid-object, so it will never parse.
+        # Retrying with a bigger budget is the only thing that can help; without this the caller
+        # saw an unparseable-JSON error and no indication that the budget was the cause.
+        if not body or stop == "max_tokens":
+            log.warning(
+                "unusable JSON from %s (stop_reason=%s, max_tokens=%s) - retrying bigger",
+                settings.llm_model, stop, max_tokens,
+            )
+            body, stop = _anthropic_messages(full_system, messages, max_tokens * 2, temperature)
+
+        if not body:
+            raise RuntimeError(
+                f"{settings.llm_model} returned no JSON twice (stop_reason={stop})."
+            )
+        return _loads("{" + body)
 
     messages = [
         {"role": "system", "content": full_system},

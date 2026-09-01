@@ -26,7 +26,7 @@ SUMMARY_SCHEMA = """{
 }"""
 
 # Enough to cover a fortnight of WhatsApp back-and-forth without blowing the
-# 8,000-token-per-minute ceiling this service runs against on Groq's free
+# per-call token budget this service runs against
 # tier. Longer than outcome.py's window on purpose: a stage verdict only
 # needs the end of the conversation, a catch-up needs the start of it too.
 TRANSCRIPT_LIMIT = 40

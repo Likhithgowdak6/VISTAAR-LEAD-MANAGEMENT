@@ -14,7 +14,7 @@
  * deleted is worse than making them re-type it.
  *
  * Written as imperatives and kept to one line each: this block is interpolated into every
- * qualifying and drafting call, and the AI runs against an 8,000-tokens-per-minute ceiling.
+ * qualifying and drafting call, and every token in it is paid for every time.
  */
 export interface AiKnowledgeDefaultRule {
   readonly label: string;

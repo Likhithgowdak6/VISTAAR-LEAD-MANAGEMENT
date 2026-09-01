@@ -63,12 +63,13 @@ services:
     environment:
       DATABASE_URL: postgresql://ai_brain:ai_brain@ai-brain-db:5432/ai_brain_checkpoints
       SERVICE_API_KEY: ${AI_BRAIN_SERVICE_KEY:-}
-      LLM_PROVIDER: ${AI_BRAIN_LLM_PROVIDER:-groq}
+      LLM_PROVIDER: ${AI_BRAIN_LLM_PROVIDER:-anthropic}
       LLM_API_KEY: ${AI_BRAIN_LLM_API_KEY:-}
-      LLM_MODEL: ${AI_BRAIN_LLM_MODEL:-openai/gpt-oss-120b}
+      LLM_MODEL: ${AI_BRAIN_LLM_MODEL:-claude-haiku-4-5-20251001}
       # One model call's budget. Must stay under the backend's AI_BRAIN_REQUEST_TIMEOUT_MS, or
       # this service keeps spending quota on an answer the caller already gave up waiting for.
-      LLM_TIMEOUT_SECONDS: ${AI_BRAIN_LLM_TIMEOUT_SECONDS:-20}
+      # Sized for a proposal (2,500 output tokens), not a reply; see ai-brain-service/app/config.py.
+      LLM_TIMEOUT_SECONDS: ${AI_BRAIN_LLM_TIMEOUT_SECONDS:-40}
       LLM_MAX_RETRIES: ${AI_BRAIN_LLM_MAX_RETRIES:-1}
       MAX_QUALIFYING_QUESTIONS: ${AI_BRAIN_MAX_QUALIFYING_QUESTIONS:-6}
 

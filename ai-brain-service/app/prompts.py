@@ -167,7 +167,7 @@ outside our normal area:
 # this header, they sit with OBJECTIONS rather than with the knowledge base,
 # and they are framed as the one thing the rest of the prompt cannot argue
 # with. Kept short and imperative because it is interpolated into every
-# qualifying and drafting call, against an 8,000-token-per-minute ceiling.
+# qualifying and drafting call, and every token in it is billed every time.
 #
 # The `{rules}` placeholder is deliberately NOT in the shared BRAND / METHOD /
 # OBJECTIONS / VOICE blocks: OUTCOME_SYSTEM and FOLLOWUP_SYSTEM reuse those and
@@ -508,7 +508,7 @@ Recent conversation:
 #
 # Kept deliberately short, and read against a tight max_tokens in summary.py,
 # because it is interpolated with a whole transcript against an
-# 8,000-token-per-minute ceiling.
+# per-call token budget.
 # --------------------------------------------------------------------------
 SUMMARY_SYSTEM = (
     BRAND

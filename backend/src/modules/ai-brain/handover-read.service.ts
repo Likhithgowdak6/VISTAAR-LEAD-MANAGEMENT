@@ -142,7 +142,8 @@ export const createHandoverReadService = ({
    *
    * READ ONLY, deliberately. This sweep runs over every conversation the owner took over, and
    * each one already costs one ai-brain-service call for the outcome classifier; generating a
-   * summary here as well would double that against an 8,000-token-per-minute ceiling. So the
+   * summary here as well would double the model spend on a sweep that runs over every open lead
+   * every morning. So the
    * card carries a summary when the owner (or the dashboard) has already asked for one, flagged
    * stale when messages have arrived since, and carries nothing when there is none. Never fatal:
    * a summary lookup that fails must not cost the owner the card itself.

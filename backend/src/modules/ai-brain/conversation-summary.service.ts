@@ -8,7 +8,7 @@
  * THE REGENERATION POLICY, which is the whole design:
  *
  *   - A summary is NEVER generated on an inbound message. This service runs against Groq's free
- *     tier, capped at 8,000 tokens a minute, and a whole transcript per message would eat that
+ *     provider is billed per token, and re-reading a whole transcript on every message would spend that
  *     ceiling on a single busy thread. Every generation here is on demand.
  *   - A stored summary is CURRENT while the thread still holds exactly as many messages as it
  *     held when the summary was read (`aiSummaryMessageCount`). Current means served as-is: no

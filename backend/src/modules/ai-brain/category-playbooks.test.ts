@@ -88,7 +88,7 @@ describe('the sixteen services', () => {
   });
 
   it('keeps every brief short enough to send on every single call', () => {
-    // ~50 tokens each. The AI runs against an 8,000-token-per-minute ceiling and exactly one of
+    // ~50 tokens each. Every token is billed on every call, and exactly one of
     // these is interpolated per call; a brief that grows into a page is how that gets breached.
     for (const service of SIXTEEN_SERVICES) {
       const brief = serviceBriefForCategory(service);

@@ -6,7 +6,7 @@
  * agent". This table is that, without sixteen agents: the qualifying prompt is the same prompt,
  * and exactly ONE service's `requiredFields` and `brief` are interpolated into it per call - see
  * ai-brain-context.service.ts. Sending all sixteen briefs would cost roughly 900 tokens a turn
- * against an 8,000-per-minute ceiling that is already being hit; sending the relevant one costs
+ * on every single turn of every conversation; sending the relevant one costs
  * about 50.
  *
  * THE SIXTEEN EXTEND THE OLD SEVEN, THEY DO NOT REPLACE THEM. Three reasons:

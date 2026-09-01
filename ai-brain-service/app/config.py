@@ -23,10 +23,10 @@ class Settings(BaseSettings):
     database_url: str = ""
 
     # llm
-    llm_provider: str = "groq"          # groq | openai | anthropic | any OpenAI-compatible host
+    llm_provider: str = "anthropic"     # anthropic | groq | openai | any OpenAI-compatible host
     llm_api_key: str = ""
     llm_base_url: str = ""
-    llm_model: str = "openai/gpt-oss-120b"
+    llm_model: str = "claude-haiku-4-5-20251001"
 
     # How long one model call may take, and how many times it may be retried.
     #
@@ -38,7 +38,13 @@ class Settings(BaseSettings):
     # Retries default to 1 rather than 3 for the same reason: a provider answering 429 with a
     # long Retry-After turns each extra attempt into tens of seconds of waiting, which is how a
     # single call reached 95s and blew a 30s caller budget.
-    llm_timeout_seconds: float = 20.0
+    #
+    # 40s is sized for the LONGEST call this service makes, not the typical one: a proposal asks
+    # for up to 2,500 output tokens, where qualifying and drafting ask for 700. On Haiku a
+    # proposal lands in roughly 25s and a reply in under 10, so 40s is headroom rather than an
+    # expected wait. Worst case is 2 attempts plus backoff, so the caller's
+    # AI_BRAIN_REQUEST_TIMEOUT_MS must be at least 90000 for the retry to be worth having.
+    llm_timeout_seconds: float = 40.0
     llm_max_retries: int = 1
 
     # Stop asking qualifying questions after this many, whatever is missing.

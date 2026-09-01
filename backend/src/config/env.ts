@@ -196,7 +196,11 @@ const envSchema = z.object({
   // Shared secret sent as X-Service-Key on every call to ai-brain-service.
   AI_BRAIN_SERVICE_KEY: z.string().optional(),
 
-  AI_BRAIN_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
+  // Must exceed ai-brain-service's own LLM_TIMEOUT_SECONDS x (LLM_MAX_RETRIES + 1), or the
+  // retry over there is spent producing an answer this side has already abandoned. At the
+  // service's defaults (40s, 1 retry) that floor is ~90s, which is what this default is.
+  // Only a proposal call ever approaches it; a qualifying reply on Haiku returns in seconds.
+  AI_BRAIN_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(90_000),
 
   // Nurture sweep: the day-2/5/9/15 "still there?" cadence, cold-at-20. Off by default - tests
   // and the plain API server never run it, same gating style as WHATSAPP_OUTBOUND_DELIVERY_ENABLED.
