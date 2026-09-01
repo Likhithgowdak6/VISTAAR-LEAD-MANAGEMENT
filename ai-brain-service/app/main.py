@@ -20,13 +20,14 @@ Endpoints:
 
 import base64
 import logging
+import time
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import followup, outcome, proposals, summary
+from app import followup, llm, outcome, proposals, summary
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -44,6 +45,44 @@ def require_service_key(x_service_key: str | None = Header(default=None)) -> Non
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/health/llm", dependencies=[Depends(require_service_key)])
+def health_llm() -> dict:
+    """
+    Does the configured model key actually work?
+
+    /health above answers "is the process up", which is a different question and the one that
+    misleads: the service starts perfectly happily with a wrong key, an empty key, or a model id
+    the provider has retired, and the first thing to notice is a real lead getting no reply.
+
+    This makes ONE tiny real call, so it costs a fraction of a cent and is not free - which is
+    why it is deliberately not part of /health and not called on a timer. Run it after changing
+    provider, key or model.
+    """
+    started = time.monotonic()
+    try:
+        reply = llm.ping()
+    except Exception as exc:
+        # The provider's own message is the useful part here (bad key, unknown model, no credit),
+        # so it is passed through rather than swallowed. Nothing secret is in it; the key itself
+        # is never echoed by any provider.
+        log.warning("llm health check failed: %s: %s", type(exc).__name__, exc)
+        return {
+            "ok": False,
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "error": f"{type(exc).__name__}: {exc}"[:500],
+            "latency_ms": int((time.monotonic() - started) * 1000),
+        }
+
+    return {
+        "ok": True,
+        "provider": settings.llm_provider,
+        "model": settings.llm_model,
+        "reply": reply[:100],
+        "latency_ms": int((time.monotonic() - started) * 1000),
+    }
 
 
 # --------------------------------------------------------------------------

@@ -109,6 +109,17 @@ around $0.05 for a full lead conversation including a proposal. `claude-sonnet-5
 for better judgement on the harder calls — reading discount pressure, writing a proposal someone
 will actually read — at roughly double that.
 
+After changing the key, provider or model, check it actually works before a real lead does:
+
+```bash
+curl -H "X-Service-Key: $AI_BRAIN_SERVICE_KEY" http://localhost:8091/health/llm
+```
+
+`/health` only says the process is up — the service starts perfectly happily with a wrong key or
+a retired model id. `/health/llm` makes one tiny real call and reports `ok`, the model, the
+latency, and the provider's own error if it failed. It costs a fraction of a cent, so it is not
+on a timer and not part of `/health`.
+
 One constraint if you raise the timeout: `AI_BRAIN_LLM_TIMEOUT_SECONDS` x
 (`AI_BRAIN_LLM_MAX_RETRIES` + 1) must stay **below** `backend/.env`'s
 `AI_BRAIN_REQUEST_TIMEOUT_MS`, or the brain spends money finishing an answer the backend has
