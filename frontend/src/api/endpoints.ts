@@ -2,6 +2,7 @@ import { apiFetch } from './client';
 import {
   type AccountAccessMode,
   type AccountQrPayload,
+  type AccountRemoval,
   type ActivityLog,
   type AiBrainApproval,
   type AiBrainApprovalResolution,
@@ -522,10 +523,14 @@ export const disconnectAccount = ({
 }: AccountIdParams): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
   apiFetch(`/whatsapp-accounts/${accountId}/disconnect`, { method: 'POST', token });
 
+/**
+ * Remove is not always a delete: the API deletes a number that has no history and soft-removes
+ * (and hides) one that still owns conversations, messages or a lead source, and says which.
+ */
 export const removeAccount = ({
   token,
   accountId,
-}: AccountIdParams): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
+}: AccountIdParams): Promise<ApiSuccessResponse<AccountRemoval>> =>
   apiFetch(`/whatsapp-accounts/${accountId}`, { method: 'DELETE', token });
 
 // --- Team / users (Phase 15) ---

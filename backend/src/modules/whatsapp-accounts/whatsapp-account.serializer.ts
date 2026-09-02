@@ -1,4 +1,6 @@
+import { type AccountRemovalOutcome } from '../../constants/account-removal-outcomes.js';
 import { serializeDate, serializeId, toPlainObject } from '../../utils/serialization.js';
+import { type AccountReferenceCounts } from './whatsapp-account.repository.js';
 import { type WhatsAppAccountDocument } from './whatsapp-account.model.js';
 
 export interface SerializedWhatsAppAccount {
@@ -61,3 +63,35 @@ export const serializeWhatsAppAccount = (
     updatedAt: serializeDate(value.updatedAt),
   };
 };
+
+/**
+ * The result of pressing Remove. `outcome` is the one fact the caller cannot infer: whether the
+ * number is gone for good or merely hidden, and `references` is the reason it was hidden, so the
+ * UI can say "still has 47 conversations" instead of leaving an admin to guess.
+ */
+export interface SerializedAccountRemoval {
+  outcome: AccountRemovalOutcome;
+  account: SerializedWhatsAppAccount | null;
+  references: AccountReferenceCounts;
+}
+
+export interface SerializeAccountRemovalOptions {
+  outcome: AccountRemovalOutcome;
+  account: WhatsAppAccountDocument | Record<string, unknown> | null | undefined;
+  references: AccountReferenceCounts;
+}
+
+export const serializeAccountRemoval = ({
+  outcome,
+  account,
+  references,
+}: SerializeAccountRemovalOptions): SerializedAccountRemoval => ({
+  outcome,
+  account: serializeWhatsAppAccount(account),
+  references: {
+    conversations: references.conversations,
+    messages: references.messages,
+    leadSources: references.leadSources,
+    total: references.total,
+  },
+});

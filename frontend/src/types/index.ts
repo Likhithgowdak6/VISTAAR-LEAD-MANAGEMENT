@@ -10,6 +10,9 @@ export type {
 export type {
   AccountAccessMode,
   AccountQrPayload,
+  AccountRemoval,
+  AccountRemovalOutcome,
+  AccountRemovalReferences,
   AccountStatus,
   ActivityLog,
   AiBrainApproval,

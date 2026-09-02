@@ -2,12 +2,16 @@ import { type QueryFilter, type UpdateQuery } from 'mongoose';
 
 import { ACCOUNT_STATUSES, type AccountStatus } from '../../constants/account-statuses.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import { Conversation } from '../conversations/conversation.model.js';
+import { LeadSource } from '../lead-sources/lead-source.model.js';
+import { Message } from '../messages/message.model.js';
 import {
   decryptAccountJidFromStorage,
   decryptAccountPhoneFromStorage,
   encryptAccountJidForStorage,
   encryptAccountPhoneForStorage,
 } from '../privacy/protected-pii.service.js';
+import { deleteAuthStateForAccount } from '../whatsapp-auth-states/whatsapp-auth-state.repository.js';
 import { WhatsAppAccount, type WhatsAppAccountDocument } from './whatsapp-account.model.js';
 
 export interface FindAccountByIdOptions {
@@ -26,6 +30,34 @@ export interface FindAccountsByOrganizationOptions {
   status?: AccountStatus | string;
   limit?: number;
   skip?: number;
+}
+
+export interface CountAccountReferencesOptions {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}
+
+/**
+ * The references that make a hard delete unsafe. Deliberately not every collection that carries
+ * a `whatsappAccountId`: notes, tags, follow-up tasks and activity logs all hang off a
+ * conversation, so a number with no conversations and no messages cannot have any of them, and a
+ * lead source is counted because deleting the number it posts into would break the next import.
+ */
+export interface AccountReferenceCounts {
+  conversations: number;
+  messages: number;
+  leadSources: number;
+  total: number;
+}
+
+export interface HardDeleteAccountOptions {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}
+
+export interface HardDeleteAccountResult {
+  deletedAccounts: number;
+  deletedAuthStates: number;
 }
 
 export interface FindAccountsByStatusesOptions {
@@ -106,7 +138,14 @@ export const findAccountsByOrganization = ({
   };
 
   if (status) {
+    // An explicit status still wins, so `?status=removed` remains a way to look at the
+    // soft-removed numbers on purpose.
     filter.status = status as AccountStatus;
+  } else {
+    // Removed accounts are history, not inventory: they must not come back in the default list.
+    filter.status = {
+      $ne: ACCOUNT_STATUSES.REMOVED,
+    };
   }
 
   return WhatsAppAccount.find(filter)
@@ -224,6 +263,66 @@ export const softRemoveAccount = ({
       runValidators: true,
     },
   ).exec();
+};
+
+/**
+ * Counts the references that a hard delete would orphan.
+ *
+ * Only the three that actually break something are counted. A conversation or message whose
+ * account row is gone can never be replied to (the inbox would show a thread with no way out),
+ * and a lead source posts new leads into a specific number. Notes, tags, follow-up tasks and
+ * activity logs are all reached through a conversation, so an account with no conversations and
+ * no messages cannot own any of them.
+ */
+export const countAccountReferences = async ({
+  accountId,
+  organizationId,
+}: CountAccountReferencesOptions = {}): Promise<AccountReferenceCounts> => {
+  const filter = {
+    organizationId,
+    whatsappAccountId: accountId,
+  };
+
+  const [conversations, messages, leadSources] = await Promise.all([
+    Conversation.countDocuments(filter).exec(),
+    Message.countDocuments(filter).exec(),
+    LeadSource.countDocuments(filter).exec(),
+  ]);
+
+  return {
+    conversations,
+    messages,
+    leadSources,
+    total: conversations + messages + leadSources,
+  };
+};
+
+/**
+ * Permanently deletes an account and every WhatsApp auth-state row it owns.
+ *
+ * Only safe when `countAccountReferences` came back empty. The auth states go first: they are
+ * Baileys credential material for a session that has already been terminated, and if the second
+ * delete somehow failed the account would be left exactly as `resetAccountForActor` leaves it -
+ * present, with no stored login - rather than as a deleted account trailing live secrets.
+ */
+export const hardDeleteAccount = async ({
+  accountId,
+  organizationId,
+}: HardDeleteAccountOptions = {}): Promise<HardDeleteAccountResult> => {
+  const authStateResult = await deleteAuthStateForAccount({
+    organizationId,
+    whatsappAccountId: accountId,
+  });
+
+  const accountResult = await WhatsAppAccount.deleteOne({
+    _id: accountId,
+    organizationId,
+  }).exec();
+
+  return {
+    deletedAccounts: accountResult?.deletedCount ?? 0,
+    deletedAuthStates: authStateResult?.deletedCount ?? 0,
+  };
 };
 
 export const setAccountEncryptedIdentifiers = ({

@@ -9,8 +9,14 @@ import {
 } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../lib/permissions';
-import { type AuthValue, type AuthedRequest, type WhatsAppAccount } from '../types';
+import {
+  type AccountRemoval,
+  type AuthValue,
+  type AuthedRequest,
+  type WhatsAppAccount,
+} from '../types';
 import AccountStatusBadge from './AccountStatusBadge';
+import RemoveAccountDialog from './RemoveAccountDialog';
 
 type ActionTone = 'default' | 'primary' | 'danger';
 
@@ -43,11 +49,14 @@ type Props = {
   account: WhatsAppAccount;
   onConnect: (account: WhatsAppAccount) => void;
   onChanged?: () => void;
+  /** Called with what the server actually did, so the page can say which of the two it was. */
+  onRemoved?: (removal: AccountRemoval) => void;
 };
 
-const AccountRow = ({ account, onConnect, onChanged }: Props) => {
+const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const [busy, setBusy] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const canManage = hasPermission(permissions, PERMISSIONS.ACCOUNTS_MANAGE);
 
   const run = async (makeRequest: Parameters<AuthedRequest>[0]) => {
@@ -56,6 +65,27 @@ const AccountRow = ({ account, onConnect, onChanged }: Props) => {
       await authedRequest(makeRequest);
       onChanged?.();
     } catch {
+      onChanged?.();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Not folded into `run`: this is the one action whose response says something the list cannot
+  // show afterwards - the row is gone either way, deleted or merely hidden.
+  const confirmRemove = async () => {
+    setBusy(true);
+    try {
+      const payload = await authedRequest((token) =>
+        removeAccount({ token, accountId: account.id }),
+      );
+      setConfirmingRemove(false);
+      if (payload?.data) {
+        onRemoved?.(payload.data);
+      }
+      onChanged?.();
+    } catch {
+      setConfirmingRemove(false);
       onChanged?.();
     } finally {
       setBusy(false);
@@ -114,14 +144,19 @@ const AccountRow = ({ account, onConnect, onChanged }: Props) => {
               Reset
             </ActionButton>
           ) : null}
-          <ActionButton
-            tone="danger"
-            onClick={() => run((token) => removeAccount({ token, accountId: account.id }))}
-            disabled={busy}
-          >
+          <ActionButton tone="danger" onClick={() => setConfirmingRemove(true)} disabled={busy}>
             Remove
           </ActionButton>
         </div>
+      ) : null}
+
+      {confirmingRemove ? (
+        <RemoveAccountDialog
+          account={account}
+          busy={busy}
+          onCancel={() => setConfirmingRemove(false)}
+          onConfirm={confirmRemove}
+        />
       ) : null}
     </li>
   );

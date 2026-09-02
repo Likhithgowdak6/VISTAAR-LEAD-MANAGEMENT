@@ -1,7 +1,10 @@
 import { type HydratedDocument } from 'mongoose';
 
+import { ACCOUNT_REMOVAL_OUTCOMES } from '../../constants/account-removal-outcomes.js';
 import { ACCOUNT_STATUSES } from '../../constants/account-statuses.js';
+import { AUDIT_EVENTS } from '../../constants/audit-events.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import { createAuditLog } from '../audit/audit.repository.js';
 import {
   filterAccessibleAccounts,
   type AccountAccessSubject,
@@ -10,14 +13,20 @@ import { type UserDocument } from '../users/user.model.js';
 import { deleteAuthStateForAccount } from '../whatsapp-auth-states/whatsapp-auth-state.repository.js';
 import { getSessionManager } from '../whatsapp/sessions/session-manager.instance.js';
 import {
+  countAccountReferences,
   createAccountRecord,
   findAccountByBrandKey,
   findAccountById,
   findAccountsByOrganization,
+  hardDeleteAccount,
   softRemoveAccount,
   updateAccountStatus,
 } from './whatsapp-account.repository.js';
-import { serializeWhatsAppAccount } from './whatsapp-account.serializer.js';
+import {
+  serializeAccountRemoval,
+  serializeWhatsAppAccount,
+  type SerializedAccountRemoval,
+} from './whatsapp-account.serializer.js';
 import { type WhatsAppAccountDocument } from './whatsapp-account.model.js';
 
 type ActorUser = HydratedDocument<UserDocument> | UserDocument | { _id: ObjectIdLike };
@@ -240,19 +249,96 @@ export const disconnectAccountForActor = async ({
   return withRuntime(refreshed);
 };
 
-export const removeAccountForActor = async ({
-  organizationId,
-  accountId,
-  actor,
-}: RemoveAccountForActorOptions) => {
-  await loadAccount({ organizationId, accountId });
-  await getSessionManager().disconnectAccount({
-    accountId,
+export interface CreateAccountRemovalServiceDeps {
+  findAccount?: typeof findAccountById;
+  countReferences?: typeof countAccountReferences;
+  hardDelete?: typeof hardDeleteAccount;
+  softRemove?: typeof softRemoveAccount;
+  recordAudit?: typeof createAuditLog;
+  sessionManager?: typeof getSessionManager;
+}
+
+/**
+ * Remove, in the two shapes it actually has.
+ *
+ * A number with no history is deleted outright, along with every stored Baileys credential row,
+ * because leaving a `removed` placeholder on the page forever is the bug being fixed here. A
+ * number that owns conversations, messages or a lead source is soft-removed instead: hard
+ * deleting it would leave threads in the inbox that can never be replied to, which is worse than
+ * the cosmetic problem. Either way the row leaves the list, because
+ * `findAccountsByOrganization` no longer returns `removed` accounts by default.
+ *
+ * The live socket is closed first in both paths - deleting the document out from under a running
+ * session would leave a socket nothing can reach or stop.
+ */
+export const createAccountRemovalService = ({
+  findAccount = findAccountById,
+  countReferences = countAccountReferences,
+  hardDelete = hardDeleteAccount,
+  softRemove = softRemoveAccount,
+  recordAudit = createAuditLog,
+  sessionManager = getSessionManager,
+}: CreateAccountRemovalServiceDeps = {}) => {
+  const removeAccountForActor = async ({
     organizationId,
-    status: ACCOUNT_STATUSES.REMOVED,
-    disconnectCode: 'account_removed',
-    disconnectReason: 'Account removed from the app.',
-  });
-  const account = await softRemoveAccount({ accountId, organizationId, actorId: actor._id });
-  return serializeWhatsAppAccount(account);
+    accountId,
+    actor,
+  }: RemoveAccountForActorOptions): Promise<SerializedAccountRemoval> => {
+    const account = await findAccount({ accountId, organizationId });
+
+    if (!account) {
+      throw new Error('ACCOUNT_NOT_FOUND');
+    }
+
+    await sessionManager().disconnectAccount({
+      accountId,
+      organizationId,
+      status: ACCOUNT_STATUSES.REMOVED,
+      disconnectCode: 'account_removed',
+      disconnectReason: 'Account removed from the app.',
+    });
+
+    const references = await countReferences({ accountId, organizationId });
+
+    if (references.total > 0) {
+      const softRemoved = await softRemove({ accountId, organizationId, actorId: actor._id });
+
+      return serializeAccountRemoval({
+        outcome: ACCOUNT_REMOVAL_OUTCOMES.HIDDEN,
+        account: softRemoved ?? account,
+        references,
+      });
+    }
+
+    const deletion = await hardDelete({ accountId, organizationId });
+
+    // The only trail a permanent delete leaves. Nothing else in this module writes audit or
+    // activity - a soft remove is recoverable and the document itself records it - but a
+    // deletion has no document left to ask.
+    await recordAudit({
+      organizationId: account.organizationId,
+      eventType: AUDIT_EVENTS.WHATSAPP_ACCOUNT_DELETED,
+      actorId: actor._id,
+      metadata: {
+        whatsappAccountId: account._id.toString(),
+        name: account.name,
+        brandKey: account.brandKey,
+        deletedAuthStates: deletion.deletedAuthStates,
+      },
+    });
+
+    return serializeAccountRemoval({
+      outcome: ACCOUNT_REMOVAL_OUTCOMES.DELETED,
+      account,
+      references,
+    });
+  };
+
+  return { removeAccountForActor };
 };
+
+const accountRemovalService = createAccountRemovalService();
+
+export const removeAccountForActor = (
+  options: RemoveAccountForActorOptions,
+): Promise<SerializedAccountRemoval> => accountRemovalService.removeAccountForActor(options);

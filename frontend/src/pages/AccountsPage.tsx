@@ -7,7 +7,8 @@ import AddAccountForm from '../components/accounts/AddAccountForm';
 import ConnectQrModal from '../components/accounts/ConnectQrModal';
 import EmptyState from '../components/EmptyState';
 import Spinner from '../components/Spinner';
-import { type RealtimeValue, type WhatsAppAccount } from '../components/types';
+import { type AccountRemoval, type RealtimeValue, type WhatsAppAccount } from '../components/types';
+import { describeAccountRemoval } from '../lib/account-removal';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { useRealtime } from '../realtime/RealtimeProvider';
 
@@ -18,12 +19,15 @@ const AccountsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<WhatsAppAccount | null>(null);
+  const [removalNotice, setRemovalNotice] = useState<string | null>(null);
   const canManage = hasPermission(permissions, PERMISSIONS.ACCOUNTS_MANAGE);
 
   const load = useCallback(async () => {
     try {
       const payload = await authedRequest((token) => listAccounts({ token }));
-      setAccounts(payload.data ?? []);
+      // The API already leaves removed accounts out of the default list; this is belt and braces
+      // so a soft-removed number can never reappear here with a grey "Removed" badge.
+      setAccounts((payload.data ?? []).filter((account) => account.status !== 'removed'));
       setError(null);
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load accounts.');
@@ -46,6 +50,11 @@ const AccountsPage = () => {
   // The modal owns the connect call + polling so it can surface any error.
   const startConnect = (account: WhatsAppAccount) => setConnecting(account);
 
+  // The row is gone by the time this runs, so the page is the only place left to say whether the
+  // number was deleted for good or just hidden.
+  const handleRemoved = (removal: AccountRemoval) =>
+    setRemovalNotice(describeAccountRemoval(removal));
+
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-6">
       <div>
@@ -55,6 +64,22 @@ const AccountsPage = () => {
           personal or client number.
         </p>
       </div>
+
+      {removalNotice ? (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p role="status" className="text-sm text-slate-700">
+            {removalNotice}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRemovalNotice(null)}
+            aria-label="Dismiss"
+            className="shrink-0 text-slate-400 hover:text-slate-600"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {canManage ? <AddAccountForm onCreated={load} /> : null}
 
@@ -79,6 +104,7 @@ const AccountsPage = () => {
               account={account}
               onConnect={startConnect}
               onChanged={load}
+              onRemoved={handleRemoved}
             />
           ))}
         </ul>

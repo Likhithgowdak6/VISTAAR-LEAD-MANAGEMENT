@@ -290,6 +290,26 @@ export interface WhatsAppAccount {
   updatedAt: string | null;
 }
 
+/**
+ * What the API did when Remove was pressed. `deleted` means the number and its stored WhatsApp
+ * credentials are gone for good; `hidden` means it still owns history, so it was disconnected
+ * and dropped out of the list instead, and `references` says what that history is.
+ */
+export type AccountRemovalOutcome = 'deleted' | 'hidden';
+
+export interface AccountRemovalReferences {
+  conversations: number;
+  messages: number;
+  leadSources: number;
+  total: number;
+}
+
+export interface AccountRemoval {
+  outcome: AccountRemovalOutcome;
+  account: WhatsAppAccount | null;
+  references: AccountRemovalReferences;
+}
+
 export interface AccountQrPayload {
   qrDataUrl: string | null;
   pairingCode: string | null;

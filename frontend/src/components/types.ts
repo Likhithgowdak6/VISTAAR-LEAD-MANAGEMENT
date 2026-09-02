@@ -3,6 +3,7 @@
 import type { AuthContextValue, AuthUser } from '../auth/AuthContext';
 import type { MergedStage } from '../lib/stages';
 import type {
+  AccountRemoval,
   ActivityLog,
   AiBrainApproval,
   AiBrainOutcome,
@@ -30,6 +31,7 @@ import type {
 } from '../types';
 
 export type {
+  AccountRemoval,
   ActivityLog,
   AiBrainApproval,
   AiBrainOutcome,
