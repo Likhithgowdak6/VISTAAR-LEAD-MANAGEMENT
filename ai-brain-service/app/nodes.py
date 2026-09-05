@@ -129,6 +129,7 @@ def qualify(state: ConversationState) -> dict:
         rules=state.get("rules_text", "") or "(none supplied - promise nothing at all)",
         style=state.get("style_examples", ""),
         facts=json.dumps(facts, ensure_ascii=False),
+        owner_instruction=state.get("owner_instruction") or "(none)",
     )
     result = complete_json(
         system=system,
@@ -173,6 +174,9 @@ def qualify(state: ConversationState) -> dict:
         "decision": decision,
         "draft": result.get("message", "") if decision == "ask" else "",
         "escalation_reason": escalation_reason,
+        # One-turn-only: consumed above, so it must not silently keep steering every later
+        # message in this conversation as if the owner were still standing over the AI's shoulder.
+        "owner_instruction": "",
     }
 
 

@@ -28,6 +28,8 @@ export const ACTIVITY_EVENTS = Object.freeze({
   AI_BRAIN_NEW_LEAD_ALERTED: 'ai_brain.new_lead_alerted',
   AI_BRAIN_EVENT_REMINDER_SENT: 'ai_brain.event_reminder_sent',
   AI_BRAIN_HOT_LEAD_ALERTED: 'ai_brain.hot_lead_alerted',
+  AI_BRAIN_OWNER_INSTRUCTION_RESUMED: 'ai_brain.owner_instruction_resumed',
+  AI_BRAIN_OWNER_CALL_ESCALATED: 'ai_brain.owner_call_escalated',
 } as const);
 
 export type ActivityEvent = (typeof ACTIVITY_EVENTS)[keyof typeof ACTIVITY_EVENTS];

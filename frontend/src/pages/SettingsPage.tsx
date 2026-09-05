@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 
-import { getSettings, updateSettings } from '../api/endpoints';
+import { clearTestData, getSettings, getTestModeStatus, updateSettings } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import Spinner from '../components/Spinner';
 import { errorMessage } from '../components/types';
@@ -15,6 +15,11 @@ const SettingsPage = () => {
   const [error, setError] = useState<string | null>(null);
   const canManage = hasPermission(permissions, PERMISSIONS.SETTINGS_MANAGE);
 
+  const [testModeNumbers, setTestModeNumbers] = useState<string[]>([]);
+  const [clearing, setClearing] = useState(false);
+  const [clearResult, setClearResult] = useState<string | null>(null);
+  const [clearError, setClearError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       const payload = await authedRequest((token) => getSettings({ token }));
@@ -27,10 +32,55 @@ const SettingsPage = () => {
     }
   }, [authedRequest]);
 
+  const loadTestMode = useCallback(async () => {
+    try {
+      const payload = await authedRequest((token) => getTestModeStatus({ token }));
+      setTestModeNumbers(payload.data?.active ? (payload.data.allowedNumbers ?? []) : []);
+    } catch {
+      // TEST-PHASE ONLY panel: a failed lookup just hides it, no need to surface an error here.
+      setTestModeNumbers([]);
+    }
+  }, [authedRequest]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadTestMode();
+  }, [load, loadTestMode]);
+
+  const handleClearTestData = async () => {
+    if (clearing) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        'Delete ALL lead and conversation data for this organization (contacts, conversations, ' +
+          'messages, drafts, approvals, follow-ups, notes)? This cannot be undone.',
+      )
+    ) {
+      return;
+    }
+
+    setClearing(true);
+    setClearResult(null);
+    setClearError(null);
+
+    try {
+      const payload = await authedRequest((token) => clearTestData({ token }));
+      const result = payload.data;
+      setClearResult(
+        result
+          ? `Cleared ${result.totalDeleted} document(s). The dashboard is now empty.`
+          : 'Cleared.',
+      );
+    } catch (clearErr: unknown) {
+      setClearError(errorMessage(clearErr, 'Unable to clear test data.'));
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -126,6 +176,41 @@ const SettingsPage = () => {
           </form>
         )}
       </div>
+
+      {testModeNumbers.length > 0 ? (
+        <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <h2 className="text-sm font-bold text-amber-900">Test mode — clear test data</h2>
+          <p className="mt-1 text-xs text-amber-800">
+            WHATSAPP_TEST_ALLOWED_NUMBERS is set to {testModeNumbers.join(', ')}, so every
+            inbound message not from that list is already dropped before it reaches the
+            dashboard — everything here is test data. This wipes all of it (contacts,
+            conversations, messages, drafts, approvals, follow-ups, notes) for a fresh dashboard.
+            Remove WHATSAPP_TEST_ALLOWED_NUMBERS before production and this panel disappears.
+          </p>
+
+          {canManage ? (
+            <button
+              type="button"
+              onClick={handleClearTestData}
+              disabled={clearing}
+              className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:bg-red-300"
+            >
+              {clearing ? 'Clearing…' : 'Clear all test data'}
+            </button>
+          ) : null}
+
+          {clearError ? (
+            <p role="alert" className="mt-2 text-xs text-red-700">
+              {clearError}
+            </p>
+          ) : null}
+          {clearResult && !clearError ? (
+            <p role="status" className="mt-2 text-xs text-green-700">
+              {clearResult}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 };

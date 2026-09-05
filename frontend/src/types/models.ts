@@ -523,6 +523,18 @@ export interface OrganizationSettings {
   ownerWhatsappNumber: string | null;
 }
 
+/** TEST-PHASE ONLY. Whether WHATSAPP_TEST_ALLOWED_NUMBERS is configured, and for whom. */
+export interface TestModeStatus {
+  active: boolean;
+  allowedNumbers: string[];
+}
+
+/** TEST-PHASE ONLY. Result of wiping this organization's lead/conversation data. */
+export interface ClearTestDataResult {
+  totalDeleted: number;
+  deletedByCollection: Array<{ name: string; count: number }>;
+}
+
 export interface AuthSessionData {
   accessToken: string;
   tokenType?: 'Bearer';

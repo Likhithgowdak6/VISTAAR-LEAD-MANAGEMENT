@@ -23,6 +23,7 @@ import { createActivity as defaultCreateActivity } from '../activity/activity-lo
 import {
   bumpNurtureStep as defaultBumpNurtureStep,
   findConversationById as defaultFindConversationById,
+  findMostRecentlyEscalatedConversation as defaultFindMostRecentlyEscalatedConversation,
   updateAutomationState as defaultUpdateAutomationState,
   updateStage as defaultUpdateStage,
 } from '../conversations/conversation.repository.js';
@@ -38,7 +39,10 @@ import {
   listPendingApprovals as defaultListPendingApprovals,
   resolveApproval as defaultResolveApproval,
 } from './ai-brain-approval.repository.js';
-import { resolveApprovalForActor as defaultResolveApprovalForActor } from './ai-brain.service.js';
+import {
+  resolveApprovalForActor as defaultResolveApprovalForActor,
+  resumeEscalatedConversationWithInstruction as defaultResumeEscalatedConversationWithInstruction,
+} from './ai-brain.service.js';
 import { getOwnerActorForOrganization as defaultGetOwnerActorForOrganization } from './owner-actor.service.js';
 
 type Logger = { error?: (...args: unknown[]) => void };
@@ -810,6 +814,8 @@ export interface HandleOwnerApprovalReplyParams {
   resolveApprovalForActor?: typeof defaultResolveApprovalForActor;
   applyHandoverDecision?: typeof applyHandoverDecision;
   getOwnerActorForOrganization?: typeof defaultGetOwnerActorForOrganization;
+  findMostRecentlyEscalatedConversation?: typeof defaultFindMostRecentlyEscalatedConversation;
+  resumeEscalatedConversationWithInstruction?: typeof defaultResumeEscalatedConversationWithInstruction;
   notifyOwner?: NotifyOwnerFn;
   logger?: Logger;
 }
@@ -828,10 +834,13 @@ export const handleOwnerApprovalReply = async ({
   organizationId,
   whatsappAccountId,
   text,
+  messageId,
   listPendingApprovals = defaultListPendingApprovals as ListPendingApprovalsFn,
   resolveApprovalForActor = defaultResolveApprovalForActor,
   applyHandoverDecision: applyHandover = applyHandoverDecision,
   getOwnerActorForOrganization = defaultGetOwnerActorForOrganization,
+  findMostRecentlyEscalatedConversation = defaultFindMostRecentlyEscalatedConversation,
+  resumeEscalatedConversationWithInstruction = defaultResumeEscalatedConversationWithInstruction,
   notifyOwner = getOwnerNotifyService().notifyOwner,
   logger = defaultLogger,
 }: HandleOwnerApprovalReplyParams = {}): Promise<void> => {
@@ -845,7 +854,45 @@ export const handleOwnerApprovalReply = async ({
   });
 
   if (pendingApprovals.length === 0) {
-    // A stray message in the self-chat with nothing open to act on - not an error.
+    // Nothing waiting on a code - but there may still be a lead the AI stepped back from and
+    // never got a paused interrupt for (an escalation completes the graph run rather than
+    // pausing it, so there's no card to reply to; see resumeEscalatedConversationWithInstruction).
+    // Free text with nowhere else to go is read as an instruction for that lead, on the
+    // assumption that a self-chat reply the moment after an escalation card is about it - the
+    // one case this could act on the wrong lead is two escalations open at once, which is rare
+    // enough for a solo-owner test setup to accept.
+    try {
+      const escalated = await findMostRecentlyEscalatedConversation({ organizationId });
+
+      if (!escalated) {
+        return;
+      }
+
+      await resumeEscalatedConversationWithInstruction({
+        organizationId,
+        conversation: escalated,
+        instruction: text.trim(),
+        ownerMessageId: messageId ?? `owner-instruction:${Date.now()}`,
+      });
+
+      await notifyOwner({
+        accountId: whatsappAccountId,
+        organizationId,
+        text: `Got it — back on it for ${escalated.displayName}.`,
+      });
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown; message?: unknown };
+      logger?.error?.(
+        { code: err?.code, name: err?.name, message: err?.message },
+        'Owner instruction on an escalated conversation failed safely.',
+      );
+      await notifyOwner({
+        accountId: whatsappAccountId,
+        organizationId,
+        text: 'Sorry, something went wrong acting on that.',
+      }).catch(() => {});
+    }
+
     return;
   }
 

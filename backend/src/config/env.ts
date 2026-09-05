@@ -242,6 +242,28 @@ const envSchema = z.object({
   // times a day rather than once, so a restart cannot cost a booking its only chance to fire;
   // the atomic claim (Conversation.eventReminderSentAt) is what keeps it to one message.
   EVENT_REMINDER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(14_400_000),
+
+  // Owner call escalation (see ai-brain/owner-call-escalation.service.ts): if a new-lead alert
+  // has gone out and the owner has not touched WhatsApp since, place a real phone call through
+  // Vapi + VoiceLink instead of leaving a text nobody may see for hours. Off by default, same
+  // gating style as NURTURE_ENABLED - a test run or plain API server never places a real call.
+  OWNER_CALL_ESCALATION_ENABLED: booleanString.default(false),
+
+  // How long a new-lead alert may go unanswered (no owner WhatsApp activity at all) before the
+  // owner gets called about it. Seconds, not minutes, so this can be turned down to single
+  // digits while testing without a unit change.
+  OWNER_CALL_ESCALATION_DELAY_SECONDS: z.coerce.number().int().min(5).default(600),
+
+  OWNER_CALL_ESCALATION_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).default(120_000),
+
+  // Vapi (voice AI agent platform) - places the actual outbound call over the VoiceLink SIP
+  // trunk/DID configured on Vapi's own dashboard. All three required only when the escalation is
+  // enabled; validated together in the runner rather than here so a plain API server never has to
+  // supply them.
+  VAPI_API_KEY: z.string().optional(),
+  VAPI_ASSISTANT_ID: z.string().optional(),
+  VAPI_PHONE_NUMBER_ID: z.string().optional(),
+  VAPI_API_BASE: z.string().url().default('https://api.vapi.ai'),
 });
 
 const result = envSchema.safeParse(process.env);

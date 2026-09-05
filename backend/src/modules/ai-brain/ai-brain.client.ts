@@ -105,6 +105,13 @@ export interface AiBrainConversationContext {
   /** The one service brief this conversation's category earns. Never all sixteen. */
   serviceBrief: string;
   styleExamples: string;
+  /**
+   * A live, one-turn-only directive from the owner (e.g. "ask about their budget"), separate
+   * from `facts` for the same reason `rulesText` is separate from `knowledgeText`: mixed into
+   * facts it would read as trivia about the lead rather than an order to follow. Cleared by
+   * ai-brain-service after this one call - see qualify() in nodes.py.
+   */
+  ownerInstruction?: string;
 }
 
 export interface AiBrainResult {
@@ -128,6 +135,7 @@ export const sendLeadMessage = (
     rules_text: params.rulesText,
     service_brief: params.serviceBrief,
     style_examples: params.styleExamples,
+    owner_instruction: params.ownerInstruction ?? '',
   });
 
 export const sendOwnerDecision = (

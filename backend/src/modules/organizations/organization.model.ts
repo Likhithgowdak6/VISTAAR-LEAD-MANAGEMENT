@@ -17,6 +17,11 @@ export interface OrganizationDocument {
    * WHATSAPP_OWNER_NUMBER env var and then to the agent's own self-chat when this is unset.
    */
   ownerWhatsappNumber: string | null;
+  /** The last time the owner was seen doing ANYTHING on WhatsApp - replying in their self-chat,
+   *  or typing directly into a lead's chat. Read by ai-brain/owner-call-escalation.service.ts to
+   *  decide whether a new-lead alert has genuinely gone unanswered, org-wide rather than
+   *  per-lead, because the owner being active at all is what the escalation cares about. */
+  lastOwnerWhatsAppActivityAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,6 +58,11 @@ const organizationSchema = new mongoose.Schema<OrganizationDocument>(
       trim: true,
       maxlength: 20,
       match: /^\d*$/,
+      default: null,
+    },
+
+    lastOwnerWhatsAppActivityAt: {
+      type: Date,
       default: null,
     },
   },

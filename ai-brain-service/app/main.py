@@ -96,6 +96,9 @@ class LeadMessageIn(BaseModel):
     rules_text: str = "(none supplied - promise nothing at all)"
     service_brief: str = "(nothing specific - treat it generally)"
     style_examples: str = "(none saved - use your own judgement)"
+    owner_instruction: str = Field(
+        "", description="A live, one-turn-only directive from the owner for this reply. Cleared after use."
+    )
 
 
 class BrainResult(BaseModel):
@@ -138,6 +141,7 @@ def lead_message(conversation_id: str, body: LeadMessageIn) -> BrainResult:
         "rules_text": body.rules_text,
         "service_brief": body.service_brief,
         "style_examples": body.style_examples,
+        "owner_instruction": body.owner_instruction,
     }
     if body.text:
         seed["transcript"] = [{"role": "lead", "text": body.text}]

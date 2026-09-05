@@ -394,18 +394,32 @@ export const isLidJid = (jid: unknown): jid is string =>
  * represents that as an inbound/outbound message whose remoteJid bare-number matches the
  * socket's own JID. Both sides are normalized by dropping the `:<device>` suffix Baileys
  * appends to some JIDs before comparing the phone-number portion.
+ *
+ * `ownLid` is the account's own Linked ID (`socket.user?.lid`), checked alongside its phone JID
+ * because WhatsApp increasingly delivers a self-chat message under `<lid>@lid` rather than
+ * `<phone>@s.whatsapp.net` - the two forms are unrelated numbers, so a phone-only comparison
+ * reads a growing share of self-chat traffic as an ordinary lead conversation with someone the
+ * CRM has no contact for. Omit it (or pass null) where it isn't known; the phone comparison alone
+ * still covers every JID that arrives in phone form.
  */
-export const isSelfChatJid = (remoteJid: unknown, ownJid: unknown): boolean => {
-  if (typeof remoteJid !== 'string' || typeof ownJid !== 'string') {
+export const isSelfChatJid = (remoteJid: unknown, ownJid: unknown, ownLid?: unknown): boolean => {
+  if (typeof remoteJid !== 'string') {
     return false;
   }
 
   const bareNumber = (jid: string): string => jid.split('@')[0]?.split(':')[0]?.toLowerCase() ?? '';
 
   const remoteNumber = bareNumber(remoteJid);
-  const ownNumber = bareNumber(ownJid);
 
-  return remoteNumber !== '' && remoteNumber === ownNumber;
+  if (remoteNumber === '') {
+    return false;
+  }
+
+  if (typeof ownJid === 'string' && remoteNumber === bareNumber(ownJid)) {
+    return true;
+  }
+
+  return typeof ownLid === 'string' && remoteNumber === bareNumber(ownLid);
 };
 
 /**
@@ -442,12 +456,15 @@ export const normalizeBaileysInboundMessage = (
   message: BaileysInboundRawMessage = {},
   {
     ownJid,
+    // The account's own Linked ID (`socket.user?.lid`) - see isSelfChatJid on why self-chat
+    // detection needs this alongside the phone JID.
+    ownLid,
     // Stages 1-3 of the pipeline trace. Created here rather than passed in from the socket
     // handler because this is the only place that sees a message the gateway filter is about to
     // drop - beyond this function that message no longer exists. Seeded with the WhatsApp
     // message id so every later stage, in every other file, derives the same correlation id.
     trace = createPipelineTrace({ seed: message?.key?.id }),
-  }: { ownJid?: string | null; trace?: PipelineTrace } = {},
+  }: { ownJid?: string | null; ownLid?: string | null; trace?: PipelineTrace } = {},
 ): NormalizedInboundMessage | null => {
   trace.pass(PIPELINE_STAGE.PROVIDER_RECEIVED, () => ({
     from: maskTraceJid(message?.key?.participant || message?.key?.remoteJid),
@@ -483,7 +500,7 @@ export const normalizeBaileysInboundMessage = (
 
   trace.pass(PIPELINE_STAGE.PROVIDER_NORMALIZED, () => ({
     fromMe: Boolean(message.key?.fromMe),
-    isSelfChat: isSelfChatJid(remoteJid, ownJid),
+    isSelfChat: isSelfChatJid(remoteJid, ownJid, ownLid),
     type: messageType,
     media: media ? (media.isVoiceNote ? 'voice-note' : (media.mimeType ?? 'yes')) : 'none',
     body: tracePreview(text),
@@ -504,7 +521,7 @@ export const normalizeBaileysInboundMessage = (
     media,
     timestamp: message.messageTimestamp ?? null,
     fromMe: Boolean(message.key?.fromMe),
-    isSelfChat: isSelfChatJid(remoteJid, ownJid),
+    isSelfChat: isSelfChatJid(remoteJid, ownJid, ownLid),
     safe: {
       from: maskBaileysJid(remoteJid),
       textPreview: text.slice(0, 80),
@@ -686,8 +703,9 @@ export const createBaileysProvider = ({
 
       socket.ev.on('messages.upsert', async (messageUpdate: BaileysMessageUpsert = {}) => {
         const ownJid: string | null = socket.user?.id ?? null;
+        const ownLid: string | null = socket.user?.lid ?? null;
         const inboundMessages = (messageUpdate.messages ?? [])
-          .map((message) => normalizeBaileysInboundMessage(message, { ownJid }))
+          .map((message) => normalizeBaileysInboundMessage(message, { ownJid, ownLid }))
           .filter((message): message is NormalizedInboundMessage => Boolean(message));
 
         for (const inboundMessage of inboundMessages) {

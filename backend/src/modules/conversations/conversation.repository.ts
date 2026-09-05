@@ -596,6 +596,9 @@ export const mergeConversationAiContext = async ({
     {
       returnDocument: 'after',
       session,
+      // The update above is an aggregation pipeline (an array), not a plain update document -
+      // Mongoose requires this flag to tell the two apart and refuses an array update without it.
+      updatePipeline: true,
     },
   ).exec();
 
@@ -839,6 +842,30 @@ export const markOwnerTookOver = ({
       session,
     },
   ).exec();
+
+export interface FindRecentlyEscalatedConversationParams {
+  organizationId?: ObjectIdLike;
+}
+
+/**
+ * The single most recently AI-escalated conversation still waiting on a human - what "the
+ * escalation I just got a card for" means when an owner replies with free text and no code to
+ * anchor it to. Deliberately excludes owner-takeover (`ownerLastTypedAt` set): that pause means
+ * the owner is personally handling the thread already, not waiting for the AI to be told what to
+ * do, and excludes opt-outs (`optedOutAt` set), which nothing may ever re-automate.
+ */
+export const findMostRecentlyEscalatedConversation = ({
+  organizationId,
+}: FindRecentlyEscalatedConversationParams = {}) =>
+  Conversation.findOne({
+    organizationId,
+    aiAutomationEnabled: false,
+    aiAutomationPausedReason: { $ne: null },
+    ownerLastTypedAt: null,
+    optedOutAt: null,
+  })
+    .sort({ updatedAt: -1 })
+    .exec();
 
 export interface UpdateStageParams {
   conversationId?: ObjectIdLike;
@@ -1193,6 +1220,79 @@ export const claimNewLeadAlert = ({
     {
       $set: {
         newLeadAlertSentAt: now,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+// --------------------------------------------------------------------------
+// Owner call escalation (see ai-brain/owner-call-escalation.service.ts): a new-lead alert that
+// went out and has had no owner WhatsApp activity since, past the configured delay.
+// --------------------------------------------------------------------------
+export interface FindConversationsNeedingOwnerCallParams {
+  organizationId?: ObjectIdLike;
+  /** Alerts sent at or before this instant are old enough to qualify. */
+  alertedBefore?: Date;
+  limit?: number;
+}
+
+/**
+ * Candidates for a "hey, check WhatsApp" phone call: alerted, past the delay, never opted out,
+ * and not already escalated. Deliberately does NOT check `aiAutomationEnabled` here - a lead the
+ * AI is still happily qualifying is exactly the case this alert exists for; whether the owner has
+ * since engaged is a per-organization check the service layer makes against
+ * Organization.lastOwnerWhatsAppActivityAt, not something this query can see.
+ */
+export const findConversationsNeedingOwnerCall = ({
+  organizationId,
+  alertedBefore = new Date(),
+  limit = 25,
+}: FindConversationsNeedingOwnerCallParams = {}) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    newLeadAlertSentAt: { $ne: null, $lte: alertedBefore },
+    ownerCallEscalationSentAt: null,
+    optedOutAt: null,
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return Conversation.find(filter).sort({ newLeadAlertSentAt: 1 }).limit(limit).exec();
+};
+
+export interface ClaimOwnerCallEscalationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Atomically claims the right to place this conversation's one owner-escalation call - same
+ * conditional-findOneAndUpdate claim as `claimNewLeadAlert`, on `ownerCallEscalationSentAt: null`.
+ * A sweep tick that overlaps a slow previous one, or two API processes racing, can never dial the
+ * owner twice for the same lead.
+ */
+export const claimOwnerCallEscalation = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+  session,
+}: ClaimOwnerCallEscalationParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      ownerCallEscalationSentAt: null,
+    },
+    {
+      $set: {
+        ownerCallEscalationSentAt: now,
       },
     } as UpdateQuery<ConversationDocument>,
     {

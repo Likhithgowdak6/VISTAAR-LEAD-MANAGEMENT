@@ -12,6 +12,7 @@ import {
 } from './modules/ai-brain/daily-jobs-runner.js';
 import { createEventReminderRunner } from './modules/ai-brain/event-reminder-runner.js';
 import { createNurtureRunner } from './modules/ai-brain/nurture-runner.js';
+import { createOwnerCallEscalationRunner } from './modules/ai-brain/owner-call-escalation-runner.js';
 import { createLeadImportRunner } from './modules/lead-sources/lead-import.runner.js';
 import {
   startRealtimeSubscriber,
@@ -33,6 +34,7 @@ let nurtureRunner: BackgroundRunnerHandle | null = null;
 let morningReadRunner: BackgroundRunnerHandle | null = null;
 let digestRunner: BackgroundRunnerHandle | null = null;
 let eventReminderRunner: BackgroundRunnerHandle | null = null;
+let ownerCallEscalationRunner: BackgroundRunnerHandle | null = null;
 
 export interface ListenForRequestsParams {
   appInstance: Express;
@@ -104,6 +106,7 @@ export interface StartServerParams {
   createMorningReadRunnerFn?: () => BackgroundRunnerHandle;
   createDigestRunnerFn?: () => BackgroundRunnerHandle;
   createEventReminderRunnerFn?: () => BackgroundRunnerHandle;
+  createOwnerCallEscalationRunnerFn?: () => BackgroundRunnerHandle;
   reconnectSessionsFn?: () => Promise<unknown>;
   stopSessionsFn?: () => Promise<unknown>;
 }
@@ -124,6 +127,7 @@ export const startServer = async ({
   createMorningReadRunnerFn = createMorningReadRunner,
   createDigestRunnerFn = createDigestRunner,
   createEventReminderRunnerFn = createEventReminderRunner,
+  createOwnerCallEscalationRunnerFn = createOwnerCallEscalationRunner,
   reconnectSessionsFn = () => getSessionManager().reconnectPersistedSessions(),
   stopSessionsFn = () => getSessionManager().stopAll(),
 }: StartServerParams = {}): Promise<Server> => {
@@ -209,6 +213,16 @@ export const startServer = async ({
     });
     startedEventReminderRunner.start();
 
+    const startedOwnerCallEscalationRunner = createOwnerCallEscalationRunnerFn();
+    ownerCallEscalationRunner = startedOwnerCallEscalationRunner;
+    rollbackSteps.push(() => {
+      startedOwnerCallEscalationRunner.stop();
+      if (ownerCallEscalationRunner === startedOwnerCallEscalationRunner) {
+        ownerCallEscalationRunner = null;
+      }
+    });
+    startedOwnerCallEscalationRunner.start();
+
     // Restore sessions for accounts that were connected before the process stopped. Best-effort:
     // a reconnect failure must never prevent the server from coming up.
     rollbackSteps.push(stopSessionsFn);
@@ -257,6 +271,8 @@ export const stopServer = async ({
   let httpServerError: unknown = null;
 
   try {
+    ownerCallEscalationRunner?.stop();
+    ownerCallEscalationRunner = null;
     eventReminderRunner?.stop();
     eventReminderRunner = null;
     digestRunner?.stop();

@@ -73,6 +73,10 @@ export interface ConversationDocument {
   /** When the owner's "🔔 new lead" WhatsApp alert was sent for this conversation. Stays null
    *  until it goes out, and is claimed atomically, so a webhook retry can never double-alert. */
   newLeadAlertSentAt: Date | null;
+  /** When the owner's phone was actually called (via Vapi/VoiceLink) because this lead's alert
+   *  went unanswered - see ai-brain/owner-call-escalation.service.ts. Claimed atomically, exactly
+   *  like `newLeadAlertSentAt`, so the same lead can never dial the owner twice. */
+  ownerCallEscalationSentAt: Date | null;
   /** 0-100, recomputed from `aiFacts` plus `leadScoreSignals` by conversations/lead-score.ts
    *  every time an input changes. 0 for a lead who has told us nothing at all. */
   leadScore: number;
@@ -289,6 +293,11 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
     },
 
     newLeadAlertSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    ownerCallEscalationSentAt: {
       type: Date,
       default: null,
     },

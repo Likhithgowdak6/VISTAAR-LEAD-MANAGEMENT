@@ -332,6 +332,10 @@ export const createInboundMessageIngestionService = ({
       displayName: contact.displayName,
       defaults: {
         stage: CONVERSATION_STAGES.NEW,
+        // Only applied on insert ($setOnInsert) - a brand-new lead thread starts with automation
+        // on, matching the "AI auto-sends qualifying questions" default described in the README.
+        // An existing conversation an owner has taken over, opted out, or paused keeps its state.
+        aiAutomationEnabled: true,
       },
     })) as ConversationDocument;
 

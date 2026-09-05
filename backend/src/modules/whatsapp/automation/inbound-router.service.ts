@@ -28,6 +28,7 @@ import {
 } from '../../conversations/conversation.repository.js';
 import { type ConversationDocument } from '../../conversations/conversation.model.js';
 import { getOrganizationSettingsService } from '../../organizations/organization-settings.service.js';
+import { touchOwnerWhatsAppActivity as defaultTouchOwnerWhatsAppActivity } from '../../organizations/organization.repository.js';
 import { computeContactProviderKey as defaultComputeContactProviderKey } from '../../privacy/protected-pii.service.js';
 import { REALTIME_REASONS } from '../../realtime/realtime.events.js';
 import { publishConversationChanged as defaultPublishConversationChanged } from '../../realtime/realtime.publisher.js';
@@ -118,6 +119,7 @@ export interface CreateInboundMessageRouterOptions {
   contactRepository?: ContactRepositoryLike;
   conversationRepository?: ConversationRepositoryLike;
   computeContactProviderKey?: (jid: unknown) => string | null;
+  touchOwnerWhatsAppActivity?: typeof defaultTouchOwnerWhatsAppActivity;
   publishEvent?: (options: {
     organizationId?: ObjectIdLike;
     conversationId?: ObjectIdLike;
@@ -155,9 +157,30 @@ export const createInboundMessageRouter = ({
     markOwnerTookOver: defaultMarkOwnerTookOver,
   },
   computeContactProviderKey = defaultComputeContactProviderKey as (jid: unknown) => string | null,
+  touchOwnerWhatsAppActivity = defaultTouchOwnerWhatsAppActivity,
   publishEvent = defaultPublishConversationChanged as CreateInboundMessageRouterOptions['publishEvent'],
   logger = console,
 }: CreateInboundMessageRouterOptions) => {
+  /**
+   * Fire-and-forget on purpose: which lead's alert this happens to interrupt is not this
+   * function's business, and the owner-call escalation sweep only needs the timestamp to be
+   * roughly right, not synchronized with message handling. A failed write here must never affect
+   * message handling.
+   */
+  const noteOwnerActivity = (organizationId?: ObjectIdLike): void => {
+    if (!organizationId) {
+      return;
+    }
+
+    void touchOwnerWhatsAppActivity({ organizationId }).catch((error: unknown) => {
+      const err = error as { code?: unknown; name?: unknown };
+      logger?.error?.('Owner-activity timestamp write failed safely.', {
+        code: err?.code,
+        name: err?.name,
+      });
+    });
+  };
+
   /**
    * Resolved per message rather than once at factory time, so an owner number saved in the
    * dashboard applies to the very next message instead of the next restart. The settings
@@ -248,6 +271,8 @@ export const createInboundMessageRouter = ({
       () => ({ branch: 'owner-took-over', conversation: conversation._id.toString() }),
     );
 
+    noteOwnerActivity(organizationId);
+
     const updated = await conversationRepository.markOwnerTookOver({
       conversationId: conversation._id,
       organizationId,
@@ -322,6 +347,8 @@ export const createInboundMessageRouter = ({
             'Inbound message read as an OWNER decision, not a lead: the sender matches the configured owner number. It is deliberately not ingested and will not appear in the dashboard.',
           );
         }
+
+        noteOwnerActivity(organizationId);
 
         try {
           await handleOwnerSelfChatReply({
@@ -408,6 +435,8 @@ export const createInboundMessageRouter = ({
           "owner's own self-chat - handed to the approval-reply handler, not ingested as a lead",
           () => ({ branch: 'self-chat', fromMe: true, body: tracePreview(inboundMessage.text) }),
         );
+
+        noteOwnerActivity(organizationId);
 
         await handleOwnerSelfChatReply({
           organizationId,

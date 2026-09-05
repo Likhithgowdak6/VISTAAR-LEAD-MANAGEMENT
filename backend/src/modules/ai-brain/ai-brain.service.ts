@@ -91,6 +91,11 @@ export interface HandleInboundForAutomationParams {
    * fine: the trace falls back to deriving one from `inboundMessageId`.
    */
   traceId?: string;
+  /**
+   * A live, one-turn-only directive from the owner - see resumeEscalatedConversationWithInstruction
+   * below, the only caller that sets this today. Absent for every ordinary lead message.
+   */
+  ownerInstruction?: string;
 }
 
 /**
@@ -122,6 +127,7 @@ export const handleInboundMessageForAutomation = async ({
   messageType,
   isVoiceNote,
   traceId,
+  ownerInstruction,
 }: HandleInboundForAutomationParams): Promise<void> => {
   // Stages 10-12.
   const trace = createPipelineTrace({ id: traceId, seed: inboundMessageId.toString() });
@@ -262,6 +268,7 @@ export const handleInboundMessageForAutomation = async ({
       rulesText: context.rulesText,
       serviceBrief: context.serviceBrief,
       styleExamples: context.styleExamples,
+      ownerInstruction,
     });
 
     trace.pass(PIPELINE_STAGE.AI_DECISION, () => ({
@@ -462,6 +469,69 @@ export const handleInboundMessageForAutomation = async ({
       'ai-brain-service call failed while handling an inbound message; conversation left unautomated for this turn.',
     );
   }
+};
+
+// --------------------------------------------------------------------------
+// An escalated conversation has no pending approval and no paused LangGraph interrupt to resume
+// - the graph run that escalated it already completed (see main.py's lead_message: escalation is
+// a terminal status, not an interrupt()). So "the owner answered the escalation" cannot go
+// through resolveApprovalForActor/owner-decision like a draft-reply or handover card can. Instead
+// this turns automation back on and re-runs the graph with no new lead text (ai-brain-service
+// treats an empty/absent `text` as "just re-run with current facts and transcript"), carrying the
+// owner's instruction in its own prompt slot so the AI's next message is guided by it without the
+// instruction being misread as a fact about the lead.
+// --------------------------------------------------------------------------
+export interface ResumeEscalatedConversationWithInstructionParams {
+  organizationId: ObjectIdLike;
+  conversation: HydratedDocument<ConversationDocument>;
+  instruction: string;
+  /** The owner's own WhatsApp message id that carried the instruction - reused as this turn's
+   *  idempotency-key seed, exactly like a lead's inboundMessageId would be. */
+  ownerMessageId: string;
+}
+
+export const resumeEscalatedConversationWithInstruction = async ({
+  organizationId,
+  conversation,
+  instruction,
+  ownerMessageId,
+}: ResumeEscalatedConversationWithInstructionParams): Promise<void> => {
+  await updateAutomationState({
+    conversationId: conversation._id,
+    organizationId,
+    aiAutomationEnabled: true,
+    aiAutomationPausedReason: null,
+  });
+
+  await createActivity({
+    organizationId,
+    whatsappAccountId: conversation.whatsappAccountId,
+    conversationId: conversation._id,
+    eventType: ACTIVITY_EVENTS.AI_BRAIN_OWNER_INSTRUCTION_RESUMED,
+    summary: `Owner gave an instruction and automation resumed: "${instruction}"`,
+    metadata: { instruction },
+  });
+
+  await enqueueConversationChanged({
+    organizationId,
+    conversationId: conversation._id,
+    assignedTo: conversation.assignedTo,
+    reason: REALTIME_REASONS.AI_PENDING,
+  });
+
+  // The write above is the source of truth; this mirrors it onto the in-memory document so the
+  // eligibility check at the top of handleInboundMessageForAutomation (run immediately below,
+  // against this same object) sees automation as already back on rather than reading stale state.
+  conversation.aiAutomationEnabled = true;
+  conversation.aiAutomationPausedReason = null;
+
+  await handleInboundMessageForAutomation({
+    organizationId,
+    conversation,
+    inboundMessageId: ownerMessageId,
+    inboundText: '',
+    ownerInstruction: instruction,
+  });
 };
 
 // --------------------------------------------------------------------------

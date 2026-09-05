@@ -50,6 +50,28 @@ export const listOrganizations = ({
     .exec();
 };
 
+export interface TouchOwnerWhatsAppActivityParams {
+  organizationId?: ObjectIdLike;
+  now?: Date;
+}
+
+/**
+ * Records "the owner did something on WhatsApp just now" - called from the inbound router
+ * wherever it recognizes an owner-authored message (self-chat reply or a direct reply typed into
+ * a lead's own chat), best-effort and fire-and-forget. The only reader is
+ * ai-brain/owner-call-escalation.service.ts, deciding whether a new-lead alert has genuinely gone
+ * unanswered; a failed write here must never affect message handling, so callers do not await
+ * this for correctness, only log if it rejects.
+ */
+export const touchOwnerWhatsAppActivity = ({
+  organizationId,
+  now = new Date(),
+}: TouchOwnerWhatsAppActivityParams = {}) =>
+  Organization.updateOne(
+    { _id: organizationId },
+    { $set: { lastOwnerWhatsAppActivityAt: now } },
+  ).exec();
+
 export const updateOrganizationById = (
   organizationId: ObjectIdLike,
   updateData: UpdateQuery<OrganizationDocument>,

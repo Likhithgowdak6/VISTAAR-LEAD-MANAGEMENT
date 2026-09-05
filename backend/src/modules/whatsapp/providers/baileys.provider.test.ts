@@ -135,6 +135,21 @@ describe('isSelfChatJid', () => {
     expect(isSelfChatJid(undefined, '911234567890@s.whatsapp.net')).toBe(false);
     expect(isSelfChatJid('911234567890@s.whatsapp.net', undefined)).toBe(false);
   });
+
+  it('matches the account own Linked ID when WhatsApp delivers self-chat under its @lid form', () => {
+    // The phone-based ownJid does not match an @lid remoteJid at all - this is the case a plain
+    // phone comparison misses, and why ownLid exists.
+    expect(isSelfChatJid('222222222222222@lid', '911234567890@s.whatsapp.net')).toBe(false);
+    expect(
+      isSelfChatJid('222222222222222@lid', '911234567890@s.whatsapp.net', '222222222222222@lid'),
+    ).toBe(true);
+  });
+
+  it('does not match a lead @lid against the account own lid', () => {
+    expect(
+      isSelfChatJid('333333333333333@lid', '911234567890@s.whatsapp.net', '222222222222222@lid'),
+    ).toBe(false);
+  });
 });
 
 describe('normalizeBaileysInboundMessage', () => {

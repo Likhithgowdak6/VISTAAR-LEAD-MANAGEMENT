@@ -16,6 +16,7 @@ import {
   type ApiSuccessResponse,
   type AssignableRole,
   type AuthResponse,
+  type ClearTestDataResult,
   type Conversation,
   type ConversationAiSummary,
   type ConversationDetail,
@@ -40,6 +41,7 @@ import {
   type StageKey,
   type StageStatus,
   type Tag,
+  type TestModeStatus,
   type User,
   type UserStatus,
   type WhatsAppAccount,
@@ -390,6 +392,18 @@ export const updateSettings = ({
     token,
     body: { ownerWhatsappNumber },
   });
+
+// --- Dev tools (TEST-PHASE ONLY - delete before production) ---
+
+export const getTestModeStatus = ({
+  token,
+}: TokenParams = {}): Promise<ApiSuccessResponse<TestModeStatus>> =>
+  apiFetch('/dev-tools/test-mode', { token });
+
+export const clearTestData = ({
+  token,
+}: TokenParams = {}): Promise<ApiSuccessResponse<ClearTestDataResult>> =>
+  apiFetch('/dev-tools/clear-test-data', { method: 'POST', token });
 
 export const listConversationFollowUps = ({
   token,

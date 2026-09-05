@@ -308,40 +308,67 @@ describe('handleOwnerApprovalReply', () => {
   const organizationId = 'org-1';
   const whatsappAccountId = 'account-1';
 
-  const createHarness = (pendingApprovals: Array<{ _id: string; conversationId: string; code: string }>) => {
+  const createHarness = (
+    pendingApprovals: Array<{ _id: string; conversationId: string; code: string }>,
+    escalatedConversation: { _id: string; displayName: string } | null = null,
+  ) => {
     const listPendingApprovals = vi.fn().mockResolvedValue(pendingApprovals);
     const resolveApprovalForActor = vi.fn().mockResolvedValue({ approval: {}, sent: true });
     const ownerActor = { actor: { _id: 'owner-1' }, permissions: ['messages.send'] };
     const getOwnerActorForOrganization = vi.fn().mockResolvedValue(ownerActor);
     const notifyOwner = vi.fn().mockResolvedValue({ providerMessageId: 'MSG-1' });
+    const findMostRecentlyEscalatedConversation = vi.fn().mockResolvedValue(escalatedConversation);
+    const resumeEscalatedConversationWithInstruction = vi.fn().mockResolvedValue(undefined);
 
     return {
       listPendingApprovals,
       resolveApprovalForActor,
       getOwnerActorForOrganization,
       notifyOwner,
+      findMostRecentlyEscalatedConversation,
+      resumeEscalatedConversationWithInstruction,
       ownerActor,
       run: (text: string) =>
         handleOwnerApprovalReply({
           organizationId,
           whatsappAccountId,
           text,
+          messageId: 'owner-msg-1',
           listPendingApprovals,
           resolveApprovalForActor,
           getOwnerActorForOrganization,
+          findMostRecentlyEscalatedConversation,
+          resumeEscalatedConversationWithInstruction,
           notifyOwner,
           logger: { error: vi.fn() },
         }),
     };
   };
 
-  it('does nothing when there are no pending approvals at all', async () => {
+  it('does nothing when there are no pending approvals and nothing recently escalated', async () => {
     const h = createHarness([]);
 
     await h.run('1');
 
     expect(h.resolveApprovalForActor).not.toHaveBeenCalled();
+    expect(h.resumeEscalatedConversationWithInstruction).not.toHaveBeenCalled();
     expect(h.notifyOwner).not.toHaveBeenCalled();
+  });
+
+  it('treats free text as an instruction for the most recently escalated conversation when nothing is pending', async () => {
+    const h = createHarness([], { _id: 'conv-escalated', displayName: 'Likhith' });
+
+    await h.run('ask them the budget and try to handle');
+
+    expect(h.resumeEscalatedConversationWithInstruction).toHaveBeenCalledWith({
+      organizationId,
+      conversation: { _id: 'conv-escalated', displayName: 'Likhith' },
+      instruction: 'ask them the budget and try to handle',
+      ownerMessageId: 'owner-msg-1',
+    });
+    expect(h.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('Likhith') }),
+    );
   });
 
   it('resolves an explicit-code approve and confirms it was sent', async () => {

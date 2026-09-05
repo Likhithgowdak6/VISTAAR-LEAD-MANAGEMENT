@@ -10,6 +10,7 @@ import aiKnowledgeRouter from './modules/ai-knowledge/ai-knowledge.routes.js';
 import authRouter from './modules/auth/auth.routes.js';
 import contactRouter from './modules/contacts/contact.routes.js';
 import conversationRouter from './modules/conversations/conversation.routes.js';
+import testDataRouter from './modules/dev-tools/test-data.routes.js';
 import followUpRouter from './modules/followups/followup.routes.js';
 import healthRouter from './modules/health/health.routes.js';
 import leadSourceRouter from './modules/lead-sources/lead-source.routes.js';
@@ -74,6 +75,7 @@ app.use('/api/v1/lead-sources', leadSourceRouter);
 app.use('/api/v1/whatsapp-accounts', whatsappAccountRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/settings', organizationSettingsRouter);
+app.use('/api/v1/dev-tools', testDataRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
