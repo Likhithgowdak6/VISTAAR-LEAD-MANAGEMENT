@@ -24,10 +24,7 @@ const LeadScoreBadge = ({ band, score, showScore = false }: Props) => {
   const style = getLeadScoreBandStyle(band);
 
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${style.className}`}
-      title={style.handling}
-    >
+    <span className={style.className} title={style.handling}>
       {style.label}
       {showScore && typeof score === 'number' ? ` · ${score}` : ''}
     </span>

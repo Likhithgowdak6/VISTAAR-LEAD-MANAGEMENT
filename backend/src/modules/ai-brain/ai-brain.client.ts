@@ -112,6 +112,13 @@ export interface AiBrainConversationContext {
    * ai-brain-service after this one call - see qualify() in nodes.py.
    */
   ownerInstruction?: string;
+  /**
+   * Every category this repo has a playbook for, so ai-brain-service can classify an organic
+   * WhatsApp chat into one. Sent rather than hardcoded over there because category-playbooks.ts
+   * is the single source of truth for the list, and a category the brain invented would resolve
+   * to the `unknown` fallback anyway.
+   */
+  categoryOptions?: readonly string[];
 }
 
 export interface AiBrainResult {
@@ -119,6 +126,8 @@ export interface AiBrainResult {
   message: string;
   facts: Record<string, unknown>;
   escalation_reason: string;
+  /** What the enquiry was classified as, '' while still unknown. Absent from older responses. */
+  category?: string;
 }
 
 export const sendLeadMessage = (
@@ -136,6 +145,7 @@ export const sendLeadMessage = (
     service_brief: params.serviceBrief,
     style_examples: params.styleExamples,
     owner_instruction: params.ownerInstruction ?? '',
+    category_options: params.categoryOptions ?? [],
   });
 
 export const sendOwnerDecision = (

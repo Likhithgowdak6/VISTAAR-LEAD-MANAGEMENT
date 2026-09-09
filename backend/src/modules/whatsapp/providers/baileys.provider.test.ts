@@ -19,7 +19,9 @@ vi.mock('../../../config/env.js', () => ({
 import { MESSAGE_TYPES } from '../../../constants/message-types.js';
 import { createPipelineTrace, type PipelineTrace } from '../../../observability/pipeline-trace.js';
 import {
+  classifyBaileysGatewayDrop,
   describeBaileysGatewayDrop,
+  isRoutineGatewayDrop,
   extractBaileysMedia,
   isSelfChatJid,
   normalizeBaileysInboundMessage,
@@ -43,6 +45,62 @@ const recordingTrace = (): { trace: PipelineTrace; lines: string[] } => {
 
 const textMessage = (text = 'hi') => ({
   conversation: text,
+});
+
+describe('classifyBaileysGatewayDrop', () => {
+  it('buckets the four kinds a restart floods the log with', () => {
+    expect(
+      classifyBaileysGatewayDrop({
+        key: { id: 'm1', remoteJid: '1203630@g.us' },
+        message: textMessage(),
+      }),
+    ).toBe('group');
+
+    expect(
+      classifyBaileysGatewayDrop({
+        key: { id: 'm2', remoteJid: '1203630@newsletter' },
+        message: textMessage(),
+      }),
+    ).toBe('channel');
+
+    expect(
+      classifyBaileysGatewayDrop({
+        key: { id: 'm3', remoteJid: 'status@broadcast' },
+        message: textMessage(),
+      }),
+    ).toBe('broadcast');
+
+    // A receipt or reaction node: no payload at all.
+    expect(classifyBaileysGatewayDrop({ key: { id: 'm4', remoteJid: '911234567890@s.whatsapp.net' } })).toBe(
+      'no-payload',
+    );
+  });
+
+  it('returns null for a 1:1 chat, which is the only thing that can be a lead', () => {
+    expect(
+      classifyBaileysGatewayDrop({
+        key: { id: 'm5', remoteJid: '911234567890@s.whatsapp.net' },
+        message: textMessage(),
+      }),
+    ).toBeNull();
+  });
+
+  it('treats a payload with no chat to attach it to as notable, not routine', () => {
+    const kind = classifyBaileysGatewayDrop({ key: { id: 'm6' }, message: textMessage() });
+
+    expect(kind).toBe('unattachable');
+    // Rare enough that one loud line about it is information rather than noise, so it must not
+    // be swallowed into the batch summary with the groups and the status posts.
+    expect(isRoutineGatewayDrop(kind)).toBe(false);
+  });
+
+  it('marks the flood kinds as routine so they are counted rather than traced one by one', () => {
+    expect(isRoutineGatewayDrop('group')).toBe(true);
+    expect(isRoutineGatewayDrop('channel')).toBe(true);
+    expect(isRoutineGatewayDrop('broadcast')).toBe(true);
+    expect(isRoutineGatewayDrop('no-payload')).toBe(true);
+    expect(isRoutineGatewayDrop(null)).toBe(false);
+  });
 });
 
 describe('shouldIgnoreBaileysInboundMessage', () => {

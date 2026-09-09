@@ -23,14 +23,20 @@ export const BUILTIN_STAGES: readonly BuiltinStage[] = [
   { key: 'closed', label: 'Closed' },
 ];
 
+/*
+ * The pipeline is a sequence, so the badges are lit like one: a new lead sits unlit, warms
+ * through the middle stages as the studio puts work into it, and a won deal is the brightest
+ * thing in the row. Lost and closed go cold again. The temperature is the progress bar - which
+ * is why these are not seven arbitrary hues.
+ */
 const BUILTIN_STYLES: Readonly<Record<BuiltinStageKey, string>> = {
-  new: 'bg-slate-100 text-slate-700',
-  contacted: 'bg-blue-100 text-blue-700',
-  qualified: 'bg-indigo-100 text-indigo-700',
-  proposal: 'bg-amber-100 text-amber-700',
-  won: 'bg-green-100 text-green-700',
-  lost: 'bg-red-100 text-red-700',
-  closed: 'bg-slate-200 text-slate-600',
+  new: 'chip',
+  contacted: 'chip chip-fill',
+  qualified: 'chip chip-fill',
+  proposal: 'chip chip-key',
+  won: 'chip chip-key glow-key-soft',
+  lost: 'chip border-danger/30 bg-danger/10 text-danger',
+  closed: 'chip opacity-60',
 };
 
 export const getBuiltinStageStyle = (key: string | null | undefined): string | null =>

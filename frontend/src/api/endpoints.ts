@@ -42,6 +42,8 @@ import {
   type StageStatus,
   type Tag,
   type TestModeStatus,
+  type TestOwnerCall,
+  type TestOwnerCallOutcome,
   type User,
   type UserStatus,
   type WhatsAppAccount,
@@ -404,6 +406,21 @@ export const clearTestData = ({
   token,
 }: TokenParams = {}): Promise<ApiSuccessResponse<ClearTestDataResult>> =>
   apiFetch('/dev-tools/clear-test-data', { method: 'POST', token });
+
+export const callOwnerForTest = ({
+  token,
+}: TokenParams = {}): Promise<ApiSuccessResponse<TestOwnerCall>> =>
+  apiFetch('/dev-tools/call-owner', { method: 'POST', token });
+
+export interface TestCallOutcomeParams extends TokenParams {
+  callId: string;
+}
+
+export const getTestCallOutcome = ({
+  token,
+  callId,
+}: TestCallOutcomeParams): Promise<ApiSuccessResponse<TestOwnerCallOutcome>> =>
+  apiFetch(`/dev-tools/call-outcome/${encodeURIComponent(callId)}`, { token });
 
 export const listConversationFollowUps = ({
   token,

@@ -49,16 +49,27 @@ type NavButtonProps = {
   children: ReactNode;
 };
 
+/**
+ * Nav reads as a strip of labelled channels rather than a row of buttons: letterspaced caps, and
+ * the active one lit by the key light from underneath. The underline is the indicator - a filled
+ * pill would compete with the primary action.
+ */
 const NavButton = ({ active, onClick, children }: NavButtonProps) => (
   <button
     type="button"
     onClick={onClick}
     aria-current={active}
-    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-      active ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'
+    className={`relative px-3 py-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] transition-colors ${
+      active ? 'text-key' : 'text-muted hover:text-bone'
     }`}
   >
     {children}
+    <span
+      aria-hidden="true"
+      className={`absolute inset-x-2 -bottom-px h-px transition-opacity ${
+        active ? 'bg-key opacity-100 shadow-[0_0_10px_1px_rgb(255_158_74/60%)]' : 'opacity-0'
+      }`}
+    />
   </button>
 );
 
@@ -81,14 +92,16 @@ const AppShell = () => {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-bold text-blue-600">WAM CRM AI</span>
+    <div className="flex h-screen flex-col bg-ink">
+      <header className="flex items-center justify-between border-b border-hairline bg-ink-2/80 px-5 py-2.5 backdrop-blur">
+        <div className="flex items-center gap-5">
+          <span className="wordmark">Vistaar</span>
           {organization?.name ? (
-            <span className="text-sm text-slate-400">· {organization.name}</span>
+            <span className="hidden border-l border-hairline pl-5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted sm:inline">
+              {organization.name}
+            </span>
           ) : null}
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-0.5">
             <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
               Inbox
             </NavButton>
@@ -132,20 +145,22 @@ const AppShell = () => {
         <div className="flex items-center gap-3">
           <a
             href="whatsapp-admin://open"
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-md border border-hairline px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key"
           >
             W-Staff
           </a>
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
+          <div className="flex items-center gap-2 border-l border-hairline pl-3">
+            {/* The initials sit in the key light: the one warm point in the masthead, so "who am
+                I signed in as" is answerable at a glance without reading. */}
+            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-key/40 bg-key/10 font-mono text-[0.625rem] font-semibold text-key-soft">
               {getInitials(user?.name)}
             </span>
-            <span className="text-sm text-slate-700">{user?.name}</span>
+            <span className="hidden text-sm text-bone-dim md:inline">{user?.name}</span>
           </div>
           <button
             type="button"
             onClick={logout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
           >
             Sign out
           </button>

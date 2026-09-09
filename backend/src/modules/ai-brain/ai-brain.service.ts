@@ -269,6 +269,9 @@ export const handleInboundMessageForAutomation = async ({
       serviceBrief: context.serviceBrief,
       styleExamples: context.styleExamples,
       ownerInstruction,
+      // Every playbook key, minus the fallback: "unknown" is what an unclassified conversation
+      // already is, so offering it as a choice only invites the model to pick it.
+      categoryOptions: Object.keys(CATEGORY_PLAYBOOKS).filter((key) => key !== 'unknown'),
     });
 
     trace.pass(PIPELINE_STAGE.AI_DECISION, () => ({
@@ -408,6 +411,10 @@ export const handleInboundMessageForAutomation = async ({
         organizationId,
         facts: result.facts,
         factsPrecedence: AI_FACTS_PRECEDENCE.NEW_ANSWERS,
+        // What the brain classified this enquiry as. The merge itself only writes a category
+        // onto a conversation that is still `unknown`/empty, so the first real classification
+        // wins and a later turn cannot swap the playbook out from under the conversation.
+        category: result.category,
       });
     } catch (error: unknown) {
       logger.error(

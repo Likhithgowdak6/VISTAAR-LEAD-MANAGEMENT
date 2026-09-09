@@ -42,3 +42,7 @@ class ConversationState(TypedDict, total=False):
     # conversation's category, never all sixteen - see its category-playbooks.ts.
     service_brief: str
     style_examples: str
+    # Every category wam-crm-ai has a playbook for, so the qualifier can classify
+    # an organic chat into one. Sent by wam-crm-ai rather than hardcoded here:
+    # category-playbooks.ts is the single source of truth for the list.
+    category_options: list[str]

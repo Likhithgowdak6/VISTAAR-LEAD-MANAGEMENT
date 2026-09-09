@@ -77,6 +77,13 @@ export interface ConversationDocument {
    *  went unanswered - see ai-brain/owner-call-escalation.service.ts. Claimed atomically, exactly
    *  like `newLeadAlertSentAt`, so the same lead can never dial the owner twice. */
   ownerCallEscalationSentAt: Date | null;
+  /** Vapi's id for that call, kept only until its outcome has been read back. Accepting a call
+   *  request is not the same as the phone ringing - a dead SIP trunk, no wallet balance or a
+   *  rejected number all return a happy 2xx from Vapi and then fail silently downstream. */
+  ownerCallEscalationCallId: string | null;
+  /** What actually became of the call, in Vapi's own words ('ended'/'customer-did-not-answer'/a
+   *  SIP failure). Null while still unknown; set once and never polled again. */
+  ownerCallEscalationOutcome: string | null;
   /** 0-100, recomputed from `aiFacts` plus `leadScoreSignals` by conversations/lead-score.ts
    *  every time an input changes. 0 for a lead who has told us nothing at all. */
   leadScore: number;
@@ -299,6 +306,20 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
 
     ownerCallEscalationSentAt: {
       type: Date,
+      default: null,
+    },
+
+    ownerCallEscalationCallId: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: null,
+    },
+
+    ownerCallEscalationOutcome: {
+      type: String,
+      trim: true,
+      maxlength: 200,
       default: null,
     },
 

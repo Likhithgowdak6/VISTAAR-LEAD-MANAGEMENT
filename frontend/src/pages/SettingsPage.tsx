@@ -1,6 +1,13 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 
-import { clearTestData, getSettings, getTestModeStatus, updateSettings } from '../api/endpoints';
+import {
+  callOwnerForTest,
+  clearTestData,
+  getSettings,
+  getTestCallOutcome,
+  getTestModeStatus,
+  updateSettings,
+} from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import Spinner from '../components/Spinner';
 import { errorMessage } from '../components/types';
@@ -19,6 +26,11 @@ const SettingsPage = () => {
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<string | null>(null);
   const [clearError, setClearError] = useState<string | null>(null);
+
+  const [calling, setCalling] = useState(false);
+  const [callId, setCallId] = useState<string | null>(null);
+  const [callStatus, setCallStatus] = useState<string | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +57,6 @@ const SettingsPage = () => {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTestMode();
   }, [load, loadTestMode]);
 
@@ -79,6 +90,64 @@ const SettingsPage = () => {
       setClearError(errorMessage(clearErr, 'Unable to clear test data.'));
     } finally {
       setClearing(false);
+    }
+  };
+
+  const handleCallOwner = async () => {
+    if (calling) {
+      return;
+    }
+
+    setCalling(true);
+    setCallId(null);
+    setCallStatus(null);
+    setCallError(null);
+
+    try {
+      const payload = await authedRequest((token) => callOwnerForTest({ token }));
+      const call = payload.data;
+
+      setCallId(call?.callId ?? null);
+      setCallStatus(
+        call?.callId
+          ? `Calling ${call.dialed} — answer your phone. Status: ${call.status ?? 'queued'}.`
+          : 'Call placed.',
+      );
+    } catch (error: unknown) {
+      setCallError(errorMessage(error, 'Unable to place the call.'));
+    } finally {
+      setCalling(false);
+    }
+  };
+
+  /**
+   * Read back what became of the call. Separate click rather than polling on a timer: a call
+   * takes tens of seconds to resolve, and "accepted by Vapi" has already proved itself a
+   * misleading thing to report as success.
+   */
+  const handleCheckOutcome = async () => {
+    if (!callId) {
+      return;
+    }
+
+    setCallError(null);
+
+    try {
+      const payload = await authedRequest((token) => getTestCallOutcome({ token, callId }));
+      const outcome = payload.data;
+
+      if (!outcome?.settled) {
+        setCallStatus(`Still in progress (${outcome?.status ?? 'unknown'}). Check again shortly.`);
+        return;
+      }
+
+      setCallStatus(
+        outcome.connected
+          ? `Connected for ${outcome.durationSeconds}s (${outcome.endedReason ?? 'ended'}).`
+          : `Never connected: ${outcome.endedReason ?? outcome.status ?? 'unknown'}.`,
+      );
+    } catch (error: unknown) {
+      setCallError(errorMessage(error, 'Unable to read the call outcome.'));
     }
   };
 
@@ -189,14 +258,49 @@ const SettingsPage = () => {
           </p>
 
           {canManage ? (
-            <button
-              type="button"
-              onClick={handleClearTestData}
-              disabled={clearing}
-              className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:bg-red-300"
-            >
-              {clearing ? 'Clearing…' : 'Clear all test data'}
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleClearTestData}
+                disabled={clearing}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:bg-red-300"
+              >
+                {clearing ? 'Clearing…' : 'Clear all test data'}
+              </button>
+
+              {/* Rings the owner number on demand: the automatic escalation only fires after a
+                  real lead has gone unanswered for the configured delay, which is a slow way to
+                  test a trunk setting. */}
+              <button
+                type="button"
+                onClick={handleCallOwner}
+                disabled={calling}
+                className="btn-key rounded-lg px-4 py-2 text-sm"
+              >
+                {calling ? 'Calling…' : 'Call the owner now'}
+              </button>
+
+              {callId ? (
+                <button
+                  type="button"
+                  onClick={handleCheckOutcome}
+                  className="rounded-lg border border-hairline px-3 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key"
+                >
+                  Check outcome
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {callError ? (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {callError}
+            </p>
+          ) : null}
+          {callStatus && !callError ? (
+            <p role="status" className="mt-2 text-xs text-bone-dim">
+              {callStatus}
+            </p>
           ) : null}
 
           {clearError ? (

@@ -103,6 +103,7 @@ QUALIFY_SCHEMA = """{
   "decision": "ask" | "ready" | "escalate",
   "message": "the next message to send, empty unless decision is ask",
   "learned": { "field_name": "value extracted from the last lead message" },
+  "category": "the closest category for this enquiry, empty if you cannot tell yet",
   "escalation_reason": "why a human is needed, empty unless decision is escalate"
 }"""
 
@@ -130,6 +131,7 @@ def qualify(state: ConversationState) -> dict:
         style=state.get("style_examples", ""),
         facts=json.dumps(facts, ensure_ascii=False),
         owner_instruction=state.get("owner_instruction") or "(none)",
+        category_options=", ".join(state.get("category_options") or []) or "(none supplied)",
     )
     result = complete_json(
         system=system,
@@ -169,11 +171,28 @@ def qualify(state: ConversationState) -> dict:
             or "The lead has pushed on price more than once. Discounts are your call, not mine."
         )
 
+    # Classify the enquiry, but only ever into a category wam-crm-ai actually has a playbook for,
+    # and only while it is still unclassified. A model that invents "wedding_photography" or
+    # changes its mind on turn four would otherwise swap the whole playbook mid-conversation;
+    # wam-crm-ai's own merge is first-write-wins for the same reason.
+    known_category = (state.get("category") or "").strip().lower()
+    allowed = {c.strip().lower() for c in (state.get("category_options") or [])}
+    proposed = str(result.get("category") or "").strip().lower()
+    category = (
+        proposed
+        if proposed and proposed in allowed and known_category in ("", "unknown")
+        else known_category
+    )
+
+    if category and category != known_category:
+        log.info("conversation %s: classified as %r", state.get("conversation_id"), category)
+
     return {
         "facts": new_facts,
         "decision": decision,
         "draft": result.get("message", "") if decision == "ask" else "",
         "escalation_reason": escalation_reason,
+        "category": category,
         # One-turn-only: consumed above, so it must not silently keep steering every later
         # message in this conversation as if the owner were still standing over the AI's shoulder.
         "owner_instruction": "",

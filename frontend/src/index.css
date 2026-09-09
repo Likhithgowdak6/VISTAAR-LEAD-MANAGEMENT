@@ -1,1 +1,414 @@
 @import 'tailwindcss';
+
+/*
+ * VISTAAR — the editing-suite theme.
+ *
+ * This is a console a photography and media studio keeps open beside Lightroom and Premiere all
+ * day, so it is built to sit in that family rather than in the family of generic SaaS dashboards:
+ * a graded near-black, two light sources instead of one accent, and data set in mono because an
+ * instrument reads as calibrated when its numbers do.
+ *
+ * The palette is the cinematic split-tone every colourist in this trade already thinks in - a
+ * warm key light and a cool fill - so "glow" here is literally light, the thing the studio sells,
+ * not decoration borrowed from a neon poster.
+ *
+ * HOW THE DARK THEME REACHES EVERY SCREEN. The app was written in light-mode Tailwind utilities
+ * (bg-white, border-slate-200, text-slate-900) across dozens of components. Rather than rewrite
+ * every one of them - which would churn files that are otherwise correct and risk missing some,
+ * leaving one blinding white panel in a dark app - the slate/blue/white scale itself is remapped
+ * below. `bg-white` becomes the raised panel, `border-slate-200` becomes a hairline, `text-slate-900`
+ * becomes bone. Screens nobody has hand-tuned still land inside the theme, and the hand-tuned
+ * surfaces (masthead, contact sheet, thread, exposure meter) layer on top of the same tokens.
+ */
+
+@theme {
+  /* ---- Type ------------------------------------------------------------- */
+  /* Display is condensed poster caps: the vernacular of a photography studio's own printed
+     matter. Used with restraint - the masthead, section eyebrows, nothing that has to be read
+     in a hurry. */
+  --font-display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  /* Every number in the UI - scores, timestamps, phone digits, ids. Mono is honest here: this
+     is instrument data, and Plex Mono keeps its warmth at 11px where a grotesk goes cold. */
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* ---- The graded base -------------------------------------------------- */
+  /* Blue-shifted rather than neutral grey: a neutral #0a0a0a reads as "dark mode", a
+     blue-shifted shadow reads as a graded image. */
+  --color-ink: #0b0e13;
+  --color-ink-2: #0e131a;
+  --color-panel: #12171f;
+  --color-panel-2: #1a212c;
+  --color-panel-3: #232c3a;
+  --color-hairline: #222b38;
+
+  /* ---- The two light sources ------------------------------------------- */
+  /* Key light: tungsten. Hot leads, focus rings, primary actions - anything the owner should
+     look at first. */
+  --color-key: #ff9e4a;
+  --color-key-soft: #ffb877;
+  --color-key-deep: #c96a1e;
+  /* Fill light: cool. The AI, system state, anything the machine did rather than a person. */
+  --color-fill: #4fd1c5;
+  --color-fill-soft: #7fe3da;
+  --color-fill-deep: #1f8b81;
+
+  /* ---- Text ------------------------------------------------------------- */
+  /* Warm off-white, not #fff: paper-warm text on a graded base reads as print and stops the
+     whole screen from feeling clinical. */
+  --color-bone: #ece7df;
+  --color-bone-dim: #a8a49d;
+  --color-muted: #7c8798;
+
+  /* ---- Semantic --------------------------------------------------------- */
+  --color-danger: #ff6b6b;
+  --color-warn: #ffc44a;
+  --color-good: #4fd1c5;
+
+  /* ------------------------------------------------------------------------
+   * The remap. Everything below overrides Tailwind's own scale so untouched
+   * components inherit the theme. Ordered light -> dark in the original scale,
+   * which is why the values run dark -> light here.
+   * ---------------------------------------------------------------------- */
+  --color-white: #12171f;
+  --color-black: #06080b;
+
+  --color-slate-50: #12171f;
+  --color-slate-100: #151b24;
+  --color-slate-200: #222b38;
+  --color-slate-300: #2b3644;
+  --color-slate-400: #7c8798;
+  --color-slate-500: #97a1b0;
+  --color-slate-600: #b6bec9;
+  --color-slate-700: #cfd4db;
+  --color-slate-800: #e2ded7;
+  --color-slate-900: #ece7df;
+
+  --color-gray-50: #12171f;
+  --color-gray-100: #151b24;
+  --color-gray-200: #222b38;
+  --color-gray-300: #2b3644;
+  --color-gray-400: #7c8798;
+  --color-gray-500: #97a1b0;
+  --color-gray-600: #b6bec9;
+  --color-gray-700: #cfd4db;
+  --color-gray-800: #e2ded7;
+  --color-gray-900: #ece7df;
+
+  /* Blue was the old primary; it becomes the tungsten key light. */
+  --color-blue-50: #2a1c0e;
+  --color-blue-100: #3a2512;
+  --color-blue-200: #5a3818;
+  --color-blue-300: #8a541f;
+  --color-blue-400: #c96a1e;
+  --color-blue-500: #ff9e4a;
+  --color-blue-600: #ff9e4a;
+  --color-blue-700: #ffb877;
+  --color-blue-800: #ffcda0;
+  --color-blue-900: #ffe3c9;
+
+  /* Green -> the cool fill, so "sent"/"ok" states read as machine-cool. */
+  --color-green-50: #0d2422;
+  --color-green-100: #10312d;
+  --color-green-200: #17453f;
+  --color-green-300: #1f8b81;
+  --color-green-400: #35b3a7;
+  --color-green-500: #4fd1c5;
+  --color-green-600: #4fd1c5;
+  --color-green-700: #7fe3da;
+  --color-green-800: #a5ede6;
+  --color-green-900: #cbf5f1;
+
+  --color-emerald-50: #0d2422;
+  --color-emerald-100: #10312d;
+  --color-emerald-500: #4fd1c5;
+  --color-emerald-600: #4fd1c5;
+  --color-emerald-700: #7fe3da;
+  /* 800/900 matter: ConversationSummaryPanel's "Up to date" badge is
+     `bg-emerald-100 text-emerald-800`. Remapping only the 100 left the text on stock Tailwind's
+     dark #065f46 over the new dark fill - about 1.8:1, i.e. invisible. */
+  --color-emerald-800: #a5ede6;
+  --color-emerald-900: #cbf5f1;
+
+  /* Rose was missed entirely on the first pass, and it is the opt-out state in
+     AiAutomationSection - so the one place the dashboard says "this lead asked to stop" rendered
+     as stock pink-on-pink: a bright panel punched into a dark app. Mapped onto the same warm red
+     as --color-danger, because refusing to be messaged again is exactly that kind of state. */
+  --color-rose-50: #2c1214;
+  --color-rose-100: #3d181b;
+  --color-rose-200: #5c2126;
+  --color-rose-300: #8a2f36;
+  --color-rose-500: #ff6b6b;
+  --color-rose-600: #ff6b6b;
+  --color-rose-700: #ff8f8f;
+  --color-rose-800: #ffb3b3;
+  --color-rose-900: #ffd6d6;
+
+  /* Purple is one badge - the super-admin role chip in team/RoleBadge.tsx. It reads as
+     "elevated privilege", so it keeps a hue of its own rather than collapsing into the key
+     light, which everywhere else means "a lead needs you". */
+  --color-purple-50: #221631;
+  --color-purple-100: #2e1d42;
+  --color-purple-200: #402a5c;
+  --color-purple-700: #c4a7f0;
+  --color-purple-800: #d9c4f6;
+  --color-purple-900: #ece0fb;
+
+  --color-amber-50: #2a1e0a;
+  --color-amber-100: #3a2a0e;
+  --color-amber-200: #5a4116;
+  --color-amber-300: #8a631f;
+  --color-amber-500: #ffc44a;
+  --color-amber-600: #ffc44a;
+  --color-amber-700: #ffd782;
+  --color-amber-800: #ffe4ab;
+  --color-amber-900: #fff1d4;
+
+  --color-yellow-50: #2a1e0a;
+  --color-yellow-100: #3a2a0e;
+  --color-yellow-500: #ffc44a;
+  --color-yellow-600: #ffc44a;
+  --color-yellow-700: #ffd782;
+
+  --color-red-50: #2c1214;
+  --color-red-100: #3d181b;
+  --color-red-200: #5c2126;
+  --color-red-300: #8a2f36;
+  --color-red-500: #ff6b6b;
+  --color-red-600: #ff6b6b;
+  --color-red-700: #ff8f8f;
+  --color-red-800: #ffb3b3;
+  --color-red-900: #ffd6d6;
+}
+
+/* ---------------------------------------------------------------------------
+ * Base
+ * ------------------------------------------------------------------------ */
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The whole app sits in a photographic vignette: a warm key from the top-left, a cool fill
+     from the bottom-right, both extremely low opacity. It is what stops a large flat dark
+     surface from looking like an unlit rectangle. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(70rem 40rem at 8% -10%, rgb(255 158 74 / 7%), transparent 60%),
+      radial-gradient(60rem 40rem at 100% 110%, rgb(79 209 197 / 6%), transparent 60%);
+  }
+
+  /* Film grain. 3% of a still, animated never - grain that moves reads as noise, grain that
+     sits reads as film stock. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)'/%3E%3C/svg%3E");
+  }
+
+  /* Everything the app renders sits above the vignette and the grain. */
+  #root {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+  }
+
+  /* Numbers are instrument data everywhere in this app. */
+  time,
+  output {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus is the key light. Visible, warm, and never removed - this is a keyboard-heavy inbox. */
+  :focus-visible {
+    outline: 2px solid var(--color-key);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: rgb(255 158 74 / 30%);
+    color: var(--color-bone);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-panel-3);
+    border: 2px solid var(--color-ink);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Components the hand-tuned surfaces are built from.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  /* An eyebrow: condensed caps, wide tracking. Labels a region without competing with it. */
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* The masthead wordmark. The one place display type is allowed to be large. */
+  .wordmark {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--color-bone);
+    text-shadow: 0 0 24px rgb(255 158 74 / 45%);
+  }
+
+  /* A raised surface. Gradient rather than flat fill so panels catch the key light at their
+     top edge, the way a physical panel would. */
+  .surface {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 3.5%), transparent 40%),
+      var(--color-panel);
+    border: 1px solid var(--color-hairline);
+  }
+
+  /* Glow, in three strengths. Layered shadows (tight core + wide bloom) read as light;
+     a single large shadow reads as a drop shadow. */
+  .glow-key {
+    box-shadow:
+      0 0 0 1px rgb(255 158 74 / 30%),
+      0 0 12px -2px rgb(255 158 74 / 45%),
+      0 0 40px -8px rgb(255 158 74 / 30%);
+  }
+
+  .glow-key-soft {
+    box-shadow:
+      0 0 10px -4px rgb(255 158 74 / 30%),
+      0 0 30px -10px rgb(255 158 74 / 20%);
+  }
+
+  .glow-fill {
+    box-shadow:
+      0 0 0 1px rgb(79 209 197 / 25%),
+      0 0 12px -2px rgb(79 209 197 / 35%),
+      0 0 36px -10px rgb(79 209 197 / 22%);
+  }
+
+  /* A data chip: mono, tight, hairline. Used for stages, bands, counts. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-hairline);
+    background: var(--color-panel-2);
+    color: var(--color-bone-dim);
+    white-space: nowrap;
+  }
+
+  .chip-key {
+    border-color: rgb(255 158 74 / 35%);
+    background: rgb(255 158 74 / 10%);
+    color: var(--color-key-soft);
+  }
+
+  .chip-fill {
+    border-color: rgb(79 209 197 / 30%);
+    background: rgb(79 209 197 / 10%);
+    color: var(--color-fill-soft);
+  }
+
+  /* The primary action. One warm button per screen, glowing, so the next step is never in
+     question. */
+  .btn-key {
+    background: linear-gradient(180deg, var(--color-key-soft), var(--color-key));
+    color: #23150a;
+    font-weight: 600;
+    border: none;
+    box-shadow:
+      0 0 14px -3px rgb(255 158 74 / 55%),
+      0 0 40px -12px rgb(255 158 74 / 35%);
+  }
+
+  .btn-key:hover:not(:disabled) {
+    background: linear-gradient(180deg, #ffc793, var(--color-key-soft));
+  }
+
+  .btn-key:disabled {
+    opacity: 0.45;
+    box-shadow: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion. One orchestrated entrance, and it is skipped entirely for anyone who
+ * has asked for less of it.
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-rise {
+    animation: rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* The key light breathing on a hot lead. Slow enough to notice only once. */
+  @keyframes pulse-key {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px rgb(255 158 74 / 30%),
+        0 0 10px -2px rgb(255 158 74 / 40%);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px rgb(255 158 74 / 45%),
+        0 0 18px -2px rgb(255 158 74 / 60%);
+    }
+  }
+
+  .animate-pulse-key {
+    animation: pulse-key 3.2s ease-in-out infinite;
+  }
+}

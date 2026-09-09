@@ -19,34 +19,51 @@ export interface LeadScoreBandStyle {
   className: string;
 }
 
+/*
+ * The bands read as exposure: a hot lead is a properly lit frame, a low-intent one is
+ * underexposed. That is not decoration - it is the same instrument the exposure meter in
+ * LeadScoreSection draws, so the chip in the list and the meter in the panel agree.
+ */
 export const LEAD_SCORE_BAND_STYLES: Readonly<Record<LeadScoreBand, LeadScoreBandStyle>> = {
   hot: {
     label: 'Hot',
     handling: 'Call this one yourself',
-    className: 'bg-red-100 text-red-700',
+    className: 'chip chip-key animate-pulse-key',
   },
   warm: {
     label: 'Warm',
     handling: 'The AI keeps qualifying',
-    className: 'bg-amber-100 text-amber-700',
+    className: 'chip chip-key',
   },
   cold: {
     label: 'Cold',
     handling: 'Automated nurture',
-    className: 'bg-sky-100 text-sky-700',
+    className: 'chip chip-fill',
   },
   low_intent: {
     label: 'Low intent',
     handling: 'Long-term nurture',
-    className: 'bg-slate-100 text-slate-600',
+    className: 'chip',
   },
 };
 
 const UNKNOWN_BAND_STYLE: LeadScoreBandStyle = {
   label: 'Unscored',
   handling: 'Nothing known about this lead yet',
-  className: 'bg-slate-100 text-slate-600',
+  className: 'chip',
 };
+
+/**
+ * Where each band starts on the 0-100 scale, mirroring the backend's own thresholds. Drawn as
+ * the labelled stops on the exposure meter, so the scale shows not just where this lead sits but
+ * how far it is from the next band.
+ */
+export const LEAD_SCORE_BAND_STOPS: readonly { at: number; label: string }[] = [
+  { at: 0, label: 'Low' },
+  { at: 20, label: 'Cold' },
+  { at: 50, label: 'Warm' },
+  { at: 80, label: 'Hot' },
+];
 
 /** The style for a band key, or a neutral one for a band this build does not know. */
 export const getLeadScoreBandStyle = (band: string | null | undefined): LeadScoreBandStyle =>

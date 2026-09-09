@@ -289,6 +289,21 @@ Decide exactly one:
                 a request for links or samples, or anything where guessing
                 would embarrass the business
 
+ALSO CLASSIFY WHAT THIS ENQUIRY IS, in `category`. Pick the single closest
+value from this list and nothing else:
+{category_options}
+
+Rules for `category`:
+- Only classify when the lead has actually told you what the occasion or the
+  job is. "Do you do wedding shoots?" is a wedding; "hi", "are you free?" or
+  "what do you charge?" is not enough for anything.
+- Return an empty string when you genuinely cannot tell yet. A wrong guess
+  sends the whole conversation down the wrong playbook, so an empty string is
+  the better answer whenever you are unsure.
+- Prefer the specific occasion over a broad group: a birthday is `birthday`,
+  not `event_photography`. Use a broad group only when they have named a
+  category of work without naming the occasion inside it.
+
 WHEN YOU ESCALATE, WRITE escalation_reason LIKE AN EMPLOYEE TEXTING THEIR
 OWNER, NOT A SYSTEM LOG. One short sentence, first person, plain and casual -
 say what the lead needs and what's stopping you, the way a real employee

@@ -1302,6 +1302,68 @@ export const claimOwnerCallEscalation = ({
     },
   ).exec();
 
+export interface RecordOwnerCallParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  /** Vapi's call id, stored so the outcome can be read back on a later tick. */
+  callId?: string | null;
+  /** Vapi's own words for what became of the call. Set once the call has settled. */
+  outcome?: string | null;
+  session?: DatabaseSession;
+}
+
+/**
+ * Records the Vapi call id right after placing it, and later the outcome read back from Vapi.
+ * Not part of `claimOwnerCallEscalation`: the claim has to be won BEFORE the call is placed (or
+ * two sweeps race and dial twice), and the id only exists afterwards.
+ */
+export const recordOwnerCallEscalationResult = ({
+  conversationId,
+  organizationId,
+  callId,
+  outcome,
+  session,
+}: RecordOwnerCallParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: removeUndefinedValues({
+        ownerCallEscalationCallId: callId,
+        ownerCallEscalationOutcome: outcome,
+      }),
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface FindConversationsAwaitingCallOutcomeParams {
+  organizationId?: ObjectIdLike;
+  limit?: number;
+}
+
+/** Calls that were placed but whose fate is still unknown - a call id, no outcome yet. */
+export const findConversationsAwaitingCallOutcome = ({
+  organizationId,
+  limit = 10,
+}: FindConversationsAwaitingCallOutcomeParams = {}) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    ownerCallEscalationCallId: { $ne: null },
+    ownerCallEscalationOutcome: null,
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return Conversation.find(filter).sort({ ownerCallEscalationSentAt: 1 }).limit(limit).exec();
+};
+
 // --------------------------------------------------------------------------
 // The pre-event owner reminder (see ai-brain/event-reminder.service.ts): a deal the owner has
 // already won, whose event falls inside the next 24 hours, that has not been reminded about yet.

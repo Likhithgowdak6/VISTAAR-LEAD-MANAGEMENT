@@ -535,6 +535,25 @@ export interface ClearTestDataResult {
   deletedByCollection: Array<{ name: string; count: number }>;
 }
 
+/** TEST-PHASE ONLY. A call placed to the owner from the dashboard. */
+export interface TestOwnerCall {
+  callId: string;
+  status: string | null;
+  /** The line it dialled, masked - enough to spot a stale owner number. */
+  dialed: string;
+}
+
+/** TEST-PHASE ONLY. What became of that call, once it has ended. */
+export interface TestOwnerCallOutcome {
+  status: string | null;
+  endedReason: string | null;
+  durationSeconds: number | null;
+  /** False while it is still queued, ringing or talking. */
+  settled: boolean;
+  /** True only with connected audio: a call can end with no error and zero seconds. */
+  connected: boolean;
+}
+
 export interface AuthSessionData {
   accessToken: string;
   tokenType?: 'Bearer';

@@ -22,10 +22,33 @@
 import { env, type Env } from '../../config/env.js';
 import { createConversationDataReset } from '../../scripts/reset-conversation-data.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import { getCall, placeOutboundCall } from '../calls/vapi.client.js';
+import {
+  findOrganizationById,
+  normalizeOwnerWhatsappNumber,
+} from '../organizations/organization.repository.js';
 
 export interface ClearOrganizationTestDataResult {
   totalDeleted: number;
   deletedByCollection: Array<{ name: string; count: number }>;
+}
+
+export interface TestOwnerCallResult {
+  callId: string;
+  /** Vapi's status the instant it accepted the request - almost always `queued`. */
+  status: string | null;
+  /** The line it dialled, masked. Enough to tell the old owner number from the new one. */
+  dialed: string;
+}
+
+export interface TestOwnerCallOutcomeResult {
+  status: string | null;
+  endedReason: string | null;
+  durationSeconds: number | null;
+  /** False until the call is over; poll again rather than recording a half-finished answer. */
+  settled: boolean;
+  /** True only if there was connected audio. A call can end "successfully" with 0 seconds. */
+  connected: boolean;
 }
 
 export class TestDataToolError extends Error {}
@@ -61,5 +84,75 @@ export const clearOrganizationTestData = async (
   return {
     totalDeleted: plan.totalDeletable,
     deletedByCollection: plan.deletable.map(({ name, count }) => ({ name, count })),
+  };
+};
+
+/** Masked for display and for logs - the full number belongs in the settings field, nowhere else. */
+const maskNumber = (digitsOnly: string): string =>
+  digitsOnly.length <= 7 ? '***' : `${digitsOnly.slice(0, 4)}***${digitsOnly.slice(-3)}`;
+
+/**
+ * Rings the owner's configured number on demand.
+ *
+ * The automatic escalation only fires when a new-lead alert has genuinely gone unanswered for the
+ * configured delay, which makes it a slow instrument for testing telephony: every trunk change
+ * meant inventing a fresh lead and waiting. This does the same thing the sweep does - same client,
+ * same number, same dial format - with no lead and no waiting, so a trunk setting can be changed
+ * and verified in one click.
+ *
+ * Deliberately NOT gated on OWNER_CALL_ESCALATION_ENABLED: being able to test the phone path while
+ * the automatic caller stays switched off is the point.
+ */
+export const placeTestOwnerCall = async (
+  { organizationId }: { organizationId: ObjectIdLike },
+  config: Env = env,
+): Promise<TestOwnerCallResult> => {
+  if (!isTestModeActive(config)) {
+    throw new TestDataToolError('TEST_MODE_NOT_ACTIVE');
+  }
+
+  const organization = await findOrganizationById(organizationId);
+  const ownerNumber = normalizeOwnerWhatsappNumber(
+    (organization as { ownerWhatsappNumber?: string | null } | null)?.ownerWhatsappNumber,
+  );
+
+  if (!ownerNumber) {
+    throw new TestDataToolError('OWNER_NUMBER_NOT_SET');
+  }
+
+  const call = await placeOutboundCall({
+    toNumber: config.VAPI_DIAL_FORMAT === 'plain' ? ownerNumber : `+${ownerNumber}`,
+    variableValues: {
+      callReason: 'a test call from the dashboard',
+      leadName: 'a test lead',
+      enquiryType: 'a test enquiry',
+      knownDetails: 'nothing - this is a test',
+    },
+  });
+
+  return { callId: call.callId, status: call.status, dialed: maskNumber(ownerNumber) };
+};
+
+/**
+ * What became of a test call. Separate from placing it because a call takes tens of seconds to
+ * resolve and an HTTP request that blocks for all of it is worse than a second click - and
+ * because the answer that matters ("did it actually connect?") only exists once it has ended.
+ */
+export const readTestOwnerCallOutcome = async (
+  { callId }: { callId: string },
+  config: Env = env,
+): Promise<TestOwnerCallOutcomeResult> => {
+  if (!isTestModeActive(config)) {
+    throw new TestDataToolError('TEST_MODE_NOT_ACTIVE');
+  }
+
+  const outcome = await getCall(callId);
+
+  return {
+    status: outcome.status,
+    endedReason: outcome.endedReason,
+    durationSeconds: outcome.durationSeconds,
+    settled: outcome.settled,
+    connected: (outcome.durationSeconds ?? 0) > 0,
   };
 };

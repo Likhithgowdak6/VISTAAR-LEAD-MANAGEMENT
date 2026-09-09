@@ -13,6 +13,7 @@ import LeadFormSection from './LeadFormSection';
 import LeadScoreSection from './LeadScoreSection';
 import NotesSection from './NotesSection';
 import RevealPhone from './RevealPhone';
+import ServiceSection from './ServiceSection';
 import StageControl from './StageControl';
 import TagsSection from './TagsSection';
 
@@ -46,6 +47,9 @@ const LeadPanel = ({ conversation, contactId, onStageChange }: Props) => {
         stage={conversation.stage}
         onStageChange={handleStageChange}
       />
+
+      {/* Which playbook is driving this conversation - see ServiceSection on why `unknown` shows. */}
+      <ServiceSection aiCategory={conversation.aiCategory ?? null} />
 
       {/* Renders nothing until the lead has given us a date we can read. */}
       <EventDateSection eventDate={conversation.eventDate ?? null} />

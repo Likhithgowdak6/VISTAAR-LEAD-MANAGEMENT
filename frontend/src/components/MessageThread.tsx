@@ -45,32 +45,42 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
 
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+      {/*
+       * The studio's side of the conversation sits in the key light and the lead's in the fill:
+       * warm is us, cool is them. It is the same two-source scheme as the rest of the console, so
+       * "who said this" is answerable from the colour temperature alone, without reading the
+       * alignment or the timestamp.
+       */}
       <div
-        className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
-          isOutbound ? 'bg-blue-600 text-white' : 'bg-white text-slate-900'
+        className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
+          isOutbound
+            ? 'border border-key/30 bg-key/10 text-bone glow-key-soft'
+            : 'surface rounded-tl-sm text-bone'
         }`}
       >
         {mediaLabel ? (
           <p
-            className={`font-medium ${isOutbound ? 'text-blue-50' : 'text-slate-600'}`}
+            className={`font-mono text-[0.6875rem] uppercase tracking-[0.06em] ${
+              isOutbound ? 'text-key-soft' : 'text-fill-soft'
+            }`}
             data-testid="media-placeholder"
           >
             {mediaLabel}
-            {fileName ? <span className="font-normal"> · {fileName}</span> : null}
+            {fileName ? <span className="normal-case tracking-normal"> · {fileName}</span> : null}
           </p>
         ) : null}
 
         {/* A caption still shows under its label; a media message with no caption shows only the
             label, instead of the blank bubble this used to render. */}
-        {body !== '' ? <p className="whitespace-pre-wrap break-words">{body}</p> : null}
-        <div
-          className={`mt-1 flex items-center justify-end gap-2 text-[11px] ${
-            isOutbound ? 'text-blue-100' : 'text-slate-400'
-          }`}
-        >
-          <span>{formatClockTime(message.sentAt)}</span>
+        {body !== '' ? (
+          <p className="whitespace-pre-wrap break-words leading-relaxed">{body}</p>
+        ) : null}
+        <div className="mt-1 flex items-center justify-end gap-2 text-[0.625rem] text-muted">
+          <time>{formatClockTime(message.sentAt)}</time>
           {isOutbound ? (
-            <span>{OUTBOUND_STATUS_LABEL[message.status ?? ''] ?? message.status}</span>
+            <span className="font-mono uppercase tracking-[0.06em]">
+              {OUTBOUND_STATUS_LABEL[message.status ?? ''] ?? message.status}
+            </span>
           ) : null}
         </div>
       </div>
@@ -86,16 +96,16 @@ type Props = {
 };
 
 const MessageThread = ({ messages, hasMore, loadingOlder, onLoadOlder }: Props) => (
-  <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-slate-100 p-4">
+  <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-ink p-4">
     {hasMore ? (
       <div className="flex justify-center">
         <button
           type="button"
           onClick={onLoadOlder}
           disabled={loadingOlder}
-          className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+          className="rounded-full border border-hairline bg-panel px-3 py-1 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key disabled:opacity-50"
         >
-          {loadingOlder ? 'Loading…' : 'Load older messages'}
+          {loadingOlder ? 'Loading…' : 'Load older'}
         </button>
       </div>
     ) : null}

@@ -71,6 +71,8 @@ export type {
   Tag,
   TagStatus,
   TestModeStatus,
+  TestOwnerCall,
+  TestOwnerCallOutcome,
   User,
   UserStatus,
   WhatsAppAccount,

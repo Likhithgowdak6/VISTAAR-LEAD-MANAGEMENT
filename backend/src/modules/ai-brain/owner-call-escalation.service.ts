@@ -26,7 +26,9 @@ import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity as defaultCreateActivity } from '../activity/activity-log.repository.js';
 import {
   claimOwnerCallEscalation as defaultClaimOwnerCallEscalation,
+  findConversationsAwaitingCallOutcome as defaultFindConversationsAwaitingCallOutcome,
   findConversationsNeedingOwnerCall as defaultFindConversationsNeedingOwnerCall,
+  recordOwnerCallEscalationResult as defaultRecordOwnerCallEscalationResult,
 } from '../conversations/conversation.repository.js';
 import {
   findOrganizationById as defaultFindOrganizationById,
@@ -34,7 +36,10 @@ import {
   normalizeOwnerWhatsappNumber,
 } from '../organizations/organization.repository.js';
 import { ORGANIZATION_STATUSES } from '../../constants/organization-statuses.js';
-import { placeOutboundCall as defaultPlaceOutboundCall } from '../calls/vapi.client.js';
+import {
+  getCall as defaultGetCall,
+  placeOutboundCall as defaultPlaceOutboundCall,
+} from '../calls/vapi.client.js';
 
 const ORGANIZATION_LIMIT = 200;
 /** Enough for any realistic single tick; a sweep is a nudge, not a batch dialer. */
@@ -51,6 +56,9 @@ export interface OwnerCallEscalationConversationLike {
    *  of these exist is exactly what's worth saying out loud on the call; an empty object before
    *  the lead has answered anything is just as valid and simply produces no line. */
   aiFacts?: Record<string, unknown>;
+  /** Set once a call has been placed for this lead, cleared conceptually by recording an
+   *  outcome against it - see settleOutstandingCalls. */
+  ownerCallEscalationCallId?: string | null;
 }
 
 const UNKNOWN_CATEGORY = 'unknown';
@@ -96,9 +104,12 @@ export interface CreateOwnerCallEscalationServiceOptions {
   config?: Env;
   findConversationsNeedingOwnerCall?: typeof defaultFindConversationsNeedingOwnerCall;
   claimOwnerCallEscalation?: typeof defaultClaimOwnerCallEscalation;
+  findConversationsAwaitingCallOutcome?: typeof defaultFindConversationsAwaitingCallOutcome;
+  recordOwnerCallEscalationResult?: typeof defaultRecordOwnerCallEscalationResult;
   listOrganizations?: typeof defaultListOrganizations;
   findOrganizationById?: typeof defaultFindOrganizationById;
   placeOutboundCall?: typeof defaultPlaceOutboundCall;
+  getCall?: typeof defaultGetCall;
   createActivity?: typeof defaultCreateActivity;
   logger?: { error?: (...args: unknown[]) => void };
   now?: () => Date;
@@ -113,29 +124,131 @@ export interface SweepOnceResult {
   called: number;
   skipped: number;
   failed: number;
+  /** Calls whose outcome was read back from Vapi and recorded on this tick. */
+  settled: number;
 }
 
-/** E.164-ish: a '+' followed by the digits the CRM already stores for the owner. */
-const toE164 = (digitsOnly: string): string => `+${digitsOnly}`;
+/**
+ * How the destination is written for Vapi. `+<digits>` by default; `VAPI_DIAL_FORMAT=plain`
+ * drops the plus for a trunk that will not accept full E.164 (see the env comment).
+ */
+const formatDialNumber = (digitsOnly: string, format: Env['VAPI_DIAL_FORMAT']): string =>
+  format === 'plain' ? digitsOnly : `+${digitsOnly}`;
+
+/**
+ * The dialed line, masked, for the activity timeline.
+ *
+ * Recorded because "the call never connected" is only half an answer - the first question anyone
+ * asks next is "which number did it try", and an owner number that was edited between the alert
+ * and the call makes that genuinely ambiguous. Masked and stored under a key that does not
+ * contain "phone", because activity metadata refuses sensitive keys outright (see
+ * security/redaction.service.ts) and a full number has no business in a timeline row.
+ */
+const maskNumber = (digitsOnly: string): string =>
+  digitsOnly.length <= 7
+    ? '***'
+    : `${digitsOnly.slice(0, 4)}***${digitsOnly.slice(-3)}`;
 
 export const createOwnerCallEscalationService = ({
   config = env,
   findConversationsNeedingOwnerCall = defaultFindConversationsNeedingOwnerCall,
   claimOwnerCallEscalation = defaultClaimOwnerCallEscalation,
+  findConversationsAwaitingCallOutcome = defaultFindConversationsAwaitingCallOutcome,
+  recordOwnerCallEscalationResult = defaultRecordOwnerCallEscalationResult,
   listOrganizations = defaultListOrganizations,
   findOrganizationById = defaultFindOrganizationById,
   placeOutboundCall = defaultPlaceOutboundCall,
+  getCall = defaultGetCall,
   createActivity = defaultCreateActivity,
   logger = defaultLogger,
   now = () => new Date(),
 }: CreateOwnerCallEscalationServiceOptions = {}) => {
   const delayMs = config.OWNER_CALL_ESCALATION_DELAY_SECONDS * 1_000;
 
+  /**
+   * Reads back what became of calls placed on earlier ticks and writes it onto the conversation's
+   * timeline. Polled rather than webhooked on purpose: a webhook needs this API to be publicly
+   * reachable, which it is not during local testing - and "the owner was called but nobody knows
+   * if it connected" is exactly the blind spot that cost hours the first time a dead SIP trunk
+   * answered every request with a cheerful 2xx.
+   */
+  const settleOutstandingCalls = async (
+    organizationId: ObjectIdLike,
+  ): Promise<number> => {
+    let settled = 0;
+
+    const outstanding = (await findConversationsAwaitingCallOutcome({
+      organizationId,
+      limit: CONVERSATION_LIMIT,
+    })) as OwnerCallEscalationConversationLike[];
+
+    for (const conversation of outstanding) {
+      const callId = conversation.ownerCallEscalationCallId;
+
+      if (!callId) {
+        continue;
+      }
+
+      try {
+        const outcome = await getCall(callId);
+
+        // Still queued/ringing/talking - ask again on the next tick rather than recording a
+        // half-finished answer we would then never revisit.
+        if (!outcome.settled) {
+          continue;
+        }
+
+        const reason = outcome.endedReason ?? outcome.status ?? 'unknown';
+        const connected = (outcome.durationSeconds ?? 0) > 0;
+
+        await recordOwnerCallEscalationResult({
+          conversationId: conversation._id,
+          organizationId,
+          outcome: reason,
+        });
+
+        await createActivity({
+          organizationId,
+          whatsappAccountId: conversation.whatsappAccountId,
+          conversationId: conversation._id,
+          eventType: ACTIVITY_EVENTS.AI_BRAIN_OWNER_CALL_ESCALATED,
+          summary: connected
+            ? `The owner's call about ${conversation.displayName} connected for ${outcome.durationSeconds}s (${reason}).`
+            : `The owner's call about ${conversation.displayName} never connected: ${reason}.`,
+          metadata: {
+            vapiCallId: callId,
+            endedReason: reason,
+            durationSeconds: outcome.durationSeconds ?? 0,
+            connected,
+          },
+        });
+
+        settled += 1;
+      } catch (error: unknown) {
+        const err = error as { code?: unknown; name?: unknown; statusCode?: unknown };
+        logger.error?.(
+          {
+            code: err?.code,
+            name: err?.name,
+            statusCode: err?.statusCode,
+            conversationId: conversation._id?.toString?.(),
+          },
+          'Reading a placed call back from Vapi failed safely; it will be retried next tick.',
+        );
+      }
+    }
+
+    return settled;
+  };
+
   const sweepForOrganization = async (
     organizationId: ObjectIdLike,
     reference: Date,
-  ): Promise<{ called: number; skipped: number; failed: number }> => {
-    const result = { called: 0, skipped: 0, failed: 0 };
+  ): Promise<{ called: number; skipped: number; failed: number; settled: number }> => {
+    const result = { called: 0, skipped: 0, failed: 0, settled: 0 };
+
+    // Before placing anything new: close the books on what was already placed.
+    result.settled = await settleOutstandingCalls(organizationId);
 
     const organization = (await findOrganizationById(
       organizationId,
@@ -180,7 +293,7 @@ export const createOwnerCallEscalationService = ({
 
       try {
         const call = await placeOutboundCall({
-          toNumber: toE164(ownerNumber),
+          toNumber: formatDialNumber(ownerNumber, config.VAPI_DIAL_FORMAT),
           variableValues: {
             leadName: conversation.displayName,
             enquiryType: describeCategory(conversation.aiCategory),
@@ -188,16 +301,41 @@ export const createOwnerCallEscalationService = ({
           },
         });
 
+        // Stored so a later tick can read the call's fate back out of Vapi. Vapi accepting the
+        // request is not the phone ringing, and without this id nothing in the CRM could ever
+        // find out which of those two happened.
+        await recordOwnerCallEscalationResult({
+          conversationId: conversation._id,
+          organizationId,
+          callId: call.callId || null,
+        });
+
         await createActivity({
           organizationId,
           whatsappAccountId: conversation.whatsappAccountId,
           conversationId: conversation._id,
           eventType: ACTIVITY_EVENTS.AI_BRAIN_OWNER_CALL_ESCALATED,
-          summary: `Called the owner: the new-lead alert for ${conversation.displayName} went unanswered.`,
-          metadata: { vapiCallId: call.callId },
+          summary: `Called the owner on ${maskNumber(ownerNumber)}: the new-lead alert for ${conversation.displayName} went unanswered.`,
+          metadata: { vapiCallId: call.callId, dialed: maskNumber(ownerNumber) },
         });
 
         result.called += 1;
+
+        /*
+         * ONE CALL PER TICK, PER ORGANIZATION. Two independent reasons, and either alone would
+         * justify it:
+         *
+         *  - A telephony plan sells CHANNELS, and a channel is one concurrent call. On a
+         *    single-channel plan the second simultaneous call does not queue, it fails at the SIP
+         *    layer ("outbound call failed to connect") - so a burst of leads would turn one real
+         *    alert into one connected call and several phantom failures.
+         *  - The owner has one pair of ears. Ringing them about a second lead while they are
+         *    still being told about the first is not more information, it is a dropped call.
+         *
+         * The remaining candidates were never reached by this loop, so nothing was claimed on
+         * their behalf and a later tick picks them up untouched.
+         */
+        break;
       } catch (error: unknown) {
         const err = error as { code?: unknown; name?: unknown; statusCode?: unknown };
         logger.error?.(
@@ -219,7 +357,7 @@ export const createOwnerCallEscalationService = ({
 
   const sweepOnce = async ({ organizationId }: SweepOnceParams = {}): Promise<SweepOnceResult> => {
     const reference = now();
-    const totals: SweepOnceResult = { organizations: 0, called: 0, skipped: 0, failed: 0 };
+    const totals: SweepOnceResult = { organizations: 0, called: 0, skipped: 0, failed: 0, settled: 0 };
 
     const organizationIds: ObjectIdLike[] = organizationId
       ? [organizationId]
@@ -234,11 +372,12 @@ export const createOwnerCallEscalationService = ({
       totals.organizations += 1;
 
       try {
-        const { called, skipped, failed } = await sweepForOrganization(id, reference);
+        const { called, skipped, failed, settled } = await sweepForOrganization(id, reference);
 
         totals.called += called;
         totals.skipped += skipped;
         totals.failed += failed;
+        totals.settled += settled;
       } catch (error: unknown) {
         const err = error as { code?: unknown; name?: unknown };
         logger.error?.(

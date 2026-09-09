@@ -264,6 +264,30 @@ const envSchema = z.object({
   VAPI_ASSISTANT_ID: z.string().optional(),
   VAPI_PHONE_NUMBER_ID: z.string().optional(),
   VAPI_API_BASE: z.string().url().default('https://api.vapi.ai'),
+
+  // Also CALL the owner the day before a won event, on top of the WhatsApp reminder (see
+  // ai-brain/event-reminder.service.ts). Separate flag from the escalation call because they are
+  // different judgement calls: this one rings about work already paid for, so a business may want
+  // it even if it does not want unanswered-lead calls, or the other way round.
+  /*
+   * How the destination number is written when a call is handed to Vapi.
+   *
+   *   e164   +916386659024   the standard, and what Vapi's own docs use
+   *   plain   916386659024   same digits, no plus
+   *
+   * Exists because VoiceLink is documented as wanting "national + country code, not full E.164",
+   * and a trunk that mis-parses the destination does not report a parse error - it misroutes the
+   * call and reports something unrelated downstream (a 603, or a "busy" that never rang). One env
+   * flip is a cheaper way to test that than a code change per attempt.
+   */
+  VAPI_DIAL_FORMAT: z.enum(['e164', 'plain']).default('e164'),
+
+  EVENT_REMINDER_CALL_ENABLED: booleanString.default(false),
+
+  // A pre-event reminder and an unanswered-lead nudge are different scripts, so they can be
+  // different Vapi assistants. Falls back to VAPI_ASSISTANT_ID when unset; the call always
+  // carries a `callReason` variable either way, so one shared assistant can also cover both.
+  VAPI_EVENT_REMINDER_ASSISTANT_ID: z.string().optional(),
 });
 
 const result = envSchema.safeParse(process.env);

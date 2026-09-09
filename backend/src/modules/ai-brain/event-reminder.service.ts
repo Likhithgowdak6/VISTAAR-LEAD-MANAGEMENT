@@ -17,18 +17,27 @@
  *     a photographer who does not turn up. Per-conversation failures are isolated exactly like
  *     the nurture sweep's, so one unreachable organization cannot cost another its reminders.
  *
- * NOT IN SCOPE: the phone call. The client also wants a call placed before the event through a
- * service called "Voice Link"; that integration is not decided yet, so nothing here pretends to
- * make one. The seam for it is `buildEventReminder` below: it returns the whole reminder as data
- * (who, when, what, and the contact the number would be read from) rather than as a string, so a
- * call channel becomes a second consumer of the same payload, placed beside the `notify(...)`
- * call in `processConversation` - no restructuring, no second query, and the same idempotency
- * claim already guards it.
+ * THE PHONE CALL, added later, sits exactly where this header used to say it would: a second
+ * consumer of `buildEventReminder`'s payload, beside the `notify(...)` call in
+ * `processConversation`. Two deliberate asymmetries with the WhatsApp message beside it:
+ *
+ *  - It is gated separately (`EVENT_REMINDER_CALL_ENABLED`). Ringing someone about work already
+ *    paid for is a different judgement call from texting them about it, and a business may want
+ *    one without the other.
+ *  - It runs AFTER the message has gone out and its failures are logged, never thrown. A thrown
+ *    error would hand back the idempotency claim, and the next sweep would re-send the WhatsApp
+ *    reminder to fix a problem that had nothing to do with it.
  */
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
+import { env, type Env } from '../../config/env.js';
 import { logger as defaultLogger } from '../../config/logger.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity as defaultCreateActivity } from '../activity/activity-log.repository.js';
+import { placeOutboundCall as defaultPlaceOutboundCall } from '../calls/vapi.client.js';
+import {
+  findOrganizationById as defaultFindOrganizationById,
+  normalizeOwnerWhatsappNumber,
+} from '../organizations/organization.repository.js';
 import { type ConversationDocument } from '../conversations/conversation.model.js';
 import {
   claimEventReminder as defaultClaimEventReminder,
@@ -204,6 +213,9 @@ export interface CreateEventReminderServiceOptions {
   now?: () => Date;
   /** How far ahead to look. Overridable for tests; 24 hours in production. */
   windowMs?: number;
+  config?: Env;
+  placeOutboundCall?: typeof defaultPlaceOutboundCall;
+  findOrganizationById?: typeof defaultFindOrganizationById;
 }
 
 export interface RemindUpcomingEventsParams {
@@ -229,8 +241,59 @@ export const createEventReminderService = ({
   logger = defaultLogger,
   now = () => new Date(),
   windowMs = EVENT_REMINDER_WINDOW_MS,
+  config = env,
+  placeOutboundCall = defaultPlaceOutboundCall,
+  findOrganizationById = defaultFindOrganizationById,
 }: CreateEventReminderServiceOptions = {}) => {
   const notify: NotifyOwnerFn = notifyOwner ?? ((params) => getOwnerNotifyService().notifyOwner(params));
+
+  /**
+   * The call half of the reminder, and deliberately best-effort: it runs only AFTER the WhatsApp
+   * message has actually gone out, and a failure here is logged rather than thrown. Throwing
+   * would hand back the idempotency claim, and the next sweep would then send the WhatsApp
+   * reminder a second time to fix a problem that was never the WhatsApp reminder's.
+   */
+  const callOwnerAboutEvent = async (reminder: EventReminder): Promise<void> => {
+    if (config.EVENT_REMINDER_CALL_ENABLED !== true) {
+      return;
+    }
+
+    try {
+      const organization = await findOrganizationById(reminder.organizationId);
+      const ownerNumber = normalizeOwnerWhatsappNumber(
+        (organization as { ownerWhatsappNumber?: string | null } | null)?.ownerWhatsappNumber,
+      );
+
+      if (!ownerNumber) {
+        return;
+      }
+
+      await placeOutboundCall({
+        // Same dial-format switch as the escalation call - one trunk, one convention.
+        toNumber: config.VAPI_DIAL_FORMAT === 'plain' ? ownerNumber : `+${ownerNumber}`,
+        assistantId: config.VAPI_EVENT_REMINDER_ASSISTANT_ID || config.VAPI_ASSISTANT_ID,
+        variableValues: {
+          callReason: 'a booked event coming up',
+          leadName: reminder.leadDisplayName,
+          eventDate: formatEventDate(reminder.eventDate),
+          serviceType: reminder.serviceType,
+          place: reminder.place || 'no venue on file',
+          daysUntil: reminder.daysUntil,
+        },
+      });
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown; statusCode?: unknown };
+      logger.error?.(
+        {
+          code: err?.code,
+          name: err?.name,
+          statusCode: err?.statusCode,
+          conversationId: reminder.conversationId?.toString?.(),
+        },
+        'Pre-event owner call failed safely; the WhatsApp reminder for this booking already went out.',
+      );
+    }
+  };
 
   type UpcomingConversation = Awaited<
     ReturnType<typeof defaultFindConversationsWithUpcomingEvents>
@@ -276,6 +339,10 @@ export const createEventReminderService = ({
 
       throw error;
     }
+
+    // The WhatsApp reminder is out and the claim stands. The call is the second consumer of the
+    // same payload, exactly where this file's header said it would go.
+    await callOwnerAboutEvent(reminder);
 
     await createActivity({
       organizationId,

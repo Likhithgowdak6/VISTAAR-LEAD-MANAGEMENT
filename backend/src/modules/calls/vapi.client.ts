@@ -34,7 +34,20 @@ export interface PlaceOutboundCallParams {
   variableValues?: Record<string, string | number>;
   assistantId?: string;
   phoneNumberId?: string;
+  /**
+   * Hard ceiling on the call, sent with every request rather than trusted to the assistant's
+   * dashboard config. This alert is one sentence long, so a call that is still up a minute later
+   * is a call nobody is listening to - and every second of it is billed by both Vapi and the
+   * telephony carrier. Enforced here because the alternative failed in practice: the assistant
+   * would SAY "goodbye, the call has ended" without invoking its end-call tool, and the line
+   * stayed open until a silence timeout eventually killed it.
+   */
+  maxDurationSeconds?: number;
 }
+
+/** Long enough for the alert plus a short "ok, got it", short enough that a forgotten handset
+ *  cannot run up a bill. */
+export const DEFAULT_MAX_CALL_DURATION_SECONDS = 60;
 
 export interface PlaceOutboundCallResult {
   callId: string;
@@ -52,6 +65,7 @@ export const placeOutboundCall = async ({
   variableValues,
   assistantId = env.VAPI_ASSISTANT_ID,
   phoneNumberId = env.VAPI_PHONE_NUMBER_ID,
+  maxDurationSeconds = DEFAULT_MAX_CALL_DURATION_SECONDS,
 }: PlaceOutboundCallParams): Promise<PlaceOutboundCallResult> => {
   if (!env.VAPI_API_KEY || !assistantId || !phoneNumberId) {
     throw new VapiNotConfiguredError();
@@ -67,9 +81,12 @@ export const placeOutboundCall = async ({
       assistantId,
       phoneNumberId,
       customer: { number: toNumber },
-      ...(variableValues
-        ? { assistantOverrides: { variableValues } }
-        : {}),
+      // One overrides object, always sent: the duration ceiling must not depend on whether this
+      // particular call happened to carry variables.
+      assistantOverrides: {
+        maxDurationSeconds,
+        ...(variableValues ? { variableValues } : {}),
+      },
     }),
   });
 
@@ -86,5 +103,65 @@ export const placeOutboundCall = async ({
     callId: body?.id ?? '',
     status: body?.status ?? null,
     raw: parsed,
+  };
+};
+
+export interface CallOutcome {
+  /** Vapi's lifecycle status: `queued` / `ringing` / `in-progress` / `ended`. */
+  status: string | null;
+  /** Why it ended, once it has. This is the field that distinguishes a call the owner actually
+   *  answered from one the carrier refused - e.g. `customer-did-not-answer`, or the
+   *  `call.in-progress.error-sip-outbound-call-failed-to-connect` a dead trunk produces. */
+  endedReason: string | null;
+  /** Seconds of connected audio, when Vapi reports it. 0 for a call that never connected. */
+  durationSeconds: number | null;
+  /** True once this call will never change again, so it is safe to record and stop asking. */
+  settled: boolean;
+}
+
+/**
+ * GET /call/{id} - reads back what became of a call. Needed because POST /call answering 2xx
+ * only means Vapi accepted the request: every real failure we hit in practice (no wallet
+ * balance, unregistered SIP trunk, refused number) happened downstream of that and was visible
+ * nowhere in this system until someone opened Vapi's own dashboard.
+ */
+export const getCall = async (callId: string): Promise<CallOutcome> => {
+  if (!env.VAPI_API_KEY) {
+    throw new VapiNotConfiguredError();
+  }
+
+  const response = await fetch(
+    `${env.VAPI_API_BASE.replace(/\/+$/, '')}/call/${encodeURIComponent(callId)}`,
+    { headers: { Authorization: `Bearer ${env.VAPI_API_KEY}` } },
+  );
+
+  const text = await response.text();
+  const parsed: unknown = text ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    throw new VapiRequestError(
+      `Vapi returned ${response.status} for GET /call/${callId}.`,
+      response.status,
+      parsed,
+    );
+  }
+
+  const body = parsed as
+    | { status?: string; endedReason?: string; startedAt?: string; endedAt?: string }
+    | null;
+
+  const status = body?.status ?? null;
+  const startedAt = body?.startedAt ? Date.parse(body.startedAt) : NaN;
+  const endedAt = body?.endedAt ? Date.parse(body.endedAt) : NaN;
+
+  return {
+    status,
+    endedReason: body?.endedReason ?? null,
+    durationSeconds:
+      Number.isFinite(startedAt) && Number.isFinite(endedAt)
+        ? Math.max(0, Math.round((endedAt - startedAt) / 1000))
+        : null,
+    // `ended` is Vapi's terminal status; an endedReason without it still means it is over.
+    settled: status === 'ended' || Boolean(body?.endedReason),
   };
 };

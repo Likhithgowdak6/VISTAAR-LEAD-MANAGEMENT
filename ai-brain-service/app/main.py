@@ -99,6 +99,10 @@ class LeadMessageIn(BaseModel):
     owner_instruction: str = Field(
         "", description="A live, one-turn-only directive from the owner for this reply. Cleared after use."
     )
+    category_options: list[str] = Field(
+        default_factory=list,
+        description="Every category the caller has a playbook for. The qualifier may classify this conversation into one of these and nothing else.",
+    )
 
 
 class BrainResult(BaseModel):
@@ -106,26 +110,36 @@ class BrainResult(BaseModel):
     message: str = ""
     facts: dict[str, Any] = Field(default_factory=dict)
     escalation_reason: str = ""
+    # What this enquiry was classified as, '' while still unknown. The caller stores it; this
+    # service holds no business data of its own.
+    category: str = ""
 
 
 def _result_to_response(conversation_id: str, result: dict, fallback_facts: dict) -> BrainResult:
+    # Reported on every status, not only "asked": a lead who names the occasion and immediately
+    # pushes for a discount escalates on turn one, and that classification is still worth storing.
+    category = str(result.get("category") or "")
+
     pending = pending_interrupt(conversation_id)
     if pending:
         return BrainResult(
             status="awaiting_approval",
             message=pending.get("draft", ""),
             facts=pending.get("facts", fallback_facts),
+            category=category,
         )
     if result.get("escalation_reason"):
         return BrainResult(
             status="escalated",
             facts=result.get("facts", fallback_facts),
             escalation_reason=result["escalation_reason"],
+            category=category,
         )
     return BrainResult(
         status="asked",
         message=result.get("draft", ""),
         facts=result.get("facts", fallback_facts),
+        category=category,
     )
 
 
@@ -142,6 +156,7 @@ def lead_message(conversation_id: str, body: LeadMessageIn) -> BrainResult:
         "service_brief": body.service_brief,
         "style_examples": body.style_examples,
         "owner_instruction": body.owner_instruction,
+        "category_options": body.category_options,
     }
     if body.text:
         seed["transcript"] = [{"role": "lead", "text": body.text}]

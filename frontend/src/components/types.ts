@@ -79,6 +79,7 @@ export type ConversationSummary = Pick<
       | 'aiAutomationPausedReason'
       | 'optedOutAt'
       | 'eventDate'
+      | 'aiCategory'
       | 'leadScore'
       | 'leadScoreBand'
       | 'leadScoreSignals'

@@ -41,10 +41,12 @@ export const createOwnerCallEscalationRunner = ({
     try {
       const result = await service.sweepOnce({});
 
-      // Every tick, not only a failing one: this is the only signal that the runner is actually
-      // alive and looking, since a call it successfully places has no other console output (the
-      // rest of this codebase's alert services are the same - only failures are logged).
-      logger.info(result, 'Owner call escalation sweep tick.');
+      // Only when the tick actually did something. Logging every pass printed a line every few
+      // seconds saying nothing happened, which drowns the lines that matter - the same reason
+      // routine gateway drops are counted rather than traced one by one.
+      if (result.called > 0 || result.settled > 0 || result.failed > 0) {
+        logger.info(result, 'Owner call escalation sweep.');
+      }
     } catch (error: unknown) {
       const err = error as { code?: unknown; name?: unknown };
       logger.error({ code: err?.code, name: err?.name }, 'Owner call escalation sweep tick failed safely.');

@@ -367,6 +367,55 @@ export const describeBaileysGatewayDrop = (
   return describeNonConversationalJid(remoteJid);
 };
 
+/**
+ * Which bucket a gateway drop falls in, for the batch summary below. `null` means the message
+ * was not dropped at all.
+ *
+ * The four buckets are all "structurally not a lead": a group, a channel, a status broadcast, or
+ * an event with no message payload (a receipt, a reaction, a protocol node). None of them is ever
+ * a person enquiring about a shoot, which is why they are counted rather than traced one by one.
+ */
+export type GatewayDropKind = 'group' | 'channel' | 'broadcast' | 'no-payload' | 'unattachable';
+
+export const classifyBaileysGatewayDrop = (
+  message: BaileysInboundRawMessage = {},
+): GatewayDropKind | null => {
+  const remoteJid = message?.key?.remoteJid;
+
+  if (!message?.message) {
+    return 'no-payload';
+  }
+
+  if (!remoteJid) {
+    return 'unattachable';
+  }
+
+  const jid = typeof remoteJid === 'string' ? remoteJid.trim().toLowerCase() : '';
+
+  if (jid.endsWith('@g.us')) {
+    return 'group';
+  }
+
+  if (jid.endsWith('@newsletter')) {
+    return 'channel';
+  }
+
+  if (jid.endsWith('@broadcast')) {
+    return 'broadcast';
+  }
+
+  return null;
+};
+
+/**
+ * True for the drops worth summarising instead of tracing individually.
+ *
+ * `unattachable` is deliberately NOT routine: an event with a payload but no chat to attach it to
+ * is a genuine oddity, rare enough that one loud line about it is information rather than noise.
+ */
+export const isRoutineGatewayDrop = (kind: GatewayDropKind | null): boolean =>
+  kind === 'group' || kind === 'channel' || kind === 'broadcast' || kind === 'no-payload';
+
 export const shouldIgnoreBaileysInboundMessage = (
   message: BaileysInboundRawMessage = {},
 ): boolean =>
@@ -704,7 +753,48 @@ export const createBaileysProvider = ({
       socket.ev.on('messages.upsert', async (messageUpdate: BaileysMessageUpsert = {}) => {
         const ownJid: string | null = socket.user?.id ?? null;
         const ownLid: string | null = socket.user?.lid ?? null;
-        const inboundMessages = (messageUpdate.messages ?? [])
+        const batch = messageUpdate.messages ?? [];
+
+        /*
+         * Routine drops are counted, not traced one at a time.
+         *
+         * Every restart, WhatsApp hands over everything it buffered while the socket was down -
+         * every group, every followed channel, every status post - and each one used to print two
+         * trace lines, one of them with the `!!!` gutter. A few hundred of those buries the one
+         * line that actually mattered, and it does it while claiming to be an alarm: exactly the
+         * failure this trace's own design notes warn about for echoes ("a reader who learns to
+         * skip !!! has lost the one thing this trace is for").
+         *
+         * Nothing vanishes silently, which was the original point: the batch still reports how
+         * many it dropped and of what kind, in one line. A 1:1 chat - the only thing that can
+         * ever be a lead - is still traced in full, message by message.
+         */
+        const routineDrops = new Map<GatewayDropKind, number>();
+        const traceable: BaileysInboundRawMessage[] = [];
+
+        for (const message of batch) {
+          const kind = classifyBaileysGatewayDrop(message);
+
+          if (isRoutineGatewayDrop(kind)) {
+            routineDrops.set(kind!, (routineDrops.get(kind!) ?? 0) + 1);
+            continue;
+          }
+
+          traceable.push(message);
+        }
+
+        if (routineDrops.size > 0) {
+          const total = [...routineDrops.values()].reduce((sum, count) => sum + count, 0);
+          const batchTrace = createPipelineTrace({ seed: `batch:${batch[0]?.key?.id ?? total}` });
+
+          batchTrace.done(
+            PIPELINE_STAGE.PROVIDER_GATEWAY,
+            'events that can never be a lead (groups, channels, status broadcasts, receipts) - counted here rather than one line each',
+            () => Object.fromEntries([['dropped', total], ...routineDrops]),
+          );
+        }
+
+        const inboundMessages = traceable
           .map((message) => normalizeBaileysInboundMessage(message, { ownJid, ownLid }))
           .filter((message): message is NormalizedInboundMessage => Boolean(message));
 

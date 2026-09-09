@@ -2,7 +2,12 @@ import { type Server } from 'node:http';
 
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { silenceLibsignalConsole } from './observability/silence-libsignal-console.js';
 import { startServer, stopServer } from './server-lifecycle.js';
+
+// Before anything opens a WhatsApp socket: libsignal logs whole session records - ratchet
+// private keys included - straight to the console, with no logger to configure. See the module.
+silenceLibsignalConsole();
 
 let server: Server | undefined;
 let shutdownPromise: Promise<void> | null = null;

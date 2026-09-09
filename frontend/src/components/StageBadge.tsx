@@ -19,22 +19,18 @@ const StageBadge = ({ stage, label, color }: Props) => {
   const displayLabel = label ?? stage;
 
   if (builtinClassName) {
-    return (
-      <span
-        className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${builtinClassName}`}
-      >
-        {displayLabel}
-      </span>
-    );
+    return <span className={builtinClassName}>{displayLabel}</span>;
   }
 
-  // A custom stage: render a light tint of its own color instead of a fixed Tailwind class.
-  const tintStyle: CSSProperties = color
-    ? { backgroundColor: `${color}26`, color }
-    : { backgroundColor: '#f1f5f9', color: '#334155' };
+  // A custom stage: tint the chip with the stage's own color. The colour is the org's choice, so
+  // it is used at 15% for the fill and full strength for the text and border - readable on the
+  // graded base whatever hue they picked, without a light pill punching a hole in the panel.
+  const tintStyle: CSSProperties | undefined = color
+    ? { backgroundColor: `${color}26`, borderColor: `${color}59`, color }
+    : undefined;
 
   return (
-    <span className="rounded-full px-2 py-0.5 text-xs font-semibold" style={tintStyle}>
+    <span className="chip" style={tintStyle}>
       {displayLabel}
     </span>
   );

@@ -15,14 +15,20 @@ const EmptyState = ({ title, description, compact = false }: Props) => (
         : 'flex h-full flex-col items-center justify-center p-8 text-center'
     }
   >
+    {/* An empty screen is an invitation to act, so the title is set in the display face rather
+        than whispered in body text - it reads as a slide with nothing on it yet, not an error. */}
     <p
       className={
-        compact ? 'text-sm font-medium text-slate-600' : 'text-base font-semibold text-slate-700'
+        compact
+          ? 'text-sm font-medium text-bone-dim'
+          : 'font-display text-xl uppercase tracking-[0.14em] text-bone-dim'
       }
     >
       {title}
     </p>
-    {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+    {description ? (
+      <p className="mx-auto mt-1.5 max-w-xs text-sm leading-relaxed text-muted">{description}</p>
+    ) : null}
   </div>
 );
 
