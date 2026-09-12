@@ -58,7 +58,38 @@ export type AccountStatus =
 
 export type AiDraftOutcome = 'approved_unedited' | 'approved_edited' | 'discarded';
 export type AiKnowledgeStatus = 'active' | 'archived';
-export type AiKnowledgeCategory = 'pricing' | 'policy' | 'product' | 'faq' | 'other';
+// All eight the API accepts. `company`, `services` and `rules` were missing here, so three
+// categories the AI context builder reads were unreachable from the UI.
+export type AiKnowledgeCategory =
+  | 'company'
+  | 'services'
+  | 'pricing'
+  | 'rules'
+  | 'policy'
+  | 'product'
+  | 'faq'
+  | 'other';
+
+export type MessageTemplateKind = 'pricing';
+
+/** A message the owner approved for sending, kept so he does not write it again. */
+export interface MessageTemplate {
+  id: string;
+  title: string;
+  body: string;
+  kind: MessageTemplateKind;
+  /** What he typed to get this, so he can regenerate from it later. */
+  sourceDetails: string;
+  createdBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** One of the four the AI proposed. Not stored until the owner picks it. */
+export interface GeneratedTemplate {
+  title: string;
+  body: string;
+}
 
 export type OrganizationStatus = 'active' | 'disabled';
 
@@ -451,6 +482,8 @@ export interface LeadSource {
   defaultCountryCode: string;
   status: LeadSourceStatus;
   aiContextEnabled: boolean;
+  /** Whether the AI sends the first message to new leads from this form. Off by default. */
+  autoGreetEnabled: boolean;
   columnMapping: {
     externalId: string | null;
     createdTime: string | null;

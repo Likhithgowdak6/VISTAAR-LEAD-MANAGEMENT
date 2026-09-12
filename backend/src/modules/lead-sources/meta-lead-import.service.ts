@@ -160,6 +160,26 @@ export const createMetaLeadImportService = ({
       .map(({ lead, formName }) =>
         mapMetaGraphLead({ lead, columnMapping: leadSource.columnMapping, formName }),
       )
+      // The floor, enforced on what came back rather than only asked for in the query.
+      //
+      // `since` above is a REQUEST filter, and a request filter is a courtesy: a boundary tie, a
+      // lead whose `created_time` Meta revises, a watermark reset, or someone flipping backfill on
+      // later would all put an old lead into this list. For an events business that is not a
+      // duplicate, it is a message to someone whose wedding was last year - which is exactly what
+      // this business asked never to happen. So anything older than the day the source was
+      // connected is dropped here, unconditionally, whatever Meta chose to return.
+      //
+      // Skipped only when backfill was deliberately requested (importFromTime at the epoch), which
+      // is the one case where reaching into the past is the point.
+      .filter((lead) => {
+        const floor = leadSource.importFromTime;
+
+        if (!floor || floor.getTime() <= 0 || !lead.submittedAt) {
+          return true;
+        }
+
+        return lead.submittedAt.getTime() >= floor.getTime();
+      })
       // Oldest first. Meta serves newest first, and the pipeline's per-tick cap slices from the
       // front: taking the oldest means the watermark only ever advances over leads that were
       // actually looked at, and the newer remainder is still newer than it next tick.

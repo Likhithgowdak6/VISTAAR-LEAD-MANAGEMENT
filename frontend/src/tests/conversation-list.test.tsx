@@ -30,6 +30,7 @@ const conversations = [
     leadScore: 85,
     leadScoreBand: 'hot',
     leadScoreSignals: ['event_date', 'venue', 'budget', 'quotation_requested', 'replied'],
+    aiAutomationEnabled: true,
   },
   {
     id: 'c2',
@@ -144,5 +145,62 @@ describe('inbox and thread', () => {
     expect(sendArgs.idempotencyKey).toMatch(/[0-9a-f-]{8,}/i);
 
     await waitFor(() => expect(input).toHaveValue(''));
+  });
+
+  it('turns the AI off for one lead straight from the row', async () => {
+    endpoints.setAiAutomation.mockResolvedValue({ data: {} });
+
+    render(<App />);
+    await screen.findAllByText('Riya Sharma');
+
+    const toggle = await screen.findByRole('switch', {
+      name: 'Turn the AI off for Riya Sharma',
+    });
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(endpoints.setAiAutomation).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: 'c1', enabled: false }),
+      ),
+    );
+  });
+
+  it('does not open the thread when the switch is clicked', async () => {
+    endpoints.setAiAutomation.mockResolvedValue({ data: {} });
+
+    render(<App />);
+    await screen.findAllByText('Riya Sharma');
+
+    fireEvent.click(
+      await screen.findByRole('switch', { name: 'Turn the AI off for Riya Sharma' }),
+    );
+
+    // The row is a button and the switch sits on top of it. Silencing the AI must not also
+    // navigate you into the conversation you were trying to silence.
+    await waitFor(() => expect(endpoints.setAiAutomation).toHaveBeenCalled());
+    expect(endpoints.getConversation).not.toHaveBeenCalled();
+  });
+
+  it('puts the switch back when the server refuses', async () => {
+    endpoints.setAiAutomation.mockRejectedValue(new Error('nope'));
+
+    render(<App />);
+    await screen.findAllByText('Riya Sharma');
+
+    const toggle = await screen.findByRole('switch', {
+      name: 'Turn the AI off for Riya Sharma',
+    });
+    fireEvent.click(toggle);
+
+    // Optimistic while in flight, but the server is the truth: a switch left showing "off" when
+    // the AI is still running is the worst possible lie for this particular control.
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('switch', { name: 'Turn the AI off for Riya Sharma' }),
+      ).toBeChecked(),
+    );
   });
 });

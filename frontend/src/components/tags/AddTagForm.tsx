@@ -4,7 +4,9 @@ import { createTag } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { type AuthValue, errorMessage } from '../types';
 
-const DEFAULT_COLOR = '#64748b';
+// The cool fill, so a new tag is on-palette and still distinguishable at a glance from a new
+// stage, which defaults to the warm key.
+const DEFAULT_COLOR = '#4fd1c5';
 
 type Props = {
   onCreated?: () => void;

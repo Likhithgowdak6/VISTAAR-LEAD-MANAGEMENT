@@ -37,10 +37,11 @@ const LeadPanel = ({ conversation, contactId, onStageChange }: Props) => {
     bumpActivity();
   };
 
+  // Full width below xl, where it replaces the thread rather than sitting beside it.
   return (
     <aside
       aria-label="Lead details"
-      className="flex h-full w-80 shrink-0 flex-col gap-5 overflow-y-auto border-l border-slate-200 bg-white p-4"
+      className="flex h-full w-full shrink-0 flex-col gap-5 overflow-y-auto border-l border-slate-200 bg-white p-4 xl:w-80"
     >
       <StageControl
         conversationId={conversation.id}

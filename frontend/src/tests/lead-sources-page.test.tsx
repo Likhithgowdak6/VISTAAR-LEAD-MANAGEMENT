@@ -117,7 +117,9 @@ describe('LeadSourcesPage', () => {
   it('pauses a source without deleting the leads it produced', async () => {
     renderAuthed(<LeadSourcesPage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+    fireEvent.click(
+      await screen.findByRole('switch', { name: /Pause importing from/ }),
+    );
 
     await waitFor(() => expect(endpoints.updateLeadSource).toHaveBeenCalledTimes(1));
     expect(endpoints.updateLeadSource.mock.calls[0][0]).toMatchObject({
@@ -125,6 +127,23 @@ describe('LeadSourcesPage', () => {
       status: 'paused',
     });
     expect(endpoints.deleteLeadSource).not.toHaveBeenCalled();
+  });
+
+  it('turns the AI-messages-first switch on for one form only', async () => {
+    renderAuthed(<LeadSourcesPage />);
+
+    // Per form, because a lead only ever carries the form it came from. This is the switch that
+    // makes the studio message a stranger, so it is off until someone turns it on.
+    const greet = await screen.findByRole('switch', { name: /message new leads.*first/i });
+    expect(greet).not.toBeChecked();
+
+    fireEvent.click(greet);
+
+    await waitFor(() =>
+      expect(endpoints.updateLeadSource).toHaveBeenCalledWith(
+        expect.objectContaining({ leadSourceId: 'ls-1', autoGreetEnabled: true }),
+      ),
+    );
   });
 
   it('tells the admin to add a number first when none exists', async () => {

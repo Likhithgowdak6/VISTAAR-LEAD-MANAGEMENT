@@ -96,7 +96,7 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
   const canConnect = ['pending', 'disconnected', 'reconnecting'].includes(status);
 
   return (
-    <li className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+    <li className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate font-semibold text-slate-900">{account.name}</span>

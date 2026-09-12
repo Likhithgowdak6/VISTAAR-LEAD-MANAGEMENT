@@ -922,12 +922,15 @@ export interface FindNurturableConversationsParams {
    *  without `skip()`, which degrades on large offsets. */
   afterId?: ObjectIdLike;
   limit?: number;
+  /** Anything whose event has already happened is past chasing. Defaults to now. */
+  now?: Date;
 }
 
 export const findNurturableConversations = ({
   organizationId,
   afterId,
   limit = 200,
+  now = new Date(),
 }: FindNurturableConversationsParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
     stage: { $in: ACTIVE_PIPELINE_STAGES },
@@ -937,6 +940,11 @@ export const findNurturableConversations = ({
     // already covers them the moment they opt out, but this is the guarantee that survives
     // somebody flipping automation back on from the dashboard: opting out outranks the toggle.
     optedOutAt: null,
+    // The event has to still be ahead of us. This is an events business: a lead whose wedding was
+    // last month is not a slow deal, it is a finished one, and "still looking for a photographer?"
+    // arriving after the day is the single clearest sign nobody is reading these. A lead who never
+    // told us a date stays nurturable - no date is unknown, not past.
+    $or: [{ eventDate: null }, { eventDate: { $gte: now } }],
   };
 
   if (organizationId) {
@@ -1483,3 +1491,376 @@ export const releaseEventReminderClaim = ({
       session,
     },
   ).exec();
+
+// --------------------------------------------------------------------------
+// The owner assistant's read-only query surface.
+//
+// Everything the WhatsApp assistant can ask about the pipeline goes through these three, and they
+// take a fixed, typed filter rather than anything resembling a query the model wrote. That is the
+// whole safety story: the model chooses WHICH question to ask and with what filters, never how to
+// ask it, so there is no path from a message the owner typed to an arbitrary database read.
+// --------------------------------------------------------------------------
+
+export interface ConversationQueryFilterParams {
+  organizationId?: ObjectIdLike;
+  stages?: readonly string[];
+  categories?: readonly string[];
+  scoreBands?: readonly string[];
+  /** On createdAt - when the lead arrived, which is what "this month" means to the owner. */
+  since?: Date;
+  until?: Date;
+  /** On eventDate, for "who has a shoot next week". */
+  eventFrom?: Date;
+  eventTo?: Date;
+}
+
+const buildConversationQueryFilter = ({
+  organizationId,
+  stages,
+  categories,
+  scoreBands,
+  since,
+  until,
+  eventFrom,
+  eventTo,
+}: ConversationQueryFilterParams): QueryFilter<ConversationDocument> => {
+  const filter: QueryFilter<ConversationDocument> = {};
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  if (stages?.length) {
+    filter.stage = { $in: [...stages] };
+  }
+
+  if (categories?.length) {
+    filter.aiCategory = { $in: [...categories] };
+  }
+
+  if (scoreBands?.length) {
+    filter.leadScoreBand = { $in: [...scoreBands] };
+  }
+
+  if (since || until) {
+    filter.createdAt = {
+      ...(since ? { $gte: since } : {}),
+      ...(until ? { $lte: until } : {}),
+    };
+  }
+
+  if (eventFrom || eventTo) {
+    filter.eventDate = {
+      ...(eventFrom ? { $gte: eventFrom } : {}),
+      ...(eventTo ? { $lte: eventTo } : {}),
+    };
+  }
+
+  return filter;
+};
+
+export const countConversationsMatching = (params: ConversationQueryFilterParams) =>
+  Conversation.countDocuments(buildConversationQueryFilter(params)).exec();
+
+export interface ListConversationsMatchingParams extends ConversationQueryFilterParams {
+  limit?: number;
+}
+
+/**
+ * The matching leads, newest first, projected to what the assistant may say out loud.
+ *
+ * Note what is NOT selected: contactId, and anything that could carry a phone number. Revealing a
+ * customer's number is gated on CLIENT_PII_REVEAL and written to an audit log; an assistant that
+ * printed one into a chat would route around both.
+ */
+export const listConversationsMatching = ({
+  limit = 20,
+  ...params
+}: ListConversationsMatchingParams) =>
+  Conversation.find(buildConversationQueryFilter(params))
+    .select('displayName leadId stage aiCategory leadScore leadScoreBand eventDate lastMessageAt')
+    .sort({ lastMessageAt: -1 })
+    .limit(limit)
+    .exec();
+
+export interface GroupConversationCountsParams extends ConversationQueryFilterParams {
+  groupBy: 'stage' | 'aiCategory' | 'leadScoreBand';
+}
+
+/** Counts grouped by one whitelisted field - the shape behind "how's the pipeline looking". */
+export const groupConversationCounts = ({
+  groupBy,
+  ...params
+}: GroupConversationCountsParams): Promise<{ key: string; count: number }[]> =>
+  Conversation.aggregate<{ key: string; count: number }>([
+    { $match: buildConversationQueryFilter(params) },
+    { $group: { _id: `$${groupBy}`, count: { $sum: 1 } } },
+    { $project: { _id: 0, key: { $ifNull: ['$_id', 'unknown'] }, count: 1 } },
+    { $sort: { count: -1 } },
+  ]).exec();
+
+export interface FindConversationsDueForAutoGreetParams {
+  organizationId?: ObjectIdLike;
+  dueBefore?: Date;
+  limit?: number;
+}
+
+/**
+ * Imported leads whose greeting pause has elapsed, oldest first.
+ *
+ * `optedOutAt` is in the filter and not merely assumed: someone who has said stop must not be
+ * reached by a path that opens conversations rather than continuing them.
+ */
+export const findConversationsDueForAutoGreet = ({
+  organizationId,
+  dueBefore = new Date(),
+  limit = 25,
+}: FindConversationsDueForAutoGreetParams = {}) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    autoGreetDueAt: { $ne: null, $lte: dueBefore },
+    autoGreetSentAt: null,
+    optedOutAt: null,
+    aiAutomationEnabled: true,
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return Conversation.find(filter).sort({ autoGreetDueAt: 1 }).limit(limit).exec();
+};
+
+/** Books the moment this imported lead may be greeted. Idempotent: a re-import just re-stamps it. */
+export const scheduleAutoGreet = ({
+  conversationId,
+  organizationId,
+  dueAt,
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  dueAt: Date;
+}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      // Never re-arms one that has already gone out: a second import of the same lead must not
+      // produce a second "hi, you filled our form".
+      autoGreetSentAt: null,
+    },
+    { $set: { autoGreetDueAt: dueAt } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after' },
+  ).exec();
+
+/** Claims the right to send this lead's one opening message. */
+export const claimAutoGreet = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      autoGreetSentAt: null,
+    },
+    { $set: { autoGreetSentAt: now } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after', runValidators: true },
+  ).exec();
+
+/**
+ * Hands the claim back after a failed send.
+ *
+ * At-most-once would be the wrong way round for a first message: an unsent greeting is a lead who
+ * heard nothing, and the owner was told the AI was handling it.
+ */
+export const releaseAutoGreetClaim = ({
+  conversationId,
+  organizationId,
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    { $set: { autoGreetSentAt: null } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after' },
+  ).exec();
+
+// --------------------------------------------------------------------------
+// Payment follow-up. Everything here is deliberately explicit rather than inferred: the one
+// unrecoverable mistake in this area is asking a client who has already paid to pay again, and
+// nothing below ever concludes "unpaid" on its own.
+// --------------------------------------------------------------------------
+
+export interface FindBookingsAwaitingPaymentPromptParams {
+  organizationId?: ObjectIdLike;
+  /** Events that finished on or before this. The sweep passes yesterday. */
+  endedBefore: Date;
+  limit?: number;
+}
+
+/** Finished bookings the owner has not yet been asked about. */
+export const findBookingsAwaitingPaymentPrompt = ({
+  organizationId,
+  endedBefore,
+  limit = 25,
+}: FindBookingsAwaitingPaymentPromptParams) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    stage: CONVERSATION_STAGES.WON,
+    eventDate: { $ne: null, $lte: endedBefore },
+    paymentPromptSentAt: null,
+    paymentSettledAt: null,
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return Conversation.find(filter).sort({ eventDate: 1 }).limit(limit).exec();
+};
+
+export interface ClaimPaymentPromptParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  code: string;
+  now?: Date;
+}
+
+/**
+ * Claims the right to ask the owner about this booking's payment, exactly like `claimNewLeadAlert`:
+ * the `paymentPromptSentAt: null` condition is part of the filter, so two overlapping sweeps ask
+ * once between them rather than twice.
+ */
+export const claimPaymentPrompt = ({
+  conversationId,
+  organizationId,
+  code,
+  now = new Date(),
+}: ClaimPaymentPromptParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      paymentPromptSentAt: null,
+    },
+    {
+      $set: {
+        paymentPromptSentAt: now,
+        paymentPromptCode: code,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  ).exec();
+
+/** Hands the claim back when the ask could not be delivered, so the next sweep retries. */
+export const releasePaymentPromptClaim = ({
+  conversationId,
+  organizationId,
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    { $set: { paymentPromptSentAt: null, paymentPromptCode: null } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after' },
+  ).exec();
+
+/** The booking a payment reply is about. Scoped by code, which is why the code exists. */
+export const findConversationByPaymentCode = ({
+  organizationId,
+  code,
+}: {
+  organizationId?: ObjectIdLike;
+  code: string;
+}) =>
+  Conversation.findOne({
+    organizationId,
+    paymentPromptCode: code,
+    paymentSettledAt: null,
+  }).exec();
+
+export const recordPaymentSettled = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+}) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    { $set: { paymentSettledAt: now, paymentPromptCode: null } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after' },
+  ).exec();
+
+/**
+ * Claims the right to send the client its ONE payment nudge. Conditional on `paymentChaseSentAt`
+ * being null, so a repeated "not collected" from the owner cannot turn into repeated chasing of
+ * his customer.
+ */
+export const claimPaymentChase = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      paymentChaseSentAt: null,
+    },
+    { $set: { paymentChaseSentAt: now } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after' },
+  ).exec();
+
+export interface FindWonBookingsBetweenParams {
+  organizationId?: ObjectIdLike;
+  from: Date;
+  to: Date;
+  limit?: number;
+}
+
+/**
+ * Confirmed bookings with an event in a window, soonest first.
+ *
+ * Deliberately NOT the same query as findConversationsWithUpcomingEvents. That one exists to send
+ * a single reminder per booking and so filters on `eventReminderSentAt: null`, which would make a
+ * booking disappear from the countdown the moment its one-shot reminder went out. This is a
+ * standing view of the week ahead: the same booking should appear every morning until the day
+ * arrives, which is the whole point of a countdown.
+ */
+export const findWonBookingsBetween = ({
+  organizationId,
+  from,
+  to,
+  limit = 100,
+}: FindWonBookingsBetweenParams) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    stage: CONVERSATION_STAGES.WON,
+    eventDate: { $gte: from, $lte: to },
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return Conversation.find(filter)
+    .select('displayName leadId eventDate aiCategory')
+    .sort({ eventDate: 1 })
+    .limit(limit)
+    .exec();
+};

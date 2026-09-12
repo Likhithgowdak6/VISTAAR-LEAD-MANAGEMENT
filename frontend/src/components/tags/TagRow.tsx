@@ -29,11 +29,11 @@ const TagRow = ({ tag, canManage, onChanged }: Props) => {
   };
 
   return (
-    <li className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+    <li className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-center gap-2">
         <span
           className="h-4 w-4 shrink-0 rounded-full border border-slate-200"
-          style={{ backgroundColor: tag.color ?? '#cbd5e1' }}
+          style={{ backgroundColor: tag.color ?? 'var(--color-muted)' }}
           aria-hidden="true"
         />
         <span className="truncate font-semibold text-slate-900">{tag.name}</span>

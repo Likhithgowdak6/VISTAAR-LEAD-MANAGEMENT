@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { listAiKnowledge } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
-import AddKnowledgeForm from '../components/ai-knowledge/AddKnowledgeForm';
+import KnowledgeDialog from '../components/ai-knowledge/KnowledgeDialog';
 import KnowledgeRow from '../components/ai-knowledge/KnowledgeRow';
 import EmptyState from '../components/EmptyState';
 import Spinner from '../components/Spinner';
@@ -14,6 +14,7 @@ const AiKnowledgePage = () => {
   const [knowledge, setKnowledge] = useState<AiKnowledge[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const canManage = hasPermission(permissions, PERMISSIONS.AI_KNOWLEDGE_MANAGE);
 
   const load = useCallback(async () => {
@@ -36,16 +37,30 @@ const AiKnowledgePage = () => {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 p-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">AI knowledge base</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Facts the AI reply assistant is grounded in — prices, policies, and things it must never
-          promise. Every AI-drafted reply still requires a human to review and send it.
-        </p>
+    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">AI knowledge base</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            What the agent knows and how it must behave — prices, policies, and things it must
+            never promise. It reads all of this before every reply.
+          </p>
+        </div>
+
+        {canManage ? (
+          <button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="btn-key shrink-0 rounded-lg px-4 py-2 text-sm"
+          >
+            Tell the AI what to do
+          </button>
+        ) : null}
       </div>
 
-      {canManage ? <AddKnowledgeForm onCreated={load} /> : null}
+      {dialogOpen ? (
+        <KnowledgeDialog onClose={() => setDialogOpen(false)} onSaved={load} />
+      ) : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (
@@ -59,7 +74,10 @@ const AiKnowledgePage = () => {
           </p>
         ) : null}
         {!loading && knowledge.length === 0 ? (
-          <EmptyState title="No facts yet" description="Add one above." />
+          <EmptyState
+            title="Nothing here yet"
+            description="Until you add something, the agent runs on its seven built-in safety rules alone."
+          />
         ) : null}
         <ul>
           {knowledge.map((item) => (

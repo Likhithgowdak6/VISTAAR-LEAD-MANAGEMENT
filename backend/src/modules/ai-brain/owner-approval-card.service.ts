@@ -44,6 +44,7 @@ import {
   resumeEscalatedConversationWithInstruction as defaultResumeEscalatedConversationWithInstruction,
 } from './ai-brain.service.js';
 import { getOwnerActorForOrganization as defaultGetOwnerActorForOrganization } from './owner-actor.service.js';
+import { handleOwnerQuestion as defaultHandleOwnerQuestion } from './owner-assistant.service.js';
 
 type Logger = { error?: (...args: unknown[]) => void };
 type NotifyOwnerFn = (params?: NotifyOwnerParams) => Promise<NotifyOwnerResult>;
@@ -816,6 +817,7 @@ export interface HandleOwnerApprovalReplyParams {
   getOwnerActorForOrganization?: typeof defaultGetOwnerActorForOrganization;
   findMostRecentlyEscalatedConversation?: typeof defaultFindMostRecentlyEscalatedConversation;
   resumeEscalatedConversationWithInstruction?: typeof defaultResumeEscalatedConversationWithInstruction;
+  handleOwnerQuestion?: typeof defaultHandleOwnerQuestion;
   notifyOwner?: NotifyOwnerFn;
   logger?: Logger;
 }
@@ -841,6 +843,7 @@ export const handleOwnerApprovalReply = async ({
   getOwnerActorForOrganization = defaultGetOwnerActorForOrganization,
   findMostRecentlyEscalatedConversation = defaultFindMostRecentlyEscalatedConversation,
   resumeEscalatedConversationWithInstruction = defaultResumeEscalatedConversationWithInstruction,
+  handleOwnerQuestion = defaultHandleOwnerQuestion,
   notifyOwner = getOwnerNotifyService().notifyOwner,
   logger = defaultLogger,
 }: HandleOwnerApprovalReplyParams = {}): Promise<void> => {
@@ -854,16 +857,36 @@ export const handleOwnerApprovalReply = async ({
   });
 
   if (pendingApprovals.length === 0) {
-    // Nothing waiting on a code - but there may still be a lead the AI stepped back from and
-    // never got a paused interrupt for (an escalation completes the graph run rather than
-    // pausing it, so there's no card to reply to; see resumeEscalatedConversationWithInstruction).
-    // Free text with nowhere else to go is read as an instruction for that lead, on the
-    // assumption that a self-chat reply the moment after an escalation card is about it - the
-    // one case this could act on the wrong lead is two escalations open at once, which is rare
-    // enough for a solo-owner test setup to accept.
+    // Nothing waiting on a code. Two things this could still be, and they are not distinguishable
+    // by shape: an instruction about a lead the AI stepped back from (an escalation completes the
+    // graph run rather than pausing it, so there's no card to reply to - see
+    // resumeEscalatedConversationWithInstruction), or a question about the business.
+    //
+    // "ask them for their budget" and "how many bookings this month" arrive on the same channel,
+    // and no keyword rule was going to separate them, so the assistant's own dispatcher decides -
+    // it is told which lead is parked, and answers `instruction` when that is the better reading.
+    // Before the assistant existed, a message with no escalation open fell through here and did
+    // nothing at all.
     try {
       const escalated = await findMostRecentlyEscalatedConversation({ organizationId });
+      const outcome = await handleOwnerQuestion({
+        organizationId,
+        question: text.trim(),
+        parkedLeadName: escalated?.displayName ?? '',
+      });
 
+      if (outcome.kind === 'answered') {
+        await notifyOwner({
+          accountId: whatsappAccountId,
+          organizationId,
+          text: outcome.message ?? "I couldn't work that one out.",
+        });
+
+        return;
+      }
+
+      // Read as an order about the parked lead. `instruction` is only ever returned when one is
+      // parked, so this is reachable with `escalated` set.
       if (!escalated) {
         return;
       }

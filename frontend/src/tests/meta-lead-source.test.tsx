@@ -233,7 +233,7 @@ describe('A configured Meta source in the list', () => {
 
     await waitFor(() => expect(endpoints.syncLeadSource).toHaveBeenCalledTimes(1));
     expect(endpoints.syncLeadSource.mock.calls[0][0]).toMatchObject({ leadSourceId: 'ls-meta' });
-    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /Pause importing from/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
   });
 });

@@ -13,6 +13,10 @@ Endpoints:
   POST /v1/conversations/{id}/outcome        - AI opinion on won/lost/needs-attention
   POST /v1/conversations/{id}/followup       - draft a day-2/5/9/15 "still there?" nudge
   POST /v1/conversations/{id}/summary        - the owner's catch-up read of the whole thread
+  POST /v1/assistant/plan                    - owner's WhatsApp message -> what to look up
+  POST /v1/assistant/answer                  - looked-up data -> the reply he gets
+  POST /v1/knowledge/optimize                - owner's rough note -> a clear instruction
+  POST /v1/templates/price                   - owner's raw prices -> 4 sendable quote messages
   POST /v1/proposals/generate                - facts -> proposal JSON
   POST /v1/proposals/revise                  - proposal JSON + instruction -> updated JSON
   POST /v1/proposals/render                  - proposal JSON + template -> docx/pdf
@@ -27,7 +31,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import followup, llm, outcome, proposals, summary
+from app import assistant, followup, knowledge, llm, outcome, proposals, summary, templates
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -89,6 +93,10 @@ def health_llm() -> dict:
 class LeadMessageIn(BaseModel):
     text: str | None = Field(None, description="What the lead just said. Omit to just re-run with current facts.")
     category: str = "unknown"
+    lead_name: str = Field(
+        "",
+        description="What to call the lead, from WhatsApp. Without it an owner rule like 'greet them by name' cannot be followed.",
+    )
     facts: dict[str, Any] = Field(default_factory=dict)
     required_fields: list[str] = Field(default_factory=list)
     catalog_text: str = "(no plans configured - do not quote any price)"
@@ -148,6 +156,7 @@ def lead_message(conversation_id: str, body: LeadMessageIn) -> BrainResult:
     seed: dict[str, Any] = {
         "conversation_id": conversation_id,
         "category": body.category,
+        "lead_name": body.lead_name,
         "facts": body.facts,
         "required_fields": body.required_fields,
         "catalog_text": body.catalog_text,
@@ -268,6 +277,140 @@ def conversation_summary(conversation_id: str, body: SummaryIn) -> SummaryOut:
             knowledge_text=body.knowledge_text,
         )
     )
+
+
+# --------------------------------------------------------------------------
+class AssistantPlanIn(BaseModel):
+    question: str
+    stages: list[str] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
+    score_bands: list[str] = Field(default_factory=list)
+    parked_lead_name: str = Field(
+        "",
+        description="A lead the AI has parked with the owner. Empty means an instruction has nowhere to go, so that action is not offered.",
+    )
+
+
+class AssistantPlanOut(BaseModel):
+    action: Literal["count", "list", "breakdown", "lead_instruction", "chat"]
+    restated: str = ""
+    group_by: str = ""
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
+@app.post("/v1/assistant/plan", dependencies=[Depends(require_service_key)])
+def assistant_plan(body: AssistantPlanIn) -> AssistantPlanOut:
+    """
+    Decides what the owner's message means and what to look up. Answers nothing.
+
+    Filters come back validated against the lists the caller sent, so a stage or
+    category the model invented cannot turn a real question into a silent zero.
+    """
+    try:
+        with llm.llm_context("assistant_plan"):
+            return AssistantPlanOut(
+                **assistant.plan(
+                    question=body.question,
+                    stages=body.stages,
+                    categories=body.categories,
+                    score_bands=body.score_bands,
+                    parked_lead_name=body.parked_lead_name,
+                )
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class AssistantAnswerIn(BaseModel):
+    question: str
+    restated: str = ""
+    data: str = Field("", description="Already fetched by the caller. The only thing statable.")
+
+
+@app.post("/v1/assistant/answer", dependencies=[Depends(require_service_key)])
+def assistant_answer(body: AssistantAnswerIn) -> dict:
+    with llm.llm_context("assistant_answer"):
+        return {
+            "message": assistant.answer(
+                question=body.question,
+                restated=body.restated,
+                data=body.data,
+            )
+        }
+
+
+# --------------------------------------------------------------------------
+class PriceTemplatesIn(BaseModel):
+    raw_details: str
+    rejected: list[str] = Field(
+        default_factory=list,
+        description="Bodies the owner already turned down, so a regenerate returns genuinely different ones.",
+    )
+
+
+class PriceTemplate(BaseModel):
+    title: str
+    body: str
+
+
+class PriceTemplatesOut(BaseModel):
+    templates: list[PriceTemplate]
+
+
+@app.post("/v1/templates/price", dependencies=[Depends(require_service_key)])
+def price_templates(body: PriceTemplatesIn) -> PriceTemplatesOut:
+    """
+    Four ways of presenting the owner's prices. Saves nothing and sends nothing.
+
+    The figures come back exactly as he typed them - four presentations of one
+    offer, never four different offers.
+    """
+    try:
+        with llm.llm_context("price_templates"):
+            return PriceTemplatesOut(
+                templates=[
+                    PriceTemplate(**item)
+                    for item in templates.generate(
+                        raw_details=body.raw_details,
+                        rejected=body.rejected,
+                    )
+                ]
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+# --------------------------------------------------------------------------
+class KnowledgeOptimizeIn(BaseModel):
+    raw_text: str
+    category_options: list[str] = Field(default_factory=list)
+
+
+class KnowledgeOptimizeOut(BaseModel):
+    label: str
+    content: str
+    category: str
+    notes: str = ""
+
+
+@app.post("/v1/knowledge/optimize", dependencies=[Depends(require_service_key)])
+def knowledge_optimize(body: KnowledgeOptimizeIn) -> KnowledgeOptimizeOut:
+    """
+    Rewrites the owner's rough note into an instruction the agent will follow.
+
+    Nothing is saved here and nothing is applied - the result goes back for the
+    owner to approve, because its output ends up in every future conversation.
+    """
+    try:
+        with llm.llm_context("knowledge_optimize"):
+            return KnowledgeOptimizeOut(
+                **knowledge.optimize(
+                    raw_text=body.raw_text,
+                    category_options=body.category_options,
+                )
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 # --------------------------------------------------------------------------

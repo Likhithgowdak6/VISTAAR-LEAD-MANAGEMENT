@@ -311,6 +311,12 @@ describe('handleOwnerApprovalReply', () => {
   const createHarness = (
     pendingApprovals: Array<{ _id: string; conversationId: string; code: string }>,
     escalatedConversation: { _id: string; displayName: string } | null = null,
+    // What the assistant's dispatcher decides this message was. Defaults to answering it, which
+    // is what happens to anything that is not an order about a parked lead.
+    assistantOutcome: { kind: 'answered' | 'instruction'; message?: string } = {
+      kind: 'answered',
+      message: 'You have 3 birthday bookings.',
+    },
   ) => {
     const listPendingApprovals = vi.fn().mockResolvedValue(pendingApprovals);
     const resolveApprovalForActor = vi.fn().mockResolvedValue({ approval: {}, sent: true });
@@ -319,6 +325,7 @@ describe('handleOwnerApprovalReply', () => {
     const notifyOwner = vi.fn().mockResolvedValue({ providerMessageId: 'MSG-1' });
     const findMostRecentlyEscalatedConversation = vi.fn().mockResolvedValue(escalatedConversation);
     const resumeEscalatedConversationWithInstruction = vi.fn().mockResolvedValue(undefined);
+    const handleOwnerQuestion = vi.fn().mockResolvedValue(assistantOutcome);
 
     return {
       listPendingApprovals,
@@ -327,6 +334,7 @@ describe('handleOwnerApprovalReply', () => {
       notifyOwner,
       findMostRecentlyEscalatedConversation,
       resumeEscalatedConversationWithInstruction,
+      handleOwnerQuestion,
       ownerActor,
       run: (text: string) =>
         handleOwnerApprovalReply({
@@ -339,24 +347,40 @@ describe('handleOwnerApprovalReply', () => {
           getOwnerActorForOrganization,
           findMostRecentlyEscalatedConversation,
           resumeEscalatedConversationWithInstruction,
+          handleOwnerQuestion,
           notifyOwner,
           logger: { error: vi.fn() },
         }),
     };
   };
 
-  it('does nothing when there are no pending approvals and nothing recently escalated', async () => {
+  it('answers as the assistant when nothing is pending and nothing is escalated', async () => {
     const h = createHarness([]);
 
-    await h.run('1');
+    await h.run('how many birthday bookings do we have');
 
+    // This used to fall through and do nothing at all. Nothing about a lead is touched.
     expect(h.resolveApprovalForActor).not.toHaveBeenCalled();
     expect(h.resumeEscalatedConversationWithInstruction).not.toHaveBeenCalled();
-    expect(h.notifyOwner).not.toHaveBeenCalled();
+    expect(h.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'You have 3 birthday bookings.' }),
+    );
   });
 
-  it('treats free text as an instruction for the most recently escalated conversation when nothing is pending', async () => {
+  it('tells the assistant which lead is parked, so an instruction is a possible reading', async () => {
     const h = createHarness([], { _id: 'conv-escalated', displayName: 'Likhith' });
+
+    await h.run('how many birthday bookings do we have');
+
+    expect(h.handleOwnerQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({ parkedLeadName: 'Likhith' }),
+    );
+  });
+
+  it('treats free text as an instruction when the assistant reads it as one', async () => {
+    const h = createHarness([], { _id: 'conv-escalated', displayName: 'Likhith' }, {
+      kind: 'instruction',
+    });
 
     await h.run('ask them the budget and try to handle');
 
@@ -369,6 +393,16 @@ describe('handleOwnerApprovalReply', () => {
     expect(h.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining('Likhith') }),
     );
+  });
+
+  it('does not touch a lead when the assistant answered instead', async () => {
+    const h = createHarness([], { _id: 'conv-escalated', displayName: 'Likhith' });
+
+    await h.run('how many weddings are booked');
+
+    // The dangerous direction: a question misread as an instruction would send something to a
+    // real customer.
+    expect(h.resumeEscalatedConversationWithInstruction).not.toHaveBeenCalled();
   });
 
   it('resolves an explicit-code approve and confirms it was sent', async () => {

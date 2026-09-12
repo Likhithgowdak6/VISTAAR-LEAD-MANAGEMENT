@@ -218,6 +218,50 @@ describe('importFromSource', () => {
   });
 });
 
+describe('the connection-date floor', () => {
+  it('drops a lead older than importFromTime even when Meta returns it anyway', async () => {
+    const h = createHarness({
+      importFromTime: new Date('2026-09-11T00:00:00.000Z'),
+      leads: [
+        graphLead('old', '2026-07-01T09:00:00+0000'),
+        graphLead('new', '2026-09-12T09:00:00+0000'),
+      ],
+    });
+
+    await h.run();
+
+    // `since` is only a request filter; a boundary tie, a revised created_time or a reset
+    // watermark can all put an old lead in the response. For an events business that is a message
+    // to someone whose wedding has already happened, so it is refused here regardless.
+    const { leads } = h.importLeads.mock.calls[0][0];
+    expect(leads).toHaveLength(1);
+    expect(leads[0].externalId).toBe('new');
+  });
+
+  it('keeps a lead submitted exactly on the floor', async () => {
+    const h = createHarness({
+      importFromTime: new Date('2026-09-11T00:00:00.000Z'),
+      leads: [graphLead('boundary', '2026-09-11T00:00:00+0000')],
+    });
+
+    await h.run();
+
+    expect(h.importLeads.mock.calls[0][0].leads).toHaveLength(1);
+  });
+
+  it('imports the whole history when backfill was deliberately asked for', async () => {
+    const h = createHarness({
+      importFromTime: new Date(0),
+      leads: [graphLead('ancient', '2021-01-01T09:00:00+0000')],
+    });
+
+    await h.run();
+
+    // The epoch is how "import everything" is expressed, and reaching into the past is the point.
+    expect(h.importLeads.mock.calls[0][0].leads).toHaveLength(1);
+  });
+});
+
 describe('syncStatusForMetaError', () => {
   it('flags a dead token for a human instead of logging another red "sync failed"', () => {
     expect(

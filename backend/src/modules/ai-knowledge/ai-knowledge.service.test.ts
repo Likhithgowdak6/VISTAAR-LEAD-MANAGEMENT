@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   findKnowledgeById: vi.fn(),
   findKnowledgeByOrganization: vi.fn(),
   archiveKnowledge: vi.fn(),
+  updateKnowledge: vi.fn(),
+  deleteKnowledge: vi.fn(),
 }));
 
 vi.mock('./ai-knowledge.repository.js', () => ({
@@ -27,12 +29,19 @@ vi.mock('./ai-knowledge.repository.js', () => ({
   findKnowledgeById: mocks.findKnowledgeById,
   findKnowledgeByOrganization: mocks.findKnowledgeByOrganization,
   archiveKnowledge: mocks.archiveKnowledge,
+  updateKnowledge: mocks.updateKnowledge,
+  deleteKnowledge: mocks.deleteKnowledge,
 }));
 
-const { createKnowledgeForActor, listKnowledgeForOrganization } = await import(
-  './ai-knowledge.service.js'
+const {
+  createKnowledgeForActor,
+  deleteKnowledgeForActor,
+  listKnowledgeForOrganization,
+  updateKnowledgeForActor,
+} = await import('./ai-knowledge.service.js');
+const { createKnowledgeBodySchema, updateKnowledgeBodySchema } = await import(
+  './ai-knowledge.validation.js'
 );
-const { createKnowledgeBodySchema } = await import('./ai-knowledge.validation.js');
 
 const organizationId = 'org-1';
 const actor = { _id: 'user-1' } as never;
@@ -78,6 +87,95 @@ describe('the four sections', () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe('editing a fact in place', () => {
+  const existing = {
+    _id: 'k1',
+    organizationId,
+    label: 'Warranty policy',
+    content: 'Warranty is two years.',
+    category: AI_KNOWLEDGE_CATEGORIES.POLICY,
+    status: 'active',
+  };
+
+  it('writes only the fields supplied, so a category change cannot blank the content', async () => {
+    mocks.findKnowledgeById.mockResolvedValue(existing);
+    mocks.updateKnowledge.mockResolvedValue({
+      ...existing,
+      category: AI_KNOWLEDGE_CATEGORIES.RULES,
+    });
+
+    const updated = await updateKnowledgeForActor({
+      organizationId,
+      knowledgeId: 'k1',
+      actor,
+      category: AI_KNOWLEDGE_CATEGORIES.RULES,
+    });
+
+    const [call] = mocks.updateKnowledge.mock.calls;
+    expect(call?.[0]).toMatchObject({ category: 'rules', actorId: 'user-1' });
+    expect(call?.[0]?.label).toBeUndefined();
+    expect(call?.[0]?.content).toBeUndefined();
+    expect(updated?.content).toBe('Warranty is two years.');
+  });
+
+  it('is a not-found rather than a silent no-op when the id belongs to another organization', async () => {
+    mocks.findKnowledgeById.mockResolvedValue(null);
+
+    await expect(
+      updateKnowledgeForActor({
+        organizationId,
+        knowledgeId: 'k-elsewhere',
+        actor,
+        label: 'Renamed',
+      }),
+    ).rejects.toThrow('AI_KNOWLEDGE_NOT_FOUND');
+
+    expect(mocks.updateKnowledge).not.toHaveBeenCalled();
+  });
+
+  it('rejects an edit that changes nothing, so the UI cannot report an empty save as done', () => {
+    expect(updateKnowledgeBodySchema.safeParse({}).success).toBe(false);
+    expect(updateKnowledgeBodySchema.safeParse({ category: 'rules' }).success).toBe(true);
+  });
+
+  it('rejects a category nothing has ever used on the edit path too', () => {
+    expect(updateKnowledgeBodySchema.safeParse({ category: 'moon_landing' }).success).toBe(false);
+  });
+});
+
+describe('deleting a fact for good', () => {
+  const existing = {
+    _id: 'k1',
+    organizationId,
+    label: 'Old warranty',
+    content: 'Two years.',
+    category: AI_KNOWLEDGE_CATEGORIES.POLICY,
+    status: 'archived',
+  };
+
+  it('removes it scoped to the organization and returns what went', async () => {
+    mocks.findKnowledgeById.mockResolvedValue(existing);
+    mocks.deleteKnowledge.mockResolvedValue(existing);
+
+    const removed = await deleteKnowledgeForActor({ organizationId, knowledgeId: 'k1' });
+
+    expect(mocks.deleteKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({ knowledgeId: 'k1', organizationId }),
+    );
+    expect(removed).toMatchObject({ id: 'k1', label: 'Old warranty' });
+  });
+
+  it('is a not-found for an id belonging to another organization, and deletes nothing', async () => {
+    mocks.findKnowledgeById.mockResolvedValue(null);
+
+    await expect(
+      deleteKnowledgeForActor({ organizationId, knowledgeId: 'k-elsewhere' }),
+    ).rejects.toThrow('AI_KNOWLEDGE_NOT_FOUND');
+
+    expect(mocks.deleteKnowledge).not.toHaveBeenCalled();
   });
 });
 

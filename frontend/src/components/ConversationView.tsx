@@ -6,6 +6,7 @@ import {
   getMessages,
   listSendableAccounts,
   listStages,
+  listTemplates,
   recordAiDraftOutcome,
   sendMessage,
 } from '../api/endpoints';
@@ -13,6 +14,7 @@ import { useAuth } from '../auth/AuthContext';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
+import { type MessageTemplate } from '../types';
 import ConversationSummaryPanel from './ConversationSummaryPanel';
 import EmptyState from './EmptyState';
 import LeadPanel from './lead/LeadPanel';
@@ -45,11 +47,23 @@ const mergeDesc = (existing: Message[], incoming: Message[]): Message[] => {
   });
 };
 
+/**
+ * True when the viewport is wide enough to show the thread and the lead panel side by side.
+ * Read once, at mount, to pick the initial state of the details panel: on a phone the panel
+ * would otherwise open over the messages you just tapped through to read.
+ */
+const isWideViewport = (): boolean =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(min-width: 1280px)').matches;
+
 type Props = {
   conversationId: string;
+  /** Returns to the conversation list. Only rendered below lg, where the list is hidden. */
+  onBack?: () => void;
 };
 
-const ConversationView = ({ conversationId }: Props) => {
+const ConversationView = ({ conversationId, onBack }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
   const canSuggestReply = hasPermission(permissions, PERMISSIONS.AI_GENERATE);
@@ -60,10 +74,11 @@ const ConversationView = ({ conversationId }: Props) => {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(isWideViewport);
   const [stageOverride, setStageOverride] = useState<string | null>(null);
   const [stages, setStages] = useState<StageOption[]>(mergeStages());
   const [sendableAccounts, setSendableAccounts] = useState<SendableAccount[]>([]);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
 
   useEffect(() => {
     // Needed to resolve a custom stage's label/color for the header badge; built-ins already
@@ -82,6 +97,12 @@ const ConversationView = ({ conversationId }: Props) => {
 
     authedRequest((token) => listSendableAccounts({ token }))
       .then((payload) => setSendableAccounts(payload.data ?? []))
+      .catch(() => {});
+
+    // Saved quotes for the composer's picker. A failure just hides the picker - the composer
+    // works exactly as it did before templates existed.
+    authedRequest((token) => listTemplates({ token }))
+      .then((payload) => setTemplates(payload.data ?? []))
       .catch(() => {});
   }, [authedRequest, canSendMessages]);
 
@@ -180,7 +201,13 @@ const ConversationView = ({ conversationId }: Props) => {
       whatsappAccountId: string | null;
     }) => {
       const payload = await authedRequest((token) =>
-        sendMessage({ token, conversationId, body, idempotencyKey, whatsappAccountId }),
+        sendMessage({
+          token,
+          conversationId,
+          body,
+          idempotencyKey,
+          whatsappAccountId,
+        }),
       );
 
       if (payload?.data) {
@@ -246,21 +273,34 @@ const ConversationView = ({ conversationId }: Props) => {
 
   return (
     <div className="flex min-w-0 flex-1">
-      <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-          <div className="min-w-0">
-            <h2 className="font-semibold text-slate-900">{conversation?.displayName}</h2>
-            <p className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span>{conversation?.leadId}</span>
-              {whatsappAccount ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="truncate text-slate-500">via {whatsappAccount.name}</span>
-                </>
-              ) : null}
-            </p>
+      {/* Below xl the thread and the lead panel take turns rather than splitting the width; the
+          existing Details / Hide details button is the switch. From xl both are visible. */}
+      <section className={`min-w-0 flex-1 flex-col xl:flex ${detailsOpen ? 'hidden' : 'flex'}`}>
+        <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+              >
+                ← Inbox
+              </button>
+            ) : null}
+            <div className="min-w-0">
+              <h2 className="truncate font-semibold text-slate-900">{conversation?.displayName}</h2>
+              <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="truncate">{conversation?.leadId}</span>
+                {whatsappAccount ? (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="truncate text-slate-500">via {whatsappAccount.name}</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <StageBadge
               stage={effectiveStage}
               label={findStageByKey(stages, effectiveStage)?.label}
@@ -299,6 +339,7 @@ const ConversationView = ({ conversationId }: Props) => {
           sendableAccounts={sendableAccounts}
           currentAccountId={whatsappAccount?.id ?? null}
           currentAccountName={whatsappAccount?.name ?? null}
+          templates={templates}
         />
       </section>
 

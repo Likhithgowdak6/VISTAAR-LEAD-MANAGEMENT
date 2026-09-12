@@ -78,6 +78,16 @@ export interface LeadSourceDocument {
   status: LeadSourceStatus;
   /** ADR-005 boundary: form answers only reach the AI provider when an admin opts in. */
   aiContextEnabled: boolean;
+  /**
+   * Whether the AI opens the conversation itself, rather than leaving the lead for a human.
+   *
+   * Off by default and deliberately its own switch. Everything else the agent sends is a REPLY to
+   * someone who messaged first; this is the one path where it messages a stranger, over an
+   * unofficial WhatsApp connection, on the number the whole business runs on - which is the thing
+   * WhatsApp bans numbers for. It should be a decision someone makes per source, on purpose,
+   * rather than something that comes on with the importer.
+   */
+  autoGreetEnabled: boolean;
   columnMapping: LeadSourceColumnMapping;
   /**
    * Rows created at or before this instant are ignored. Set to "now" when the source is added
@@ -232,6 +242,12 @@ const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
     },
 
     aiContextEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+
+    autoGreetEnabled: {
       type: Boolean,
       required: true,
       default: false,

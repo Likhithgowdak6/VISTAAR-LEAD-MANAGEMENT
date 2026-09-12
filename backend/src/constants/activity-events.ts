@@ -30,6 +30,8 @@ export const ACTIVITY_EVENTS = Object.freeze({
   AI_BRAIN_HOT_LEAD_ALERTED: 'ai_brain.hot_lead_alerted',
   AI_BRAIN_OWNER_INSTRUCTION_RESUMED: 'ai_brain.owner_instruction_resumed',
   AI_BRAIN_OWNER_CALL_ESCALATED: 'ai_brain.owner_call_escalated',
+  AI_BRAIN_PAYMENT_SETTLED: 'ai_brain.payment_settled',
+  AI_BRAIN_PAYMENT_CHASED: 'ai_brain.payment_chased',
 } as const);
 
 export type ActivityEvent = (typeof ACTIVITY_EVENTS)[keyof typeof ACTIVITY_EVENTS];

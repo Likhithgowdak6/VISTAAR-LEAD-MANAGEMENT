@@ -57,6 +57,9 @@ const sharedCreateFields = {
   whatsappAccountId: objectIdSchema,
   defaultCountryCode: countryCodeSchema.default('91'),
   aiContextEnabled: z.boolean().default(false),
+  // Off unless asked for: this is the only path where the agent messages someone who never
+  // messaged it. See the model for why that is its own decision.
+  autoGreetEnabled: z.boolean().default(false),
   columnMapping: columnMappingSchema,
   /**
    * Opt-in full backfill. Off by default so connecting a source with a year of history does not
@@ -106,6 +109,7 @@ export const updateLeadSourceBodySchema = z
     whatsappAccountId: objectIdSchema.optional(),
     defaultCountryCode: countryCodeSchema.optional(),
     aiContextEnabled: z.boolean().optional(),
+    autoGreetEnabled: z.boolean().optional(),
     status: z.enum(LEAD_SOURCE_STATUS_VALUES).optional(),
     columnMapping: columnMappingSchema,
     // Meta only. `kind` is deliberately absent: a source does not change what it pulls from.

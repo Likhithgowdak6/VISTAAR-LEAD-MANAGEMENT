@@ -262,6 +262,8 @@ export const requireAiKnowledgeManage = requirePermissions(PERMISSIONS.AI_KNOWLE
 
 export const requireAiAutomationManage = requirePermissions(PERMISSIONS.AI_AUTOMATION_MANAGE);
 
+export const requireTemplatesManage = requirePermissions(PERMISSIONS.TEMPLATES_MANAGE);
+
 export const requireLeadSourcesManage = requirePermissions(PERMISSIONS.LEAD_SOURCES_MANAGE);
 
 export const requireAccountsRead = requirePermissions(PERMISSIONS.ACCOUNTS_READ);

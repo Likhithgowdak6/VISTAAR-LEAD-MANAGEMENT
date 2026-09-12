@@ -13,6 +13,12 @@ from typing import Annotated, Any, Literal, TypedDict
 class ConversationState(TypedDict, total=False):
     conversation_id: str
     category: str
+
+    # What to call the lead, as WhatsApp reports it. Sent by wam-crm-ai rather than mined out of
+    # the transcript, because it is usually known before the lead has said anything about
+    # themselves - and an owner rule like "greet them by name" is unfollowable without it.
+    lead_name: str
+
     facts: dict[str, Any]
 
     # Rolling conversation, newest last: [{"role": "lead"|"us", "text": str}]

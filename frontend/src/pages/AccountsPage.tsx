@@ -56,7 +56,7 @@ const AccountsPage = () => {
     setRemovalNotice(describeAccountRemoval(removal));
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 p-6">
+    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <div>
         <h1 className="text-xl font-bold text-slate-900">WhatsApp numbers</h1>
         <p className="mt-1 text-sm text-slate-500">

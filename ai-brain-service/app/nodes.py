@@ -132,6 +132,7 @@ def qualify(state: ConversationState) -> dict:
         facts=json.dumps(facts, ensure_ascii=False),
         owner_instruction=state.get("owner_instruction") or "(none)",
         category_options=", ".join(state.get("category_options") or []) or "(none supplied)",
+        lead_name=state.get("lead_name") or "(not known - do not guess it)",
     )
     result = complete_json(
         system=system,
@@ -221,6 +222,7 @@ def draft_response(state: ConversationState) -> dict:
             rules=state.get("rules_text", "") or "(none supplied - promise nothing at all)",
             style=state.get("style_examples", ""),
             transcript=_transcript_text(state.get("transcript", [])),
+            lead_name=state.get("lead_name") or "(not known - do not guess it)",
         ),
         user="Write the message now.",
         max_tokens=700,

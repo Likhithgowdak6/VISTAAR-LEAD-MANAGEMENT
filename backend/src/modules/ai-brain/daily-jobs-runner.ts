@@ -11,6 +11,10 @@
  */
 import { env, type Env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import {
+  createBookingCountdownService,
+  type BookingCountdownService,
+} from './booking-countdown.service.js';
 import { createDailyScheduler, type DailyScheduler } from './daily-scheduler.js';
 import { createDigestService, type DigestService } from './digest.service.js';
 import { createHandoverReadService, type HandoverReadService } from './handover-read.service.js';
@@ -20,6 +24,7 @@ const asBoolean = (value: unknown): boolean => value === true || value === 'true
 /** Minutes past DIGEST_HOUR at which each job fires. */
 export const MORNING_READ_MINUTE = 0;
 export const DIGEST_MINUTE = 10;
+export const BOOKING_COUNTDOWN_MINUTE = 20;
 
 const dailyJobsEnabled = (config: Env): boolean =>
   asBoolean(config.DAILY_JOBS_ENABLED) && asBoolean(config.WHATSAPP_ENABLED);
@@ -60,4 +65,28 @@ export const createDigestRunner = ({
     run: () => service.sendDigest({}),
     logger,
     name: 'Owner digest',
+  });
+
+export interface CreateBookingCountdownRunnerOptions {
+  config?: Env;
+  service?: BookingCountdownService;
+}
+
+/**
+ * Last of the three, ten minutes after the digest, for the same reason the digest follows the
+ * morning read: the owner gets one thread of three related messages rather than three arriving at
+ * once. It is also the right order to read them in - what needs you, then what is coming.
+ */
+export const createBookingCountdownRunner = ({
+  config = env,
+  service = createBookingCountdownService({ config }),
+}: CreateBookingCountdownRunnerOptions = {}): DailyScheduler =>
+  createDailyScheduler({
+    hour: Number(config.DIGEST_HOUR ?? 9),
+    minute: BOOKING_COUNTDOWN_MINUTE,
+    timeZone: config.WHATSAPP_BUSINESS_TIMEZONE ?? 'Asia/Kolkata',
+    enabled: dailyJobsEnabled(config),
+    run: () => service.run(),
+    logger,
+    name: 'Booking countdown',
   });

@@ -37,6 +37,7 @@ export interface SerializedLeadSource {
   defaultCountryCode: unknown;
   status: LeadSourceStatus | unknown;
   aiContextEnabled: boolean;
+  autoGreetEnabled: boolean;
   columnMapping: {
     externalId: unknown;
     createdTime: unknown;
@@ -96,6 +97,7 @@ export const serializeLeadSource = (leadSource: unknown): SerializedLeadSource |
     defaultCountryCode: value.defaultCountryCode,
     status: value.status,
     aiContextEnabled: Boolean(value.aiContextEnabled),
+    autoGreetEnabled: Boolean(value.autoGreetEnabled),
     columnMapping: {
       externalId: columnMapping.externalId ?? null,
       createdTime: columnMapping.createdTime ?? null,

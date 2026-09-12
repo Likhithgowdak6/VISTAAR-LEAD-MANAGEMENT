@@ -261,6 +261,7 @@ export const handleInboundMessageForAutomation = async ({
     const result = await aiBrainClient.sendLeadMessage(conversation._id.toString(), {
       text: inboundText,
       category: conversation.aiCategory,
+      leadName: conversation.displayName ?? '',
       facts: conversation.aiFacts ?? {},
       requiredFields: context.requiredFields,
       catalogText: context.catalogText,

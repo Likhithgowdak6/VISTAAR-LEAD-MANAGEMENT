@@ -83,6 +83,22 @@ describe('findNurturableConversations', () => {
     expect(chain.sort).toHaveBeenCalledWith({ _id: 1 });
   });
 
+  it('never chases a lead whose event has already happened', async () => {
+    const chain = createFindChain([]);
+    mocks.find.mockReturnValue(chain);
+    const now = new Date('2026-09-11T00:00:00.000Z');
+
+    await findNurturableConversations({ organizationId, now });
+
+    // This is an events business: after the day, "still looking for a photographer?" is not a
+    // slow deal, it is a message nobody can act on. A lead who never gave a date is still open.
+    expect(mocks.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [{ eventDate: null }, { eventDate: { $gte: now } }],
+      }),
+    );
+  });
+
   it('never selects a conversation whose lead asked to stop', async () => {
     const chain = createFindChain([]);
     mocks.find.mockReturnValue(chain);

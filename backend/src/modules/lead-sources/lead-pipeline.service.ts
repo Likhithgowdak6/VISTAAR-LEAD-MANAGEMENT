@@ -12,6 +12,8 @@
  * mid-lead costs at most a contact with no submission attached, which the next poll repairs.
  * Nothing here sends a message — an imported lead is a thread waiting for a human.
  */
+import { type HydratedDocument } from 'mongoose';
+
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
@@ -31,6 +33,7 @@ import {
 } from '../contacts/contact.repository.js';
 import {
   mergeConversationAiContext as defaultMergeConversationAiContext,
+  scheduleAutoGreet as defaultScheduleAutoGreet,
   touchConversation as defaultTouchConversation,
   upsertConversationForContact as defaultUpsertConversationForContact,
 } from '../conversations/conversation.repository.js';
@@ -140,6 +143,8 @@ export interface CreateLeadPipelineOptions {
    * atomically), so an imported lead who then messages produces one alert, not two.
    */
   sendNewLeadAlert?: typeof defaultSendNewLeadAlert;
+  /** Books when the AI may open the chat. The sending itself is auto-greet-sweep.service.ts. */
+  scheduleAutoGreet?: typeof defaultScheduleAutoGreet;
   /**
    * Rescores the lead off the facts this form just contributed. Internally failure-isolated and
    * never throws, exactly like `sendNewLeadAlert` above - one unscoreable row must not abandon
@@ -177,6 +182,7 @@ export const createLeadPipeline = ({
   },
   createActivity = defaultCreateActivity,
   sendNewLeadAlert = defaultSendNewLeadAlert,
+  scheduleAutoGreet = defaultScheduleAutoGreet,
   recomputeLeadScore = defaultRecomputeLeadScore,
   publishEvent = defaultPublishConversationChanged as CreateLeadPipelineOptions['publishEvent'],
   computeContactProviderKeyFromPhone = defaultComputeContactProviderKeyFromPhone,
@@ -184,6 +190,12 @@ export const createLeadPipeline = ({
   logger = defaultLogger,
 }: CreateLeadPipelineOptions = {}) => {
   const maxRowsPerTick = Number(config.LEAD_IMPORT_MAX_ROWS_PER_TICK ?? 200);
+
+  /**
+   * How long after someone fills the form before the AI may open the chat. Sending is the sweep's
+   * job; all this side does is book the moment.
+   */
+  const greetDelayMs = Number(config.LEAD_AUTO_GREET_DELAY_MS ?? 300000);
 
   const recordSkippedLead = async ({
     leadSource,
@@ -325,8 +337,18 @@ export const createLeadPipeline = ({
       displayName: contact.displayName,
       defaults: {
         stage: CONVERSATION_STAGES.NEW,
+        // Which form this came from, so the greet sweep can re-check the source's settings at
+        // send time rather than trusting what they were at import.
+        leadSourceId: leadSource._id,
+        // On insert only. An imported lead arrives with automation ON, like an inbound one: the
+        // AI is meant to work these, and the owner switches it off per lead when he wants to take
+        // one over. Without this the auto-greet below is also dead on arrival, since the
+        // automation path checks eligibility before it does anything.
+        aiAutomationEnabled: true,
       },
-    })) as ConversationDocument;
+      // Hydrated rather than narrowed to the plain shape: it genuinely is a Mongoose document
+      // here, and the auto-greet below hands it to the automation path, which needs one.
+    })) as HydratedDocument<ConversationDocument>;
 
     // ADR-005, the same boundary lead-context.service.ts already enforces: the answers a lead
     // typed into a third-party form only reach the AI provider when the admin who connected the
@@ -455,6 +477,40 @@ export const createLeadPipeline = ({
         { conversationId: conversation._id.toString(), reason: describeError(error) },
         'New-lead owner alert threw unexpectedly; the lead is imported either way.',
       );
+    }
+
+    /**
+     * The one path where this system messages someone who never messaged it.
+     *
+     * Off unless the source says otherwise, and last in the function on purpose: the lead is fully
+     * recorded by now, so a greet that cannot be delivered costs a message, never the import.
+     *
+     * The opening is produced by the normal qualifying graph - same voice, same rules, same
+     * knowledge base - by running it with no inbound text and a one-turn directive. That directive
+     * is what makes the first line name the form: a stranger who does not immediately recognise
+     * why you are in their WhatsApp is a stranger who reports you, and on an unofficial connection
+     * that costs the number every conversation on it.
+     */
+    if (leadSource.autoGreetEnabled === true) {
+      // Scheduled, not sent. The import poll runs every ten minutes, so greeting inline would
+      // message someone thirty seconds after they filled the form if the timing happened to land
+      // that way - which reads as being watched rather than being served. The sweep sends it once
+      // the pause has actually elapsed, and survives a restart in between.
+      const submitted = lead.submittedAt ?? new Date();
+      const dueAt = new Date(Math.max(submitted.getTime(), Date.now()) + greetDelayMs);
+
+      try {
+        await scheduleAutoGreet({
+          conversationId: conversation._id,
+          organizationId,
+          dueAt,
+        });
+      } catch (error: unknown) {
+        logger.error?.(
+          { conversationId: conversation._id.toString(), reason: describeError(error) },
+          'Could not schedule the auto-greet; the lead is imported and the owner was alerted.',
+        );
+      }
     }
 
     return 'imported';

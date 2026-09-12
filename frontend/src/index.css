@@ -189,6 +189,32 @@
     color-scheme: dark;
   }
 
+  /* Native checkboxes and radios paint their tick with the OS accent - system blue on Windows -
+     which is the one colour on screen no CSS variable can reach through a class. `color-scheme`
+     above already gets us dark selects and scrollbars; this gets the key light into the controls
+     themselves, so "Auto-qualify" in the lead panel stops being the only blue pixel in the app. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--color-key);
+  }
+
+  /* The open dropdown is drawn by the OS, not by us, and Chrome on Windows paints it from the
+     select's own background-color. Most selects in the app carry a border and text colour but no
+     background utility, so the popup fell back to system white while `text-slate-900` - remapped
+     to bone - supplied near-white text: eight invisible options with only the hovered row legible.
+     `color-scheme: dark` does not cover this. Giving the select the same ink as every text field,
+     and the options the raised panel, makes the list read as a layer above the field it belongs to.
+     Base layer, so a `bg-*` utility on any individual select still wins. */
+  select {
+    background-color: var(--color-ink);
+  }
+
+  select option,
+  select optgroup {
+    background-color: var(--color-panel);
+    color: var(--color-bone);
+  }
+
   body {
     background-color: var(--color-ink);
     color: var(--color-bone);
@@ -272,6 +298,17 @@
  * Components the hand-tuned surfaces are built from.
  * ------------------------------------------------------------------------ */
 @layer components {
+  /* A strip that scrolls sideways without showing a bar. Used by the masthead nav, which has to
+     stay swipeable on a narrow screen but must not grow a grey scrollbar across the masthead. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* An eyebrow: condensed caps, wide tracking. Labels a region without competing with it. */
   .eyebrow {
     font-family: var(--font-display);

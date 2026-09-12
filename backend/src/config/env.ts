@@ -159,6 +159,20 @@ const envSchema = z.object({
 
   // Ceiling per source per tick, so a first sync of a large sheet cannot monopolise the loop.
   LEAD_IMPORT_MAX_ROWS_PER_TICK: z.coerce.number().int().min(1).max(2000).default(200),
+  /**
+   * How many imported leads the AI may open a conversation with per tick, and how long it waits
+   * between them. Capped far below the import limit and hard-bounded here: importing is free,
+   * messaging strangers is what gets a WhatsApp number banned, and a config typo should not be
+   * able to turn a backlog into a spam run.
+   */
+  LEAD_AUTO_GREET_MAX_PER_TICK: z.coerce.number().int().min(1).max(25).default(5),
+  LEAD_AUTO_GREET_SPACING_MS: z.coerce.number().int().min(0).max(300000).default(20000),
+  /**
+   * How long after someone fills the form before the AI opens the chat. Five minutes: long enough
+   * not to read as surveillance, short enough that they still remember filling it in.
+   */
+  LEAD_AUTO_GREET_DELAY_MS: z.coerce.number().int().min(0).max(3600000).default(300000),
+  LEAD_AUTO_GREET_SWEEP_INTERVAL_MS: z.coerce.number().int().min(15000).default(60000),
 
   // Pulling leads straight off the Meta Graph API instead of a spreadsheet. Off until the client
   // has an app with `leads_retrieval` and a Page access token to paste in — with it false the
@@ -288,6 +302,16 @@ const envSchema = z.object({
   // different Vapi assistants. Falls back to VAPI_ASSISTANT_ID when unset; the call always
   // carries a `callReason` variable either way, so one shared assistant can also cover both.
   VAPI_EVENT_REMINDER_ASSISTANT_ID: z.string().optional(),
+
+  /**
+   * The "here is what you are shooting tomorrow" assistant, used by the booking countdown.
+   *
+   * Its own assistant because the whole message lives in Vapi's First Message - that is what stops
+   * the model hanging up in the greeting - and a "you have a new lead" opener cannot also be a
+   * "you are shooting tomorrow" opener. Falls back to VAPI_ASSISTANT_ID, which will sound wrong
+   * but will still connect, so a missing id degrades rather than breaks.
+   */
+  VAPI_SCHEDULE_ASSISTANT_ID: z.string().optional(),
 });
 
 const result = envSchema.safeParse(process.env);

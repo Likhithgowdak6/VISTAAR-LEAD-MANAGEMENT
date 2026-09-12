@@ -1,5 +1,6 @@
 import { type ChangeEvent, type FormEvent, useState } from 'react';
 
+import { type MessageTemplate } from '../types';
 import { errorMessage, type SendableAccount } from './types';
 
 const generateIdempotencyKey = (): string => {
@@ -32,6 +33,11 @@ type Props = {
   /** The number the thread is currently on, pre-selected in the dropdown. */
   currentAccountId?: string | null;
   currentAccountName?: string | null;
+  /**
+   * Saved price messages, loaded by the parent. Picking one fills the box rather than sending it:
+   * a quote goes out under the studio's name, so it gets the same human look as an AI draft.
+   */
+  templates?: readonly MessageTemplate[];
 };
 
 const MessageComposer = ({
@@ -41,6 +47,7 @@ const MessageComposer = ({
   sendableAccounts = [],
   currentAccountId = null,
   currentAccountName = null,
+  templates = [],
 }: Props) => {
   const [body, setBody] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -74,6 +81,27 @@ const MessageComposer = ({
     } finally {
       setSuggesting(false);
     }
+  };
+
+  /**
+   * Loads a saved quote into the box for editing, never straight out to the customer.
+   *
+   * Confirms before overwriting: a half-typed reply is work, and there is no undo on a textarea.
+   */
+  const handleTemplate = (templateId: string) => {
+    const template = templates.find((candidate) => candidate.id === templateId);
+    if (!template) {
+      return;
+    }
+
+    if (body.trim() !== '' && !window.confirm('Replace what you have typed with this template?')) {
+      return;
+    }
+
+    setBody(template.body);
+    // No longer an AI draft, so it must not be reported as one approved or edited.
+    setDraftId(null);
+    setDraftText(null);
   };
 
   // Falls back to the thread's own number until the agent picks something else, so a stale
@@ -135,9 +163,27 @@ const MessageComposer = ({
           {error}
         </p>
       ) : null}
-      {canSuggest || showAccountPicker ? (
+      {canSuggest || showAccountPicker || templates.length > 0 ? (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {templates.length > 0 ? (
+              /* Resets to the placeholder after each pick, so choosing the same template twice in
+                 a row still fires a change event. */
+              <select
+                aria-label="Insert a template"
+                value=""
+                onChange={(event) => handleTemplate(event.target.value)}
+                disabled={sending}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">Template…</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.title}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {canSuggest ? (
               <button
                 type="button"

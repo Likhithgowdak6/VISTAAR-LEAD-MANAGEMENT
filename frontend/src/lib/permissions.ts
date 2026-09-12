@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   AI_GENERATE: 'ai.generate',
   AI_KNOWLEDGE_MANAGE: 'ai.knowledge.manage',
   AI_AUTOMATION_MANAGE: 'ai.automation.manage',
+  TEMPLATES_MANAGE: 'templates.manage',
   LEAD_SOURCES_MANAGE: 'lead_sources.manage',
   SETTINGS_MANAGE: 'settings.manage',
 } as const;

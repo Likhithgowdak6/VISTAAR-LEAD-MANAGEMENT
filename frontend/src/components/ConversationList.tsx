@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { listConversations, listStages, listTags } from '../api/endpoints';
+import { listConversations, listStages, listTags, setAiAutomation } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
@@ -10,6 +10,7 @@ import LeadScoreBadge from './LeadScoreBadge';
 import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
 import StageBadge from './StageBadge';
+import ToggleSwitch from './ToggleSwitch';
 import {
   type AuthValue,
   type ConversationSummary,
@@ -37,6 +38,9 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Conversation id -> the value the user just chose, held until the refetch confirms it.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     try {
@@ -76,8 +80,44 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
 
   const hasFilters = Boolean(stageFilter) || tagFilterIds.length > 0;
 
+  /**
+   * Optimistic, and deliberately so: the whole point is that switching the AI off feels immediate,
+   * because the reason you are reaching for it is that you want it to stop NOW. The server is the
+   * source of truth - a failure puts the switch back and says why.
+   */
+  const toggleAutomation = async (conversationId: string, next: boolean) => {
+    setBusyId(conversationId);
+    setPending((current) => ({ ...current, [conversationId]: next }));
+    setError(null);
+
+    try {
+      await authedRequest((token) => setAiAutomation({ token, conversationId, enabled: next }));
+      await load();
+    } catch (toggleError: unknown) {
+      setPending((current) => {
+        const { [conversationId]: _discarded, ...rest } = current;
+        return rest;
+      });
+      setError(errorMessage(toggleError, 'Could not change the AI for that lead.'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /**
+   * The optimistic value while a change is in flight, otherwise whatever the server last said.
+   *
+   * Falls back to ON, because that is the resting state: the AI works every lead until the owner
+   * says otherwise. This only applies when the field is absent from the payload - an explicit
+   * `false`, including the one an escalation writes, still reads as off.
+   */
+  const automationFor = (conversation: ConversationSummary): boolean =>
+    pending[conversation.id] ?? conversation.aiAutomationEnabled ?? true;
+
+  // Width is the shell's decision now - full bleed on a phone, a fixed rail from lg - so this no
+  // longer pins itself to max-w-sm and eats half a laptop viewport.
   return (
-    <aside className="flex h-full w-full max-w-sm flex-col border-r border-hairline bg-ink-2">
+    <aside className="flex h-full w-full flex-col border-r border-hairline bg-ink-2">
       <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
         {/* Stays "Conversations", not "Contact sheet": this app has Contacts as a separate thing,
             so the studio's own word for a page of frames would read as the wrong noun here. The
@@ -133,12 +173,15 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
             const isSelected = conversation.id === selectedId;
 
             return (
-              <li key={conversation.id}>
+              // The toggle is a sibling of the row button, never a child: a button inside a button
+              // is invalid HTML, and assistive tech reports the inner control unreliably or not at
+              // all. `group` moves up here so the sprocket still lights on row hover.
+              <li key={conversation.id} className="group relative">
                 <button
                   type="button"
                   onClick={() => onSelect(conversation.id)}
                   aria-current={isSelected}
-                  className={`group relative flex w-full flex-col gap-1.5 border-b border-hairline/60 px-4 py-3 pl-5 text-left transition-colors ${
+                  className={`relative flex w-full flex-col gap-1.5 border-b border-hairline/60 px-4 py-3 pl-5 pr-14 text-left transition-colors ${
                     isSelected ? 'bg-panel' : 'hover:bg-panel/60'
                   }`}
                 >
@@ -189,6 +232,27 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
                     />
                   </div>
                 </button>
+
+                {/* The AI's off switch for this one lead, on the row rather than only inside the
+                    thread: the moment you want it is when you have just read something the AI
+                    said and want it to stop, and that is a moment for one click - not for opening
+                    a panel and hunting for a setting. */}
+                <span className="absolute bottom-3 right-4 flex items-center gap-1.5">
+                  <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+                    AI
+                  </span>
+                  <ToggleSwitch
+                    size="sm"
+                    checked={automationFor(conversation)}
+                    disabled={busyId === conversation.id}
+                    label={
+                      automationFor(conversation)
+                        ? `Turn the AI off for ${conversation.displayName}`
+                        : `Turn the AI on for ${conversation.displayName}`
+                    }
+                    onChange={(next) => toggleAutomation(conversation.id, next)}
+                  />
+                </span>
               </li>
             );
           })}

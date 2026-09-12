@@ -6,7 +6,9 @@ import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
+import { createAutoGreetRunner } from './modules/ai-brain/auto-greet-runner.js';
 import {
+  createBookingCountdownRunner,
   createDigestRunner,
   createMorningReadRunner,
 } from './modules/ai-brain/daily-jobs-runner.js';
@@ -33,6 +35,8 @@ let leadImportRunner: BackgroundRunnerHandle | null = null;
 let nurtureRunner: BackgroundRunnerHandle | null = null;
 let morningReadRunner: BackgroundRunnerHandle | null = null;
 let digestRunner: BackgroundRunnerHandle | null = null;
+let bookingCountdownRunner: BackgroundRunnerHandle | null = null;
+let autoGreetRunner: BackgroundRunnerHandle | null = null;
 let eventReminderRunner: BackgroundRunnerHandle | null = null;
 let ownerCallEscalationRunner: BackgroundRunnerHandle | null = null;
 
@@ -105,6 +109,8 @@ export interface StartServerParams {
   createNurtureRunnerFn?: () => BackgroundRunnerHandle;
   createMorningReadRunnerFn?: () => BackgroundRunnerHandle;
   createDigestRunnerFn?: () => BackgroundRunnerHandle;
+  createBookingCountdownRunnerFn?: () => BackgroundRunnerHandle;
+  createAutoGreetRunnerFn?: () => BackgroundRunnerHandle;
   createEventReminderRunnerFn?: () => BackgroundRunnerHandle;
   createOwnerCallEscalationRunnerFn?: () => BackgroundRunnerHandle;
   reconnectSessionsFn?: () => Promise<unknown>;
@@ -126,6 +132,8 @@ export const startServer = async ({
   createNurtureRunnerFn = createNurtureRunner,
   createMorningReadRunnerFn = createMorningReadRunner,
   createDigestRunnerFn = createDigestRunner,
+  createBookingCountdownRunnerFn = createBookingCountdownRunner,
+  createAutoGreetRunnerFn = createAutoGreetRunner,
   createEventReminderRunnerFn = createEventReminderRunner,
   createOwnerCallEscalationRunnerFn = createOwnerCallEscalationRunner,
   reconnectSessionsFn = () => getSessionManager().reconnectPersistedSessions(),
@@ -203,6 +211,26 @@ export const startServer = async ({
     });
     startedDigestRunner.start();
 
+    const startedBookingCountdownRunner = createBookingCountdownRunnerFn();
+    bookingCountdownRunner = startedBookingCountdownRunner;
+    rollbackSteps.push(() => {
+      startedBookingCountdownRunner.stop();
+      if (bookingCountdownRunner === startedBookingCountdownRunner) {
+        bookingCountdownRunner = null;
+      }
+    });
+    startedBookingCountdownRunner.start();
+
+    const startedAutoGreetRunner = createAutoGreetRunnerFn();
+    autoGreetRunner = startedAutoGreetRunner;
+    rollbackSteps.push(() => {
+      startedAutoGreetRunner.stop();
+      if (autoGreetRunner === startedAutoGreetRunner) {
+        autoGreetRunner = null;
+      }
+    });
+    startedAutoGreetRunner.start();
+
     const startedEventReminderRunner = createEventReminderRunnerFn();
     eventReminderRunner = startedEventReminderRunner;
     rollbackSteps.push(() => {
@@ -277,6 +305,12 @@ export const stopServer = async ({
     eventReminderRunner = null;
     digestRunner?.stop();
     digestRunner = null;
+
+    bookingCountdownRunner?.stop();
+    bookingCountdownRunner = null;
+
+    autoGreetRunner?.stop();
+    autoGreetRunner = null;
     morningReadRunner?.stop();
     morningReadRunner = null;
     nurtureRunner?.stop();

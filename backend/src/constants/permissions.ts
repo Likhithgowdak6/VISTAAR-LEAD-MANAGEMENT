@@ -26,6 +26,12 @@ export const PERMISSIONS = Object.freeze({
   AI_KNOWLEDGE_MANAGE: 'ai.knowledge.manage',
   AI_AUTOMATION_MANAGE: 'ai.automation.manage',
 
+  // Saving and deleting message templates. Separate from AI_KNOWLEDGE_MANAGE because a template
+  // is a message that goes out verbatim under the studio's name, and from MESSAGES_SEND because
+  // anyone who can send should be able to USE a saved template without being able to change what
+  // the whole team sends.
+  TEMPLATES_MANAGE: 'templates.manage',
+
   LEAD_SOURCES_MANAGE: 'lead_sources.manage',
 
   AUDIT_READ: 'audit.read',
@@ -63,6 +69,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.AI_GENERATE,
       PERMISSIONS.AI_KNOWLEDGE_MANAGE,
       PERMISSIONS.AI_AUTOMATION_MANAGE,
+      PERMISSIONS.TEMPLATES_MANAGE,
       PERMISSIONS.LEAD_SOURCES_MANAGE,
       PERMISSIONS.AUDIT_READ,
       PERMISSIONS.SETTINGS_MANAGE,
@@ -78,6 +85,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.CRM_TASKS_MANAGE,
       PERMISSIONS.AI_GENERATE,
       PERMISSIONS.AI_AUTOMATION_MANAGE,
+      PERMISSIONS.TEMPLATES_MANAGE,
     ]),
 
     staff: Object.freeze([

@@ -24,10 +24,13 @@ import {
   type FollowUpPriority,
   type FollowUpTask,
   type FollowUpType,
+  type GeneratedTemplate,
   type LeadSource,
   type LeadSourceStatus,
   type LeadSubmission,
   type Message,
+  type MessageTemplate,
+  type MessageTemplateKind,
   type MetaConnectionTest,
   type MetaLeadFormSummary,
   type Note,
@@ -712,6 +715,56 @@ export const createAiKnowledge = ({
     body: { label, content, category },
   });
 
+export interface OptimizeAiKnowledgeParams extends TokenParams {
+  rawText: string;
+}
+
+export interface OptimizedAiKnowledge {
+  label: string;
+  content: string;
+  category: AiKnowledgeCategory;
+  notes: string;
+  rawText: string;
+}
+
+/**
+ * Rewrites a rough note into an instruction the agent will follow. Saves nothing — the result is
+ * a proposal for the owner to approve, edit or throw away.
+ */
+export const optimizeAiKnowledge = ({
+  token,
+  rawText,
+}: OptimizeAiKnowledgeParams): Promise<ApiSuccessResponse<OptimizedAiKnowledge>> =>
+  apiFetch('/ai/knowledge/optimize', {
+    method: 'POST',
+    token,
+    body: { rawText },
+  });
+
+export interface UpdateAiKnowledgeParams extends TokenParams {
+  knowledgeId: string;
+  label?: string;
+  content?: string;
+  category?: AiKnowledgeCategory;
+}
+
+/**
+ * Edits a fact in place. Omitted fields are left untouched by the API, so this can change just
+ * the category. The API rejects a body with none of the three.
+ */
+export const updateAiKnowledge = ({
+  token,
+  knowledgeId,
+  label,
+  content,
+  category,
+}: UpdateAiKnowledgeParams): Promise<ApiSuccessResponse<AiKnowledge>> =>
+  apiFetch(`/ai/knowledge/${knowledgeId}`, {
+    method: 'PATCH',
+    token,
+    body: { label, content, category },
+  });
+
 export interface ArchiveAiKnowledgeParams extends TokenParams {
   knowledgeId: string;
 }
@@ -721,6 +774,17 @@ export const archiveAiKnowledge = ({
   knowledgeId,
 }: ArchiveAiKnowledgeParams): Promise<ApiSuccessResponse<AiKnowledge>> =>
   apiFetch(`/ai/knowledge/${knowledgeId}/archive`, { method: 'PATCH', token });
+
+export interface DeleteAiKnowledgeParams extends TokenParams {
+  knowledgeId: string;
+}
+
+/** Gone for good, unlike archive. The caller confirms first. */
+export const deleteAiKnowledge = ({
+  token,
+  knowledgeId,
+}: DeleteAiKnowledgeParams): Promise<ApiSuccessResponse<AiKnowledge>> =>
+  apiFetch(`/ai/knowledge/${knowledgeId}`, { method: 'DELETE', token });
 
 // --- Lead sources (Meta lead-ads sheet import) ---
 
@@ -818,6 +882,8 @@ export interface UpdateLeadSourceParams extends TokenParams {
   whatsappAccountId?: string;
   defaultCountryCode?: string;
   aiContextEnabled?: boolean;
+  /** Whether the AI opens the chat with new leads from this form. */
+  autoGreetEnabled?: boolean;
   status?: LeadSourceStatus;
   /** Meta sources only: rotate the token, or repoint at a different form. */
   accessToken?: string;
@@ -954,3 +1020,65 @@ export const renderAiProposal = ({
     token,
     body: { content, version },
   });
+
+// --- Message templates (owner-approved messages, today all price quotes) ---
+
+export interface ListTemplatesParams extends TokenParams {
+  kind?: MessageTemplateKind;
+}
+
+export const listTemplates = ({
+  token,
+  kind,
+}: ListTemplatesParams = {}): Promise<ApiSuccessResponse<MessageTemplate[]>> =>
+  apiFetch(`/templates${buildQuery({ kind })}`, { token });
+
+export interface GenerateTemplatesParams extends TokenParams {
+  rawDetails: string;
+  /** Bodies already turned down, so a regenerate returns genuinely different versions. */
+  rejected?: string[];
+}
+
+/** Writes four versions and returns them. Saves nothing until one is chosen. */
+export const generateTemplates = ({
+  token,
+  rawDetails,
+  rejected,
+}: GenerateTemplatesParams): Promise<
+  ApiSuccessResponse<{ templates: GeneratedTemplate[] }>
+> =>
+  apiFetch('/templates/generate', {
+    method: 'POST',
+    token,
+    body: { rawDetails, rejected },
+  });
+
+export interface CreateTemplateParams extends TokenParams {
+  title: string;
+  body: string;
+  kind?: MessageTemplateKind;
+  sourceDetails?: string;
+}
+
+export const createTemplate = ({
+  token,
+  title,
+  body,
+  kind,
+  sourceDetails,
+}: CreateTemplateParams): Promise<ApiSuccessResponse<MessageTemplate>> =>
+  apiFetch('/templates', {
+    method: 'POST',
+    token,
+    body: { title, body, kind, sourceDetails },
+  });
+
+export interface DeleteTemplateParams extends TokenParams {
+  templateId: string;
+}
+
+export const deleteTemplate = ({
+  token,
+  templateId,
+}: DeleteTemplateParams): Promise<ApiSuccessResponse<MessageTemplate>> =>
+  apiFetch(`/templates/${templateId}`, { method: 'DELETE', token });

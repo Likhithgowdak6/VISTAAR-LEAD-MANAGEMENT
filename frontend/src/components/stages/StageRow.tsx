@@ -41,11 +41,13 @@ const StageRow = ({ stage, canManage, onChanged }: Props) => {
   };
 
   return (
-    <li className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+    <li className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-center gap-2">
+        {/* An uncoloured stage falls back to the muted token, not a light slate: on this
+            background a pale dot reads as the brightest thing in the row. */}
         <span
           className="h-4 w-4 shrink-0 rounded-full border border-slate-200"
-          style={{ backgroundColor: stage.color ?? '#cbd5e1' }}
+          style={{ backgroundColor: stage.color ?? 'var(--color-muted)' }}
           aria-hidden="true"
         />
         <span className="truncate font-semibold text-slate-900">{stage.label}</span>

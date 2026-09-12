@@ -194,6 +194,14 @@ export const updateAccountStatus = ({
     updateData.updatedBy = actorId;
   }
 
+  // `removedAt` is written only by softRemoveAccount, so it has to be cleared by any transition
+  // back out of `removed` - otherwise a number that was removed and later reconnected keeps a
+  // removal timestamp forever, and the document reads as both live and removed. The invariant is
+  // that removedAt is non-null exactly when status is `removed`.
+  if (status && status !== ACCOUNT_STATUSES.REMOVED) {
+    updateData.removedAt = null;
+  }
+
   if (status === ACCOUNT_STATUSES.ACTIVE) {
     updateData.lastConnectedAt = now;
     updateData.lastDisconnectedAt = null;

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { deleteLeadSource, syncLeadSource, updateLeadSource } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import RelativeTime from '../RelativeTime';
+import ToggleSwitch from '../ToggleSwitch';
 import { type AuthValue, errorMessage, type LeadSource, type WhatsAppAccount } from '../types';
 
 type Props = {
@@ -75,6 +76,17 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
           token,
           leadSourceId: leadSource.id,
           aiContextEnabled: !leadSource.aiContextEnabled,
+        }),
+      ),
+    );
+
+  const handleToggleAutoGreet = () =>
+    run('greet', () =>
+      authedRequest((token) =>
+        updateLeadSource({
+          token,
+          leadSourceId: leadSource.id,
+          autoGreetEnabled: !leadSource.autoGreetEnabled,
         }),
       ),
     );
@@ -156,22 +168,6 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
           </button>
           <button
             type="button"
-            onClick={handleTogglePause}
-            disabled={busy !== null}
-            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {isPaused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            type="button"
-            onClick={handleToggleAi}
-            disabled={busy !== null}
-            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {leadSource.aiContextEnabled ? 'Disable AI context' : 'Enable AI context'}
-          </button>
-          <button
-            type="button"
             onClick={handleRemove}
             disabled={busy !== null}
             className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
@@ -179,6 +175,52 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
             Remove
           </button>
         </div>
+      </div>
+
+      {/* Per form, not per ad: several ads can point at one form, and a lead only ever carries the
+          form it came from. Two ads sharing a form cannot be separated here because they cannot be
+          separated in the data either. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-3">
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <ToggleSwitch
+            size="sm"
+            checked={!isPaused}
+            disabled={busy !== null}
+            label={isPaused ? `Resume importing from ${leadSource.name}` : `Pause importing from ${leadSource.name}`}
+            onChange={handleTogglePause}
+          />
+          <span>Importing</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <ToggleSwitch
+            size="sm"
+            checked={Boolean(leadSource.aiContextEnabled)}
+            disabled={busy !== null}
+            label={`Let the AI read the form answers for ${leadSource.name}`}
+            onChange={handleToggleAi}
+          />
+          <span>AI reads answers</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <ToggleSwitch
+            size="sm"
+            checked={Boolean(leadSource.autoGreetEnabled)}
+            disabled={busy !== null}
+            label={`Let the AI message new leads from ${leadSource.name} first`}
+            onChange={handleToggleAutoGreet}
+          />
+          <span>AI messages first</span>
+        </label>
+
+        {leadSource.autoGreetEnabled ? (
+          // Said plainly, next to the switch that causes it. This is the only setting in the app
+          // that makes the studio message a stranger.
+          <span className="text-[11px] text-amber-700">
+            New leads get a WhatsApp from the AI 5 minutes after they fill this form.
+          </span>
+        ) : null}
       </div>
 
       {/* The importer's own failure message, written for an admin ("not link-shared", "the

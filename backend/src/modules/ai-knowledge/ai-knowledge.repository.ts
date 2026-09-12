@@ -90,6 +90,78 @@ export const findKnowledgeById = ({ knowledgeId, organizationId }: FindKnowledge
     organizationId,
   }).exec();
 
+export interface UpdateKnowledgeParams {
+  knowledgeId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  label?: string;
+  content?: string;
+  category?: AiKnowledgeCategory;
+  actorId?: ObjectIdLike;
+}
+
+/**
+ * Only the fields actually supplied are written, so a caller changing the category cannot blank
+ * the content by omitting it.
+ */
+export const updateKnowledge = ({
+  knowledgeId,
+  organizationId,
+  label,
+  content,
+  category,
+  actorId,
+}: UpdateKnowledgeParams = {}) => {
+  const set: Record<string, unknown> = {};
+
+  if (label !== undefined) {
+    set.label = label;
+  }
+
+  if (content !== undefined) {
+    set.content = content;
+  }
+
+  if (category !== undefined) {
+    set.category = category;
+  }
+
+  if (actorId) {
+    set.updatedBy = toObjectId(actorId);
+  }
+
+  return AiKnowledge.findOneAndUpdate(
+    {
+      _id: knowledgeId,
+      organizationId,
+    },
+    {
+      $set: set,
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  ).exec();
+};
+
+export interface DeleteKnowledgeParams {
+  knowledgeId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}
+
+/**
+ * Hard delete, scoped to the organization so an id from elsewhere matches nothing.
+ *
+ * Archiving remains the way to retire a fact - it stops binding the AI while keeping the record
+ * of what it was once told. This is for entries that should never have existed: a duplicate, a
+ * test, something typed into the wrong box.
+ */
+export const deleteKnowledge = ({ knowledgeId, organizationId }: DeleteKnowledgeParams = {}) =>
+  AiKnowledge.findOneAndDelete({
+    _id: knowledgeId,
+    organizationId,
+  }).exec();
+
 export interface ArchiveKnowledgeParams {
   knowledgeId?: ObjectIdLike;
   organizationId?: ObjectIdLike;

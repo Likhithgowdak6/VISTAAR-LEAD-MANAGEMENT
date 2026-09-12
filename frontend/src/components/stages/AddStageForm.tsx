@@ -4,7 +4,10 @@ import { createStage } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { type AuthValue, errorMessage } from '../types';
 
-const DEFAULT_COLOR = '#3b82f6';
+// Starts on the key light rather than a generic blue: the swatch is the one control whose value
+// is a literal colour, so an off-palette default is the one thing on screen that cannot inherit
+// the theme.
+const DEFAULT_COLOR = '#ff9e4a';
 
 type Props = {
   onCreated?: () => void;

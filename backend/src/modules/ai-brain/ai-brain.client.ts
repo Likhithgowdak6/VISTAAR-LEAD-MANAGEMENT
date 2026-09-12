@@ -95,6 +95,12 @@ const requestGet = async <T>(path: string): Promise<T> => {
 
 export interface AiBrainConversationContext {
   category: string;
+  /**
+   * What to call the lead, as WhatsApp reports it. Sent because the brain otherwise has no idea
+   * who it is talking to until the lead says so themselves - which made an owner rule like
+   * "greet the customer by their name" impossible to follow rather than merely ignored.
+   */
+  leadName?: string;
   facts: Record<string, unknown>;
   requiredFields: readonly string[];
   catalogText: string;
@@ -137,6 +143,7 @@ export const sendLeadMessage = (
   request(`/v1/conversations/${conversationId}/lead-message`, {
     text: params.text ?? null,
     category: params.category,
+    lead_name: params.leadName ?? '',
     facts: params.facts,
     required_fields: params.requiredFields,
     catalog_text: params.catalogText,
@@ -238,6 +245,101 @@ export const getSummary = (
     transcript: params.transcript,
     category: params.category ?? 'unknown',
     knowledge_text: params.knowledgeText ?? '',
+  });
+
+export interface AiBrainOptimizedKnowledge {
+  label: string;
+  content: string;
+  category: string;
+  notes: string;
+}
+
+/**
+ * Rewrites the owner's rough note into an instruction the agent will follow.
+ *
+ * `categoryOptions` is sent for the same reason it is sent on every conversation call: this repo
+ * owns the list of sections, so the brain classifies into ours rather than inventing one that
+ * would fail the API's enum on save.
+ *
+ * Saves nothing. The result comes back for the owner to approve, because whatever is stored here
+ * is read into every future conversation.
+ */
+export const optimizeKnowledge = (params: {
+  rawText: string;
+  categoryOptions: readonly string[];
+}): Promise<AiBrainOptimizedKnowledge> =>
+  request('/v1/knowledge/optimize', {
+    raw_text: params.rawText,
+    category_options: [...params.categoryOptions],
+  });
+
+export type AiBrainAssistantAction = 'count' | 'list' | 'breakdown' | 'lead_instruction' | 'chat';
+
+export interface AiBrainAssistantPlan {
+  action: AiBrainAssistantAction;
+  restated: string;
+  group_by: string;
+  filters: {
+    stages?: string[];
+    categories?: string[];
+    score_bands?: string[];
+    since_days?: number;
+    event_within_days?: number;
+  };
+}
+
+/**
+ * Decides what the owner's WhatsApp message means and what to look up. Answers nothing.
+ *
+ * The stage/category/band lists are sent for the same reason categoryOptions is on every
+ * conversation call: this repo owns them, and a value the model invented would match nothing and
+ * turn a real question into a silent zero.
+ */
+export const planAssistantAction = (params: {
+  question: string;
+  stages: readonly string[];
+  categories: readonly string[];
+  scoreBands: readonly string[];
+  parkedLeadName?: string;
+}): Promise<AiBrainAssistantPlan> =>
+  request('/v1/assistant/plan', {
+    question: params.question,
+    stages: [...params.stages],
+    categories: [...params.categories],
+    score_bands: [...params.scoreBands],
+    parked_lead_name: params.parkedLeadName ?? '',
+  });
+
+/** Writes the reply from data this repo has already fetched. That data is all it may state. */
+export const answerAssistantQuestion = (params: {
+  question: string;
+  restated: string;
+  data: string;
+}): Promise<{ message: string }> =>
+  request('/v1/assistant/answer', {
+    question: params.question,
+    restated: params.restated,
+    data: params.data,
+  });
+
+export interface AiBrainPriceTemplate {
+  title: string;
+  body: string;
+}
+
+/**
+ * Four ways of presenting the owner's prices. Saves nothing, sends nothing.
+ *
+ * `rejected` carries the bodies he already turned down so a regenerate returns something
+ * genuinely different rather than the same four with the sentences moved around.
+ */
+export const generatePriceTemplates = (params: {
+  rawDetails: string;
+  rejected?: readonly string[];
+}): Promise<{ templates: AiBrainPriceTemplate[] }> =>
+  request('/v1/templates/price', {
+    raw_details: params.rawDetails,
+    rejected: [...(params.rejected ?? [])],
   });
 
 export interface AiBrainProposalContent {

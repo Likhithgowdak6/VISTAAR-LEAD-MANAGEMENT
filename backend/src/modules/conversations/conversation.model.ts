@@ -70,6 +70,38 @@ export interface ConversationDocument {
   /** When the owner's "shoot tomorrow" reminder was sent for this booking. Claimed atomically,
    *  exactly like `newLeadAlertSentAt`, so a booking can never be reminded about twice. */
   eventReminderSentAt: Date | null;
+  /**
+   * The lead source this conversation was imported from, if any. Null for a lead who simply
+   * messaged the studio.
+   *
+   * Kept so the auto-greet sweep can re-read the source at send time rather than trusting what was
+   * true at import - the point of a pause is that the owner can still change his mind inside it.
+   */
+  leadSourceId: Types.ObjectId | null;
+  /**
+   * When the AI may open the conversation with an imported lead - submission time plus a
+   * deliberate pause. Null when the source did not ask for it, which is the default.
+   *
+   * Deferred rather than sent during the import for two reasons. The import poll is every ten
+   * minutes, so greeting inline means a lead who filled the form thirty seconds before a tick is
+   * messaged thirty seconds later - which reads as surveillance, not service. And a pause that
+   * only exists in memory is lost on restart, taking the greet with it.
+   */
+  autoGreetDueAt: Date | null;
+  /** When it actually went. Claimed atomically, so overlapping sweeps greet once between them. */
+  autoGreetSentAt: Date | null;
+  /** When the owner was asked whether this booking's payment came in - the day after the event.
+   *  Claimed atomically like every other one-shot here, so he is asked once, not once per sweep. */
+  paymentPromptSentAt: Date | null;
+  /** The code he replies with, e.g. "B4 collected". Two shoots finishing the same weekend make a
+   *  bare "collected" ambiguous, and crediting the wrong booking would leave real money
+   *  uncollected while the system believed otherwise. */
+  paymentPromptCode: string | null;
+  /** When he confirmed the money arrived. Set only by his explicit reply - never inferred. */
+  paymentSettledAt: Date | null;
+  /** When the single polite nudge went to the client. One, then it is a human's job: past one
+   *  message about money a bot is not the right sender. */
+  paymentChaseSentAt: Date | null;
   /** When the owner's "🔔 new lead" WhatsApp alert was sent for this conversation. Stays null
    *  until it goes out, and is claimed atomically, so a webhook retry can never double-alert. */
   newLeadAlertSentAt: Date | null;
@@ -249,7 +281,11 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
     aiAutomationEnabled: {
       type: Boolean,
       required: true,
-      default: false,
+      // On unless someone turns it off. Every path that creates a conversation already set this
+      // explicitly to true, so the `false` this used to default to only ever applied to a thread
+      // created some way nobody had thought about - and a lead the AI silently ignores is the
+      // hardest kind of bug to notice, because nothing appears to go wrong.
+      default: true,
     },
 
     aiAutomationPausedReason: {
@@ -295,6 +331,45 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
     },
 
     eventReminderSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    leadSourceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'LeadSource',
+      default: null,
+    },
+
+    autoGreetDueAt: {
+      type: Date,
+      default: null,
+    },
+
+    autoGreetSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    paymentPromptSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    paymentPromptCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 2,
+      default: null,
+    },
+
+    paymentSettledAt: {
+      type: Date,
+      default: null,
+    },
+
+    paymentChaseSentAt: {
       type: Date,
       default: null,
     },
