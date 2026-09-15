@@ -245,14 +245,23 @@ const buildReset = ({
   preserved = [fakeCollection('WhatsAppAuthState', 7), fakeCollection('LeadSource', 0)],
   registered,
   leadImportEnabled = false,
+  metaLeadSourceCount = 0,
 }: {
   deletable?: ReturnType<typeof fakeCollection>[];
   preserved?: ReturnType<typeof fakeCollection>[];
   registered?: string[];
   leadImportEnabled?: boolean;
+  /** How many of the preserved LeadSources are Meta ones. Zero keeps the sheet-only wording. */
+  metaLeadSourceCount?: number;
 } = {}) => {
   const lines: string[] = [];
+  // Injected like every other dependency here: these touch LeadSource, and this suite never
+  // connects to a database.
+  const countMetaLeadSources = vi.fn(async () => metaLeadSourceCount);
+  const clearMetaWatermarks = vi.fn(async () => metaLeadSourceCount);
   const reset = createConversationDataReset({
+    countMetaLeadSources,
+    clearMetaWatermarks,
     deleteTargets: deletable.map((item) => item.entry),
     preservedCollections: preserved.map((item) => item.entry),
     registeredModelNames: () =>
@@ -261,7 +270,15 @@ const buildReset = ({
     log: (line: string) => lines.push(line),
   } as unknown as ResetOptions);
 
-  return { reset, lines, deletable, preserved, output: () => lines.join('\n') };
+  return {
+    reset,
+    lines,
+    deletable,
+    preserved,
+    countMetaLeadSources,
+    clearMetaWatermarks,
+    output: () => lines.join('\n'),
+  };
 };
 
 describe('the reset run', () => {
@@ -351,8 +368,49 @@ describe('the reset run', () => {
     await harness.reset.run({ scope: ALL_ORGANIZATIONS, apply: false });
 
     expect(harness.output()).toContain('deleting LeadSubmission wipes the import ledger');
-    expect(harness.output()).toContain('2 lead source(s) are configured and LEAD_IMPORT_ENABLED=true');
+    expect(harness.output()).toContain('2 Google Sheet source(s), LEAD_IMPORT_ENABLED=true');
     expect(harness.output()).toContain('re-import EVERY historical row as a brand-new lead');
+  });
+
+  it('tells the opposite truth about Meta sources, which re-import nothing after a reset', async () => {
+    const harness = buildReset({
+      preserved: [fakeCollection('WhatsAppAuthState', 7), fakeCollection('LeadSource', 1)],
+      metaLeadSourceCount: 1,
+      leadImportEnabled: true,
+    });
+
+    await harness.reset.run({ scope: ALL_ORGANIZATIONS, apply: false });
+
+    // A Meta source keeps a watermark that outlives the reset, so the sheet warning - "every
+    // historical row comes back" - is not merely unhelpful for it, it is the reverse of true.
+    expect(harness.output()).toContain('1 Meta Lead Ads source(s) behave the other way round');
+    expect(harness.output()).toContain('re-import NOTHING and look');
+    expect(harness.output()).not.toContain('Google Sheet source(s)');
+  });
+
+  it('clears the Meta watermark on apply, and says how many', async () => {
+    const harness = buildReset({
+      preserved: [fakeCollection('WhatsAppAuthState', 7), fakeCollection('LeadSource', 1)],
+      metaLeadSourceCount: 1,
+    });
+
+    await harness.reset.run({ scope: ALL_ORGANIZATIONS, apply: true });
+
+    // Without this the source is stranded: sync succeeds, imports nothing, and importFromTime has
+    // no effect because the watermark outranks it. Not something a dashboard can undo.
+    expect(harness.clearMetaWatermarks).toHaveBeenCalledTimes(1);
+    expect(harness.output()).toContain('Cleared the Meta import watermark on 1 source(s)');
+  });
+
+  it('does not clear watermarks during a dry run', async () => {
+    const harness = buildReset({
+      preserved: [fakeCollection('WhatsAppAuthState', 7), fakeCollection('LeadSource', 1)],
+      metaLeadSourceCount: 1,
+    });
+
+    await harness.reset.run({ scope: ALL_ORGANIZATIONS, apply: false });
+
+    expect(harness.clearMetaWatermarks).not.toHaveBeenCalled();
   });
 
   it('still warns when importing is currently switched off, because that is one toggle away', async () => {

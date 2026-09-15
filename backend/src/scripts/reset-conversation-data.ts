@@ -51,6 +51,7 @@ import { RealtimeOutboxEvent } from '../modules/realtime/realtime-outbox.model.j
 // Configuration and identity — imported so they are registered and classified, never deleted.
 import { AiKnowledge } from '../modules/ai-knowledge/ai-knowledge.model.js';
 import { AuditLog } from '../modules/audit/audit.model.js';
+import { LEAD_SOURCE_KINDS } from '../constants/lead-source-kinds.js';
 import { LeadSource } from '../modules/lead-sources/lead-source.model.js';
 import { Organization } from '../modules/organizations/organization.model.js';
 import { RefreshSession } from '../modules/auth/refresh-session.model.js';
@@ -353,6 +354,11 @@ export interface ResetPlan {
   preserved: CountedCollection[];
   totalDeletable: number;
   leadSourceCount: number;
+  /**
+   * How many of those are Meta sources, which behave the OPPOSITE way to a sheet after a reset -
+   * see renderLeadLedgerWarning. Counted separately because one warning cannot be true for both.
+   */
+  metaLeadSourceCount: number;
   classification: ModelClassification;
 }
 
@@ -374,14 +380,35 @@ export interface CreateConversationDataResetOptions {
   /** Everything Mongoose has registered, which is what the two lists are checked against. */
   registeredModelNames?: () => string[];
   config?: Pick<Env, 'LEAD_IMPORT_ENABLED'>;
+  /**
+   * Meta-source bookkeeping, injected like everything else here so a test can run without a
+   * database. These two touch LeadSource, which is a PRESERVED collection - they read it and edit
+   * one field of it rather than deleting it - so they cannot go through `deleteTargets`.
+   */
+  countMetaLeadSources?: (scope: ResetScope) => Promise<number>;
+  clearMetaWatermarks?: (scope: ResetScope) => Promise<number>;
   log?: (line: string) => void;
 }
+
+const metaSourceFilter = (scope: ResetScope): Record<string, unknown> => ({
+  ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+  kind: LEAD_SOURCE_KINDS.META_LEAD_ADS,
+});
 
 export const createConversationDataReset = ({
   deleteTargets = DELETE_TARGETS,
   preservedCollections = PRESERVED_COLLECTIONS,
   registeredModelNames = () => Object.keys(mongoose.models),
   config = env,
+  countMetaLeadSources = (scope) => LeadSource.countDocuments(metaSourceFilter(scope)),
+  clearMetaWatermarks = async (scope) => {
+    const result = await LeadSource.updateMany(
+      { ...metaSourceFilter(scope), 'meta.lastLeadCreatedAt': { $ne: null } },
+      { $unset: { 'meta.lastLeadCreatedAt': '' } },
+    );
+
+    return result.modifiedCount ?? 0;
+  },
   log = (line: string): void => {
     console.log(line);
   },
@@ -413,6 +440,7 @@ export const createConversationDataReset = ({
       preserved,
       totalDeletable: deletable.reduce((total, row) => total + row.count, 0),
       leadSourceCount: preserved.find((row) => row.name === 'LeadSource')?.count ?? 0,
+      metaLeadSourceCount: await countMetaLeadSources(scope),
       classification: classifyRegisteredModels({
         registered: registeredModelNames(),
         deleteNames: deleteTargets.map((entry) => entry.name),
@@ -422,10 +450,21 @@ export const createConversationDataReset = ({
   };
 
   /**
-   * The one thing that turns a cleanup into a flood. `LeadSubmission` is the ledger that stops an
-   * already-imported row being imported again, so deleting it makes every historical row look
-   * new. Printed whenever a source exists at all, not only when importing is currently on: the
-   * flag is one dashboard toggle away from being on again.
+   * The ledger warning - and it has to say two opposite things, because the two source kinds
+   * behave in opposite ways once `LeadSubmission` is gone.
+   *
+   * A SHEET re-reads the whole sheet every tick and relies entirely on the ledger to know what it
+   * has already seen. Delete the ledger and every historical row looks new: the dashboard refills.
+   *
+   * A META source does not. It keeps a watermark (`meta.lastLeadCreatedAt`) and only ever asks the
+   * Graph API for leads created after it - see resolveMetaSince in meta-lead-import.service.ts.
+   * That watermark lives on the LeadSource, which this script PRESERVES, so after a reset a Meta
+   * source re-imports nothing at all. The failure is silent and it looks exactly like a broken
+   * integration: sync succeeds, reports ok, writes no ledger rows, creates no conversations, and
+   * moving `importFromTime` has no effect because the watermark outranks it.
+   *
+   * This is why the reset clears the watermark below rather than only warning about it - a flag
+   * that has to be hand-unset in Mongo before the tool works again is not a tool anyone can use.
    */
   const renderLeadLedgerWarning = (plan: ResetPlan): string[] => {
     if (plan.leadSourceCount === 0) {
@@ -433,20 +472,36 @@ export const createConversationDataReset = ({
     }
 
     const importing = config.LEAD_IMPORT_ENABLED === true;
+    const sheetCount = plan.leadSourceCount - plan.metaLeadSourceCount;
+    const lines: string[] = [];
 
-    return [
-      '',
-      '!! WARNING — deleting LeadSubmission wipes the import ledger.',
-      `   ${formatCount(plan.leadSourceCount)} lead source(s) are configured and LEAD_IMPORT_ENABLED=${String(importing)}.`,
-      importing
-        ? '   The next poll will re-import EVERY historical row as a brand-new lead, which will'
-        : '   Importing is off right now, but the moment it is turned back on the next poll will',
-      importing
-        ? '   refill the dashboard you are trying to empty.'
-        : '   re-import EVERY historical row as a brand-new lead.',
-      '   Before --apply: pause or delete the lead sources, or set LEAD_IMPORT_ENABLED=false, or',
-      "   move each source's importFromTime forward so the history falls outside the window.",
-    ];
+    if (sheetCount > 0) {
+      lines.push(
+        '',
+        '!! WARNING — deleting LeadSubmission wipes the import ledger.',
+        `   ${formatCount(sheetCount)} Google Sheet source(s), LEAD_IMPORT_ENABLED=${String(importing)}.`,
+        importing
+          ? '   The next poll will re-import EVERY historical row as a brand-new lead, which will'
+          : '   Importing is off right now, but the moment it is turned back on the next poll will',
+        importing
+          ? '   refill the dashboard you are trying to empty.'
+          : '   re-import EVERY historical row as a brand-new lead.',
+        '   Before --apply: pause or delete the sheet sources, or set LEAD_IMPORT_ENABLED=false, or',
+        "   move each source's importFromTime forward so the history falls outside the window.",
+      );
+    }
+
+    if (plan.metaLeadSourceCount > 0) {
+      lines.push(
+        '',
+        `   ${formatCount(plan.metaLeadSourceCount)} Meta Lead Ads source(s) behave the other way round:`,
+        '   their watermark normally survives a reset, so they would re-import NOTHING and look',
+        '   broken. This reset clears that watermark, so the next sync re-reads from',
+        "   importFromTime. Move importFromTime forward first if you do not want the history back.",
+      );
+    }
+
+    return lines;
   };
 
   const renderClassificationWarning = (plan: ResetPlan): string[] => {
@@ -572,6 +627,16 @@ export const createConversationDataReset = ({
     log(`Deleted — ${formatCount(totalDeleted)} documents:`);
     renderRows(deleted).forEach(log);
     log('');
+
+    const watermarksCleared = await clearMetaWatermarks(scope);
+
+    if (watermarksCleared > 0) {
+      log(
+        `Cleared the Meta import watermark on ${formatCount(watermarksCleared)} source(s), so they ` +
+          'can re-read from importFromTime.',
+      );
+      log('');
+    }
 
     const verification = await verifyPreserved(plan.preserved, scope);
 

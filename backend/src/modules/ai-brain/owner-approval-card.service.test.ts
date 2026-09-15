@@ -326,6 +326,8 @@ describe('handleOwnerApprovalReply', () => {
     const findMostRecentlyEscalatedConversation = vi.fn().mockResolvedValue(escalatedConversation);
     const resumeEscalatedConversationWithInstruction = vi.fn().mockResolvedValue(undefined);
     const handleOwnerQuestion = vi.fn().mockResolvedValue(assistantOutcome);
+    // Not a payment answer by default, so every existing case flows down the normal path.
+    const handleOwnerPaymentReply = vi.fn().mockResolvedValue(false);
 
     return {
       listPendingApprovals,
@@ -335,6 +337,7 @@ describe('handleOwnerApprovalReply', () => {
       findMostRecentlyEscalatedConversation,
       resumeEscalatedConversationWithInstruction,
       handleOwnerQuestion,
+      handleOwnerPaymentReply,
       ownerActor,
       run: (text: string) =>
         handleOwnerApprovalReply({
@@ -348,11 +351,47 @@ describe('handleOwnerApprovalReply', () => {
           findMostRecentlyEscalatedConversation,
           resumeEscalatedConversationWithInstruction,
           handleOwnerQuestion,
+          handleOwnerPaymentReply,
           notifyOwner,
           logger: { error: vi.fn() },
         }),
     };
   };
+
+  it('reads a payment answer before anything else looks at the text', async () => {
+    const h = createHarness([{ _id: 'appr-1', conversationId: 'conv-1', code: 'B4' }]);
+    h.handleOwnerPaymentReply.mockResolvedValue(true);
+
+    await h.run('B4 collected');
+
+    // "B4 collected" and the approval reply "B4 1" share a code space. If the approval parser saw
+    // this first it would consume it as an unknown choice - losing the answer AND telling him his
+    // code was wrong.
+    expect(h.handleOwnerPaymentReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'B4 collected' }),
+    );
+    expect(h.listPendingApprovals).not.toHaveBeenCalled();
+    expect(h.resolveApprovalForActor).not.toHaveBeenCalled();
+  });
+
+  it('carries on down the normal path for anything that is not a payment answer', async () => {
+    const h = createHarness([{ _id: 'appr-1', conversationId: 'conv-1', code: 'A7' }]);
+
+    await h.run('A7 1');
+
+    expect(h.handleOwnerPaymentReply).toHaveBeenCalled();
+    expect(h.resolveApprovalForActor).toHaveBeenCalled();
+  });
+
+  it('still handles the message when payment routing throws', async () => {
+    const h = createHarness([{ _id: 'appr-1', conversationId: 'conv-1', code: 'A7' }]);
+    h.handleOwnerPaymentReply.mockRejectedValue(new Error('mongo down'));
+
+    await h.run('A7 1');
+
+    // A failure deciding "is this about money" must not swallow an approval.
+    expect(h.resolveApprovalForActor).toHaveBeenCalled();
+  });
 
   it('answers as the assistant when nothing is pending and nothing is escalated', async () => {
     const h = createHarness([]);

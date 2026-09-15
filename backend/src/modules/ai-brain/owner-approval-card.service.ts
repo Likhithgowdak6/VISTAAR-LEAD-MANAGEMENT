@@ -45,6 +45,7 @@ import {
 } from './ai-brain.service.js';
 import { getOwnerActorForOrganization as defaultGetOwnerActorForOrganization } from './owner-actor.service.js';
 import { handleOwnerQuestion as defaultHandleOwnerQuestion } from './owner-assistant.service.js';
+import { getPaymentFollowUpService } from './payment-followup.service.js';
 
 type Logger = { error?: (...args: unknown[]) => void };
 type NotifyOwnerFn = (params?: NotifyOwnerParams) => Promise<NotifyOwnerResult>;
@@ -818,6 +819,11 @@ export interface HandleOwnerApprovalReplyParams {
   findMostRecentlyEscalatedConversation?: typeof defaultFindMostRecentlyEscalatedConversation;
   resumeEscalatedConversationWithInstruction?: typeof defaultResumeEscalatedConversationWithInstruction;
   handleOwnerQuestion?: typeof defaultHandleOwnerQuestion;
+  /** Returns true when the text was a payment answer and has been acted on. */
+  handleOwnerPaymentReply?: (params: {
+    organizationId: ObjectIdLike;
+    text: string;
+  }) => Promise<boolean>;
   notifyOwner?: NotifyOwnerFn;
   logger?: Logger;
 }
@@ -844,11 +850,40 @@ export const handleOwnerApprovalReply = async ({
   findMostRecentlyEscalatedConversation = defaultFindMostRecentlyEscalatedConversation,
   resumeEscalatedConversationWithInstruction = defaultResumeEscalatedConversationWithInstruction,
   handleOwnerQuestion = defaultHandleOwnerQuestion,
+  handleOwnerPaymentReply = getPaymentFollowUpService().handleOwnerReply,
   notifyOwner = getOwnerNotifyService().notifyOwner,
   logger = defaultLogger,
 }: HandleOwnerApprovalReplyParams = {}): Promise<void> => {
   if (!organizationId || !text?.trim()) {
     return;
+  }
+
+  /**
+   * Payment answers are read first, before anything else looks at this text.
+   *
+   * "B4 collected" and the approval reply "B4 1" share a code space on purpose - one set of codes
+   * for the owner to remember - and the keyword is what separates them. Checking here means a
+   * payment answer can never be consumed by the approval parser as an unknown choice, which would
+   * both lose the answer and tell him his code was wrong.
+   *
+   * Returns false for anything that is not a payment answer, so every other message carries on
+   * down the existing path untouched.
+   */
+  try {
+    const wasPaymentReply = await handleOwnerPaymentReply({
+      organizationId,
+      text: text.trim(),
+    });
+
+    if (wasPaymentReply) {
+      return;
+    }
+  } catch (error: unknown) {
+    const err = error as { code?: unknown; name?: unknown; message?: unknown };
+    logger?.error?.(
+      { code: err?.code, name: err?.name, message: err?.message },
+      'Owner payment reply handling failed safely; the message was not treated as one.',
+    );
   }
 
   const pendingApprovals = await listPendingApprovals({

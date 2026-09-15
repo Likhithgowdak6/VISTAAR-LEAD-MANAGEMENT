@@ -13,6 +13,7 @@ import {
   createMorningReadRunner,
 } from './modules/ai-brain/daily-jobs-runner.js';
 import { createEventReminderRunner } from './modules/ai-brain/event-reminder-runner.js';
+import { createPaymentFollowUpRunner } from './modules/ai-brain/payment-followup-runner.js';
 import { createNurtureRunner } from './modules/ai-brain/nurture-runner.js';
 import { createOwnerCallEscalationRunner } from './modules/ai-brain/owner-call-escalation-runner.js';
 import { createLeadImportRunner } from './modules/lead-sources/lead-import.runner.js';
@@ -37,6 +38,7 @@ let morningReadRunner: BackgroundRunnerHandle | null = null;
 let digestRunner: BackgroundRunnerHandle | null = null;
 let bookingCountdownRunner: BackgroundRunnerHandle | null = null;
 let autoGreetRunner: BackgroundRunnerHandle | null = null;
+let paymentFollowUpRunner: BackgroundRunnerHandle | null = null;
 let eventReminderRunner: BackgroundRunnerHandle | null = null;
 let ownerCallEscalationRunner: BackgroundRunnerHandle | null = null;
 
@@ -111,6 +113,7 @@ export interface StartServerParams {
   createDigestRunnerFn?: () => BackgroundRunnerHandle;
   createBookingCountdownRunnerFn?: () => BackgroundRunnerHandle;
   createAutoGreetRunnerFn?: () => BackgroundRunnerHandle;
+  createPaymentFollowUpRunnerFn?: () => BackgroundRunnerHandle;
   createEventReminderRunnerFn?: () => BackgroundRunnerHandle;
   createOwnerCallEscalationRunnerFn?: () => BackgroundRunnerHandle;
   reconnectSessionsFn?: () => Promise<unknown>;
@@ -134,6 +137,7 @@ export const startServer = async ({
   createDigestRunnerFn = createDigestRunner,
   createBookingCountdownRunnerFn = createBookingCountdownRunner,
   createAutoGreetRunnerFn = createAutoGreetRunner,
+  createPaymentFollowUpRunnerFn = createPaymentFollowUpRunner,
   createEventReminderRunnerFn = createEventReminderRunner,
   createOwnerCallEscalationRunnerFn = createOwnerCallEscalationRunner,
   reconnectSessionsFn = () => getSessionManager().reconnectPersistedSessions(),
@@ -220,6 +224,16 @@ export const startServer = async ({
       }
     });
     startedBookingCountdownRunner.start();
+
+    const startedPaymentFollowUpRunner = createPaymentFollowUpRunnerFn();
+    paymentFollowUpRunner = startedPaymentFollowUpRunner;
+    rollbackSteps.push(() => {
+      startedPaymentFollowUpRunner.stop();
+      if (paymentFollowUpRunner === startedPaymentFollowUpRunner) {
+        paymentFollowUpRunner = null;
+      }
+    });
+    startedPaymentFollowUpRunner.start();
 
     const startedAutoGreetRunner = createAutoGreetRunnerFn();
     autoGreetRunner = startedAutoGreetRunner;
@@ -311,6 +325,9 @@ export const stopServer = async ({
 
     autoGreetRunner?.stop();
     autoGreetRunner = null;
+
+    paymentFollowUpRunner?.stop();
+    paymentFollowUpRunner = null;
     morningReadRunner?.stop();
     morningReadRunner = null;
     nurtureRunner?.stop();

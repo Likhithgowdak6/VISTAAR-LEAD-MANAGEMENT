@@ -21,8 +21,14 @@
  * The code is the same A-Z/1-9 shape as the approval cards, but a payment reply must carry a
  * keyword, so it can never be parsed as an approval choice like "A7 1".
  */
+import { type HydratedDocument } from 'mongoose';
+
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
+import { MESSAGE_AUTHORS } from '../../constants/message-authors.js';
 import { logger as defaultLogger } from '../../config/logger.js';
+import { createOutboundMessageService } from '../messages/outbound-message.service.js';
+import { type UserDocument } from '../users/user.model.js';
+import { getOrCreateAiSystemUser } from './ai-brain-system-user.service.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { ORGANIZATION_STATUSES } from '../../constants/organization-statuses.js';
 import { createActivity as defaultCreateActivity } from '../activity/activity-log.repository.js';
@@ -127,8 +133,16 @@ export interface CreatePaymentFollowUpServiceOptions {
   claimPaymentChase?: typeof defaultClaimPaymentChase;
   listOrganizations?: typeof defaultListOrganizations;
   createActivity?: typeof defaultCreateActivity;
-  /** Sends to the CLIENT. Injected rather than imported so the one outbound path here is visible. */
-  sendToClient: (params: { conversationId: ObjectIdLike; organizationId: ObjectIdLike; text: string }) => Promise<unknown>;
+  /**
+   * Sends to the CLIENT. Injected rather than imported so the one outbound path in this module is
+   * visible from its signature. Takes the conversation document, not an id: the real send path
+   * needs the document, and re-reading it here would be a second chance to send to the wrong one.
+   */
+  sendToClient: (params: {
+    conversation: { _id: ObjectIdLike; organizationId?: ObjectIdLike };
+    organizationId: ObjectIdLike;
+    text: string;
+  }) => Promise<unknown>;
   createFollowUp?: (params: {
     conversationId: ObjectIdLike;
     organizationId: ObjectIdLike;
@@ -282,7 +296,7 @@ export const createPaymentFollowUpService = ({
     }
 
     await sendToClient({
-      conversationId: conversation._id,
+      conversation,
       organizationId,
       text: buildPaymentChaseMessage(conversation.displayName ?? 'there'),
     });
@@ -321,6 +335,41 @@ const getOwnerNotifyService = (() => {
 
   return () => {
     cached ??= createOwnerNotifyService();
+    return cached;
+  };
+})();
+
+/**
+ * The fully-wired service, built once.
+ *
+ * Both entry points need the same instance: the daily runner that asks the question, and the
+ * inbound owner-reply path that reads the answer. Wiring it twice would be two chances for the
+ * two halves of one conversation to disagree about how a client gets messaged.
+ *
+ * The client message goes out through the normal outbound queue as the AI system user, exactly
+ * like a nurture message - it queues, retries and shows in the thread like everything else the
+ * studio has sent. The idempotency key is the conversation id, so even if the claim and the queue
+ * disagreed, the same person could still only be asked once.
+ */
+export const getPaymentFollowUpService = (() => {
+  let cached: PaymentFollowUpService | null = null;
+
+  return (): PaymentFollowUpService => {
+    cached ??= createPaymentFollowUpService({
+      sendToClient: async ({ conversation, organizationId, text }) => {
+        const systemUser = await getOrCreateAiSystemUser({ organizationId });
+
+        return createOutboundMessageService().enqueueOutboundMessage({
+          organizationId,
+          conversation: conversation as never,
+          actor: systemUser as HydratedDocument<UserDocument>,
+          body: text,
+          idempotencyKey: `payment-chase:${String(conversation._id)}`,
+          authoredBy: MESSAGE_AUTHORS.AI,
+        });
+      },
+    });
+
     return cached;
   };
 })();

@@ -159,7 +159,7 @@ describe('when he says it is outstanding', () => {
     });
 
     expect(d.sendToClient).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: 'conv-1' }),
+      expect.objectContaining({ conversation: expect.objectContaining({ _id: 'conv-1' }) }),
     );
     expect(d.createFollowUp).toHaveBeenCalled();
     expect(d.notifyOwner).toHaveBeenCalledWith(
