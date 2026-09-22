@@ -30,6 +30,17 @@ const envSchema = z.object({
 
   PORT: z.coerce.number().int().positive().default(5001),
 
+  /**
+   * Send the refresh cookie as `SameSite=None; Secure`, for the Capacitor mobile app.
+   *
+   * The app's WebView origin (`https://localhost` on Android) is cross-site from the API, so a
+   * `Lax` cookie is never sent and every token refresh fails - login appears to work, then the
+   * user is thrown out. `None` fixes that but is only honoured over HTTPS, which is why it is a
+   * deliberate switch rather than something inferred from NODE_ENV: turning it on without TLS
+   * gets the cookie rejected and produces the identical symptom.
+   */
+  AUTH_COOKIE_CROSS_SITE: booleanString.default(false),
+
   // Accepts one origin or a comma-separated list, so a dev frontend that lands on a fallback
   // Vite port (5174 when 5173 is taken) still passes CORS without editing the backend.
   FRONTEND_ORIGIN: z
@@ -229,10 +240,28 @@ const envSchema = z.object({
 
   NURTURE_SWEEP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(1_800_000),
 
+  // Prepended to a manually typed number that has no country code. A ten-digit Indian number is
+  // what an owner actually types, and storing it un-prefixed hashes to a different blind index
+  // than the one inbound WhatsApp derives - so the lead who replies becomes a second contact.
+  MANUAL_LEAD_DEFAULT_COUNTRY_CODE: z.string().default('91'),
+
+  // `staged` follows NURTURE_FOLLOWUP_DAYS below. `daily` ignores it and nudges every single day
+  // until NURTURE_MAX_FOLLOWUPS is spent - one message a day to a lead who has not replied.
+  NURTURE_CADENCE: z.enum(['staged', 'daily']).default('staged'),
+
+  // Only read in `daily` mode: how many daily nudges a silent lead gets before it is left alone.
+  // This is the ONLY bound on a daily cadence, so it is deliberately required to be finite - the
+  // lead who never replies and never says "stop" would otherwise be messaged forever.
+  NURTURE_MAX_FOLLOWUPS: z.coerce.number().int().min(1).max(90).default(30),
+
   // CSV of day thresholds, parsed by nurture-sweep.service.ts's parseNurtureFollowupDays.
   NURTURE_FOLLOWUP_DAYS: z.string().default('2,5,9,15'),
 
   NURTURE_COLD_AFTER_DAYS: z.coerce.number().int().default(20),
+
+  // Multiplies every gap for a LOW INTENT lead (score under 20): 2 = chased half as often.
+  // Set to 1 to chase every band on the same cadence - which is what `daily` means to most people.
+  NURTURE_LOW_INTENT_MULTIPLIER: z.coerce.number().int().min(1).max(10).default(2),
 
   // Also doubles as the general "an AI-authored send is too late to go out" guard in
   // outbound-delivery.service.ts's deliverNext - reused rather than duplicated.

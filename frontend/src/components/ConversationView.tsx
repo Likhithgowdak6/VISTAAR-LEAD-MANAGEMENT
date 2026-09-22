@@ -61,9 +61,15 @@ type Props = {
   conversationId: string;
   /** Returns to the conversation list. Only rendered below lg, where the list is hidden. */
   onBack?: () => void;
+  /**
+   * The open thread was deleted. Has to be handled by the owner of `selectedId` rather than here:
+   * there is no router, so nothing else would clear the selection and this view would sit on a
+   * conversation the API now refuses to return, rendering its error branch.
+   */
+  onDeleted?: () => void;
 };
 
-const ConversationView = ({ conversationId, onBack }: Props) => {
+const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
   const canSuggestReply = hasPermission(permissions, PERMISSIONS.AI_GENERATE);
@@ -351,6 +357,7 @@ const ConversationView = ({ conversationId, onBack }: Props) => {
           }}
           contactId={contactId}
           onStageChange={setStageOverride}
+          onDeleted={onDeleted}
         />
       ) : null}
     </div>

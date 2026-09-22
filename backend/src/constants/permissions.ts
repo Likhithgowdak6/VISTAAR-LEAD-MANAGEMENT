@@ -10,6 +10,8 @@ export const PERMISSIONS = Object.freeze({
   CONVERSATIONS_READ_ASSIGNED: 'conversations.read_assigned',
   CONVERSATIONS_READ_ALL: 'conversations.read_all',
   CONVERSATIONS_ASSIGN: 'conversations.assign',
+  /** Hiding a chat and stopping every automation on it. Deliberately NOT given to `staff`. */
+  CONVERSATIONS_DELETE: 'conversations.delete',
 
   MESSAGES_SEND: 'messages.send',
 
@@ -60,6 +62,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.CONVERSATIONS_READ_ASSIGNED,
       PERMISSIONS.CONVERSATIONS_READ_ALL,
       PERMISSIONS.CONVERSATIONS_ASSIGN,
+      PERMISSIONS.CONVERSATIONS_DELETE,
       PERMISSIONS.MESSAGES_SEND,
       PERMISSIONS.CRM_TAGS_MANAGE,
       PERMISSIONS.CRM_TASKS_MANAGE,
@@ -80,6 +83,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.CONVERSATIONS_READ_ASSIGNED,
       PERMISSIONS.CONVERSATIONS_READ_ALL,
       PERMISSIONS.CONVERSATIONS_ASSIGN,
+      PERMISSIONS.CONVERSATIONS_DELETE,
       PERMISSIONS.MESSAGES_SEND,
       PERMISSIONS.CRM_TAGS_MANAGE,
       PERMISSIONS.CRM_TASKS_MANAGE,

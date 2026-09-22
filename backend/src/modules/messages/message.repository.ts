@@ -392,6 +392,55 @@ export const markOutboundMessageFailed = ({
     },
   ).exec();
 
+export interface CancelQueuedMessagesForConversationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  reason?: string;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Kills anything still waiting to go out on one conversation.
+ *
+ * The reason this has to exist: `claimNextOutboundMessage` filters on organization, account,
+ * direction and status - it never looks at the conversation - and the delivery worker resolves
+ * the recipient from the CONTACT. So nothing about hiding, closing or even deleting a conversation
+ * stops a message already sitting in the queue. AI replies are deliberately held 60-120s before
+ * sending, which means the window where a queued row exists is precisely the minute after an AI
+ * turn - exactly when an owner reaches for delete.
+ *
+ * `failed_permanent` rather than a delete: the row is the evidence that a message was drafted and
+ * deliberately stopped, and the delivery worker already treats that status as terminal, so no
+ * retry can resurrect it.
+ */
+export const cancelQueuedMessagesForConversation = ({
+  conversationId,
+  organizationId,
+  reason = 'Cancelled: the chat was deleted before this could send.',
+  now = new Date(),
+  session,
+}: CancelQueuedMessagesForConversationParams = {}) =>
+  Message.updateMany(
+    {
+      conversationId,
+      organizationId,
+      direction: MESSAGE_DIRECTIONS.OUT,
+      status: {
+        $in: [MESSAGE_STATUSES.CREATED, MESSAGE_STATUSES.QUEUED, MESSAGE_STATUSES.FAILED],
+      },
+    },
+    {
+      $set: {
+        status: MESSAGE_STATUSES.FAILED_PERMANENT,
+        statusUpdatedAt: now,
+        nextAttemptAt: null,
+        lastDeliveryError: reason.slice(0, 300),
+      },
+    },
+    { session },
+  ).exec();
+
 export interface RescheduleOutboundMessageParams {
   messageId?: ObjectIdLike;
   organizationId?: ObjectIdLike;

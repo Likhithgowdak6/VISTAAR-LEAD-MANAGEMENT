@@ -10,6 +10,8 @@ export const REALTIME_REASONS = Object.freeze({
   OUTBOUND: 'outbound',
   STATUS: 'status',
   STAGE: 'stage',
+  CATEGORY: 'category',
+  DELETED: 'deleted',
   ASSIGNMENT: 'assignment',
   READ: 'read',
   IMPORTED: 'imported',

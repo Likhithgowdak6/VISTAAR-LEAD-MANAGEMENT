@@ -22,6 +22,10 @@ export const AUDIT_EVENTS = Object.freeze({
   CLIENT_PII_REVEALED: 'CLIENT_PII_REVEALED',
 
   WHATSAPP_ACCOUNT_DELETED: 'WHATSAPP_ACCOUNT_DELETED',
+  // A soft delete, but still audited: the ActivityLog rows that would otherwise record it live on
+  // the conversation, which is exactly what has just been hidden from view.
+  CONVERSATION_DELETED: 'CONVERSATION_DELETED',
+  CONVERSATION_RESTORED: 'CONVERSATION_RESTORED',
 } as const);
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[keyof typeof AUDIT_EVENTS];

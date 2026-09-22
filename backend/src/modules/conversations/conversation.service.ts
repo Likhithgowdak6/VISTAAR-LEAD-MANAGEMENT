@@ -25,11 +25,19 @@ import { enqueueConversationChanged } from '../realtime/realtime-outbox.reposito
 import { resolveUsableStageValue } from '../stages/stage.service.js';
 import { type UserDocument } from '../users/user.model.js';
 import { findAccountById } from '../whatsapp-accounts/whatsapp-account.repository.js';
+import { CATEGORY_PLAYBOOKS } from '../ai-brain/category-playbooks.js';
+import { cancelQueuedMessagesForConversation } from '../messages/message.repository.js';
+import { AUDIT_EVENTS } from '../../constants/audit-events.js';
+import { createAuditLog } from '../audit/audit.repository.js';
 import {
   findConversationByAccountAndContact,
   findConversationById,
+  findConversationByIdIncludingDeleted,
   listConversations,
   markConversationRead,
+  restoreConversation,
+  setAiCategory,
+  softDeleteConversation,
   updateAssignment,
   updateConversationAccount,
   updateStage,
@@ -359,6 +367,217 @@ export const changeConversationStageForActor = async ({
     });
 
     return updated;
+  });
+
+  return serializeConversation(updated);
+};
+
+/**
+ * Every category an owner may pick, sorted. Derived from CATEGORY_PLAYBOOKS rather than written
+ * out again, so a playbook added to that table is immediately selectable with no second edit.
+ */
+export const SELECTABLE_AI_CATEGORIES: readonly string[] = Object.freeze(
+  Object.keys(CATEGORY_PLAYBOOKS).sort(),
+);
+
+export interface ChangeConversationCategoryForActorParams {
+  organizationId: ObjectIdLike;
+  conversationId: ObjectIdLike;
+  permissions: readonly Permission[];
+  actor: HydratedDocument<UserDocument>;
+  aiCategory: string;
+}
+
+/**
+ * The owner correcting which service playbook a lead is handled under.
+ *
+ * This is the ONLY way a classification can be changed once set: the model gets one shot
+ * (nodes.py refuses to reclassify a conversation it has already categorised, and
+ * mergeConversationAiContext refuses to write over a non-empty value). Both of those guard against
+ * the model flip-flopping mid-conversation; neither should stand in a person's way.
+ *
+ * Takes effect on the next AI turn, because the playbook is read fresh per call in
+ * ai-brain-context.service.ts - there is nothing cached to invalidate.
+ */
+export const changeConversationCategoryForActor = async ({
+  organizationId,
+  conversationId,
+  permissions,
+  actor,
+  aiCategory,
+}: ChangeConversationCategoryForActorParams) => {
+  const conversation = await loadVisibleConversationForActor({
+    organizationId,
+    conversationId,
+    permissions,
+    actorId: actor._id,
+  });
+
+  // A key with no playbook would silently fall back to the generic `unknown` brief, which looks
+  // exactly like a successful save and behaves nothing like one.
+  if (!Object.hasOwn(CATEGORY_PLAYBOOKS, aiCategory)) {
+    throw new Error('INVALID_AI_CATEGORY');
+  }
+
+  const previous = conversation.aiCategory ?? 'unknown';
+
+  const updated = await runInTransaction(async (session) => {
+    const updated = await setAiCategory({
+      conversationId: conversation._id,
+      organizationId,
+      aiCategory,
+      lastHandledBy: actor._id,
+      session,
+    });
+
+    await createActivity({
+      organizationId,
+      whatsappAccountId: conversation.whatsappAccountId,
+      conversationId: conversation._id,
+      actorId: actor._id,
+      eventType: ACTIVITY_EVENTS.CONVERSATION_CATEGORY_CHANGED,
+      summary: `Service changed from ${previous.replace(/_/g, ' ')} to ${aiCategory.replace(/_/g, ' ')}.`,
+      metadata: {
+        aiCategory,
+        previousAiCategory: previous,
+      },
+      session,
+    });
+
+    await enqueueConversationChanged({
+      organizationId,
+      conversationId: conversation._id,
+      assignedTo: conversation.assignedTo,
+      reason: REALTIME_REASONS.CATEGORY,
+      session,
+    });
+
+    return updated;
+  });
+
+  return serializeConversation(updated);
+};
+
+export interface DeleteConversationForActorParams {
+  organizationId: ObjectIdLike;
+  conversationId: ObjectIdLike;
+  permissions: readonly Permission[];
+  actor: HydratedDocument<UserDocument>;
+}
+
+/**
+ * The owner deleting a chat from the inbox.
+ *
+ * ORDER MATTERS. The queued-message cancellation runs INSIDE the same transaction as the hide, and
+ * the hide happens first: if the cancel throws, the whole thing rolls back and the conversation
+ * stays visible rather than becoming a hidden thread with a live message still on its way out. A
+ * half-applied delete here is the one outcome that is worse than no delete at all.
+ *
+ * Audited, unlike most soft deletes in this codebase, because the usual argument ("the surviving
+ * document records it") does not hold: the ActivityLog rows that would show what happened hang off
+ * the conversation that has just been hidden, so the audit log is the only place this is legible
+ * afterwards.
+ */
+export const deleteConversationForActor = async ({
+  organizationId,
+  conversationId,
+  permissions,
+  actor,
+}: DeleteConversationForActorParams) => {
+  const conversation = await loadVisibleConversationForActor({
+    organizationId,
+    conversationId,
+    permissions,
+    actorId: actor._id,
+  });
+
+  const updated = await runInTransaction(async (session) => {
+    const updated = await softDeleteConversation({
+      conversationId: conversation._id,
+      organizationId,
+      session,
+    });
+
+    await cancelQueuedMessagesForConversation({
+      conversationId: conversation._id,
+      organizationId,
+      session,
+    });
+
+    await enqueueConversationChanged({
+      organizationId,
+      conversationId: conversation._id,
+      assignedTo: conversation.assignedTo,
+      reason: REALTIME_REASONS.DELETED,
+      session,
+    });
+
+    return updated;
+  });
+
+  await createAuditLog({
+    organizationId,
+    eventType: AUDIT_EVENTS.CONVERSATION_DELETED,
+    actorId: actor._id,
+    metadata: {
+      conversationId: conversation._id.toString(),
+      leadId: conversation.leadId,
+      displayName: conversation.displayName,
+      stage: conversation.stage,
+    },
+  });
+
+  return serializeConversation(updated);
+};
+
+export interface RestoreConversationForActorParams extends DeleteConversationForActorParams {}
+
+/** Brings a deleted chat back. Automation stays off - see restoreConversation on why. */
+export const restoreConversationForActor = async ({
+  organizationId,
+  conversationId,
+  permissions,
+  actor,
+}: RestoreConversationForActorParams) => {
+  // The one place that must see deleted rows: `loadVisibleConversationForActor` goes through
+  // findConversationById, which filters them out, so a restore would 404 on its own target.
+  const conversation = await findConversationByIdIncludingDeleted({
+    conversationId,
+    organizationId,
+  });
+
+  if (!conversation) {
+    throw new Error('CONVERSATION_NOT_FOUND');
+  }
+
+  assertConversationVisible({ conversation, permissions, actorId: actor._id });
+
+  const updated = await runInTransaction(async (session) => {
+    const updated = await restoreConversation({
+      conversationId: conversation._id,
+      organizationId,
+      session,
+    });
+
+    await enqueueConversationChanged({
+      organizationId,
+      conversationId: conversation._id,
+      assignedTo: conversation.assignedTo,
+      reason: REALTIME_REASONS.DELETED,
+      session,
+    });
+
+    return updated;
+  });
+
+  await createAuditLog({
+    organizationId,
+    eventType: AUDIT_EVENTS.CONVERSATION_RESTORED,
+    actorId: actor._id,
+    metadata: {
+      conversationId: conversation._id.toString(),
+      leadId: conversation.leadId,
+    },
   });
 
   return serializeConversation(updated);

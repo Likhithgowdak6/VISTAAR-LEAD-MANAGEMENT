@@ -56,6 +56,39 @@ export interface ConversationDocument {
    *  automation may ever message them again - the nurture sweep skips them and the send gate
    *  refuses AI-authored messages. Stays null for everyone who never asked. */
   optedOutAt: Date | null;
+  /**
+   * When the owner deleted this chat from the inbox. A SOFT delete, and the distinction is load
+   * bearing rather than squeamish:
+   *
+   *  - A hard delete cannot stop a message already queued. AI replies sit in the outbound queue
+   *    for 60-120s and are claimed by contact, not by conversation, so the row can vanish while
+   *    the message still goes out.
+   *  - LeadSubmission is simultaneously the import ledger and the idempotency guard. Removing a
+   *    conversation's rows makes a Meta/Sheet lead re-import as brand new and get greeted twice.
+   *  - Deleting the Contact can take a live thread on a second WhatsApp number with it.
+   *
+   * So: hidden from the inbox, excluded from every automation sweep, automation forced off. It
+   * comes BACK if the lead messages again - silently swallowing a real customer's message is a
+   * worse failure than an unwanted thread reappearing, and the dashboard is the only place the
+   * owner would ever find out.
+   */
+  deletedAt: Date | null;
+  /**
+   * When a human explicitly approved messaging a MANUALLY ADDED lead first. Null for every lead
+   * that arrived on its own, and for a manual lead the owner chose not to message.
+   *
+   * This exists because the auto-greet consent gate reads `LeadSource.autoGreetEnabled`, and a
+   * hand-typed lead has no LeadSource at all - so the gate is skipped and the greeting would fire
+   * unconditionally, making cold outbound permanently on and invisible for exactly the leads where
+   * someone typed the number in themselves. This is that lead's own copy of the switch.
+   */
+  manualOutreachApprovedAt: Date | null;
+  /**
+   * How the owner knows a manually added lead, in his own words ("met at the wedding expo").
+   * Goes into the opening message so a stranger can place us; without it the AI is instructed to
+   * introduce the studio plainly rather than invent a reason it is in their chat.
+   */
+  manualOriginNote: string | null;
   /** Lead category (e.g. "event_photography") - which rate card / required fields apply. */
   aiCategory: string;
   /** Facts the AI has learned about this lead so far - sent back to ai-brain-service every call. */
@@ -303,6 +336,23 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
     optedOutAt: {
       type: Date,
       default: null,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    manualOutreachApprovedAt: {
+      type: Date,
+      default: null,
+    },
+
+    manualOriginNote: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 200,
     },
 
     aiCategory: {

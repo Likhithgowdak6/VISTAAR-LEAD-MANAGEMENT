@@ -25,12 +25,18 @@ import { type ObjectIdLike } from '../../types/common.js';
 import { type ConversationDocument } from '../conversations/conversation.model.js';
 import { handleInboundMessageForAutomation as defaultHandleInboundMessageForAutomation } from './ai-brain.service.js';
 
+/** Where the lead came from. Decides what the opening line may truthfully claim. */
+export type GreetingOrigin = 'form' | 'manual';
+
 export interface GreetImportedLeadParams {
   organizationId: ObjectIdLike;
   conversation: HydratedDocument<ConversationDocument>;
-  /** The form's name, so the opening can say where this came from. */
+  /** The form's name, so the opening can say where this came from. Ignored when origin is manual. */
   sourceLabel: string;
   category?: string | null;
+  origin?: GreetingOrigin;
+  /** For a manual lead: how the owner actually knows them ("met at the wedding expo"). */
+  originNote?: string | null;
 }
 
 /**
@@ -40,18 +46,44 @@ export interface GreetImportedLeadParams {
  * first message, here is why you are in their chat" - and because that channel already exists,
  * is already cleared after a single turn, and is already framed to the model as an order rather
  * than as a fact it may mention.
+ *
+ * TWO VARIANTS, AND THE SPLIT IS NOT COSMETIC. The form variant instructs the model to open by
+ * naming the form. Sent to a lead the owner typed in by hand, that is a fabricated claim about
+ * something the person never did - the fastest possible way to be reported by someone who knows
+ * perfectly well they filled in no form. The manual variant says only what is actually true, and
+ * says it vaguely when the owner gave no context, because a vague honest opening is recoverable
+ * and a confident false one is not.
  */
 export const buildGreetingDirective = ({
   sourceLabel,
   category,
+  origin = 'form',
+  originNote,
 }: {
   sourceLabel: string;
   category?: string | null;
+  origin?: GreetingOrigin;
+  originNote?: string | null;
 }): string => {
   const about =
     category && category !== 'unknown'
       ? `They enquired about ${category.replace(/_/g, ' ')}.`
       : 'They did not say which service.';
+
+  if (origin === 'manual') {
+    const context = originNote?.trim()
+      ? `Here is how we know them, in the owner's words: "${originNote.trim()}". Refer to it naturally in your first line so they can place us.`
+      : 'You do NOT know how we got their number. Do not invent a reason, do not mention a form, an ad or an enquiry, and do not imply they contacted us. Open by introducing the studio plainly and saying the owner asked you to get in touch about their shoot.';
+
+    return [
+      'This is your FIRST message to this person and they have never messaged us.',
+      'The owner added them to the system by hand.',
+      `${about} ${context}`,
+      'They did NOT fill in a form - never say or imply that they did.',
+      'Then follow the normal opening: confirm we do the thing they need,',
+      'and ask your opening questions. Keep it short and do not apologise for messaging them.',
+    ].join(' ');
+  }
 
   return [
     'This is your FIRST message to this person and they have never messaged us.',
@@ -75,6 +107,8 @@ export const createImportedLeadGreetingService = ({
     conversation,
     sourceLabel,
     category,
+    origin = 'form',
+    originNote = null,
   }: GreetImportedLeadParams): Promise<void> => {
     await handleInboundMessageForAutomation({
       organizationId,
@@ -83,7 +117,7 @@ export const createImportedLeadGreetingService = ({
       // to, and the automation path needs something stable to key its own idempotency on.
       inboundMessageId: `auto-greet:${conversation._id.toString()}`,
       inboundText: '',
-      ownerInstruction: buildGreetingDirective({ sourceLabel, category }),
+      ownerInstruction: buildGreetingDirective({ sourceLabel, category, origin, originNote }),
     });
   };
 

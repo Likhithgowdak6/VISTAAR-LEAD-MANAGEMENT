@@ -246,6 +246,8 @@ export const requireConversationsRead = requireAnyPermission(
 
 export const requireConversationsAssign = requirePermissions(PERMISSIONS.CONVERSATIONS_ASSIGN);
 
+export const requireConversationsDelete = requirePermissions(PERMISSIONS.CONVERSATIONS_DELETE);
+
 export const requireMessagesSend = requirePermissions(PERMISSIONS.MESSAGES_SEND);
 
 export const requireClientPiiReveal = requirePermissions(PERMISSIONS.CLIENT_PII_REVEAL);

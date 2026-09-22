@@ -96,10 +96,20 @@ export const createAutoGreetSweepService = ({
             })
           : null;
 
-        if (leadSource && leadSource.autoGreetEnabled !== true) {
+        // Written as "what says we may message first", not "what says we may not". The earlier
+        // shape - `if (leadSource && leadSource.autoGreetEnabled !== true) continue` - was a
+        // refusal that needed a lead source to exist in order to refuse anything, so a
+        // conversation with no source (a hand-typed lead, or one whose form was since deleted)
+        // fell straight through the gate and got cold-messaged unconditionally. A consent check
+        // must fail closed: no evidence of consent is not consent.
+        const approvedToMessageFirst = conversation.leadSourceId
+          ? leadSource?.autoGreetEnabled === true
+          : Boolean(conversation.manualOutreachApprovedAt);
+
+        if (!approvedToMessageFirst) {
           logger.info?.(
             { conversationId: conversation._id.toString() },
-            'Auto-greet skipped: the source was switched off during the pause.',
+            'Auto-greet skipped: nothing on this lead currently approves messaging them first.',
           );
           continue;
         }
@@ -109,6 +119,9 @@ export const createAutoGreetSweepService = ({
           conversation,
           sourceLabel: leadSource?.name ?? 'our enquiry form',
           category: conversation.aiCategory,
+          // No lead source means nobody filled in a form - so the opening must not claim one.
+          origin: conversation.leadSourceId ? 'form' : 'manual',
+          originNote: conversation.manualOriginNote,
         });
 
         sent += 1;

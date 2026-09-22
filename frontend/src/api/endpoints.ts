@@ -225,6 +225,79 @@ export const changeStage = ({
     body: { stage },
   });
 
+export interface CreateManualLeadParams extends TokenParams {
+  phone: string;
+  whatsappAccountId: string;
+  displayName?: string;
+  aiCategory?: string;
+  eventDate?: string;
+  originNote?: string;
+  /** Whether the AI may open the conversation. Never defaulted on by the caller. */
+  greetNow: boolean;
+}
+
+/**
+ * Adds a lead by hand. Resolves for both outcomes - `meta.outcome` is `created` for a new lead and
+ * `existing` when that number already had a conversation, which is not an error and must not be
+ * shown as one: the right response is to open the thread they already have.
+ */
+export const createManualLead = ({
+  token,
+  ...body
+}: CreateManualLeadParams): Promise<ApiSuccessResponse<Conversation> & { meta?: { outcome?: string } }> =>
+  apiFetch('/conversations', {
+    method: 'POST',
+    token,
+    body,
+  });
+
+/**
+ * Hides the chat and stops every automation on it, cancelling anything still queued to send.
+ * A soft delete - the thread comes back if the lead messages again.
+ */
+export const deleteConversation = ({
+  token,
+  conversationId,
+}: ConversationIdParams): Promise<ApiSuccessResponse<Conversation>> =>
+  apiFetch(`/conversations/${conversationId}`, {
+    method: 'DELETE',
+    token,
+  });
+
+/** Brings a deleted chat back. The AI stays off until the owner turns it on. */
+export const restoreConversation = ({
+  token,
+  conversationId,
+}: ConversationIdParams): Promise<ApiSuccessResponse<Conversation>> =>
+  apiFetch(`/conversations/${conversationId}/restore`, {
+    method: 'POST',
+    token,
+  });
+
+export interface ChangeAiCategoryParams extends ConversationIdParams {
+  aiCategory: string;
+}
+
+/**
+ * Overrides which service playbook the AI handles this lead under. The backend refuses a key it
+ * has no playbook for rather than silently falling back to the generic one.
+ */
+export const changeAiCategory = ({
+  token,
+  conversationId,
+  aiCategory,
+}: ChangeAiCategoryParams): Promise<ApiSuccessResponse<Conversation>> =>
+  apiFetch(`/conversations/${conversationId}/category`, {
+    method: 'PATCH',
+    token,
+    body: { aiCategory },
+  });
+
+/** The playbook keys, served by the backend so this list can never drift from the real table. */
+export const listAiCategories = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<string[]>
+> => apiFetch('/conversations/meta/ai-categories', { token });
+
 export interface AssignConversationParams extends ConversationIdParams {
   assignedTo: string | null;
 }

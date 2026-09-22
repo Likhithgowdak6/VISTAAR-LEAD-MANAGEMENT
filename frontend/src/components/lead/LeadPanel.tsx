@@ -7,6 +7,7 @@ import ActivitySection from './ActivitySection';
 import AiAutomationSection from './AiAutomationSection';
 import AiProposalSection from './AiProposalSection';
 import AssignmentControl from './AssignmentControl';
+import DeleteChatSection from './DeleteChatSection';
 import EventDateSection from './EventDateSection';
 import FollowUpsSection from './FollowUpsSection';
 import LeadFormSection from './LeadFormSection';
@@ -21,12 +22,15 @@ type Props = {
   conversation: ConversationSummary;
   contactId?: string | null;
   onStageChange?: (stage: string) => void;
+  /** Bubbles up so the inbox can drop the now-hidden thread from its selection. */
+  onDeleted?: () => void;
 };
 
-const LeadPanel = ({ conversation, contactId, onStageChange }: Props) => {
+const LeadPanel = ({ conversation, contactId, onStageChange, onDeleted }: Props) => {
   const { permissions } = useAuth() as AuthValue;
   const canAssign = hasPermission(permissions, PERMISSIONS.CONVERSATIONS_ASSIGN);
   const canDraftProposal = hasPermission(permissions, PERMISSIONS.AI_GENERATE);
+  const canDelete = hasPermission(permissions, PERMISSIONS.CONVERSATIONS_DELETE);
 
   // Bumping this key re-fetches the activity timeline after a mutating action.
   const [activityKey, setActivityKey] = useState(0);
@@ -50,7 +54,11 @@ const LeadPanel = ({ conversation, contactId, onStageChange }: Props) => {
       />
 
       {/* Which playbook is driving this conversation - see ServiceSection on why `unknown` shows. */}
-      <ServiceSection aiCategory={conversation.aiCategory ?? null} />
+      <ServiceSection
+        conversationId={conversation.id}
+        aiCategory={conversation.aiCategory ?? null}
+        onCategoryChange={bumpActivity}
+      />
 
       {/* Renders nothing until the lead has given us a date we can read. */}
       <EventDateSection eventDate={conversation.eventDate ?? null} />
@@ -97,6 +105,15 @@ const LeadPanel = ({ conversation, contactId, onStageChange }: Props) => {
       <FollowUpsSection conversationId={conversation.id} />
 
       <ActivitySection conversationId={conversation.id} refreshKey={activityKey} />
+
+      {/* Last, and only for roles that hold the permission - `staff` deliberately cannot delete. */}
+      {canDelete ? (
+        <DeleteChatSection
+          conversationId={conversation.id}
+          displayName={conversation.displayName}
+          onDeleted={onDeleted}
+        />
+      ) : null}
     </aside>
   );
 };

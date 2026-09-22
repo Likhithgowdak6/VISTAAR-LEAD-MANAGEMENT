@@ -79,6 +79,8 @@ const AppShell = () => {
   const { user, organization, logout, permissions } = useAuth() as AuthValue;
   const [view, setView] = useState<AppView>('inbox');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
+  const [listRefreshKey, setListRefreshKey] = useState(0);
   const canReadAccounts = hasPermission(permissions, PERMISSIONS.ACCOUNTS_READ);
   const canReadUsers = hasPermission(permissions, PERMISSIONS.USERS_READ);
   const canManageStages = hasPermission(permissions, PERMISSIONS.CRM_STAGE_MANAGE);
@@ -223,13 +225,24 @@ const AppShell = () => {
               selectedId ? 'hidden' : 'block'
             }`}
           >
-            <ConversationList selectedId={selectedId} onSelect={setSelectedId} />
+            <ConversationList
+              key={`list-${listRefreshKey}`}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           </div>
           {selectedId ? (
             <ConversationView
               key={selectedId}
               conversationId={selectedId}
               onBack={() => setSelectedId(null)}
+              onDeleted={() => {
+                // Clear the selection first: the backend now 404s this id, so leaving it selected
+                // would swap the thread for an error message. Then force the list to refetch, or
+                // the deleted row sits there until the next poll.
+                setSelectedId(null);
+                setListRefreshKey((value) => value + 1);
+              }}
             />
           ) : (
             /* Hidden on small: with no thread open the list already fills the screen, and an

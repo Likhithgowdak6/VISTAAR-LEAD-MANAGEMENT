@@ -4,6 +4,7 @@ import {
   authenticateRequest,
   requireAiGenerate,
   requireConversationsAssign,
+  requireConversationsDelete,
   requireConversationsRead,
   requireMessagesSend,
   requirePasswordChanged,
@@ -15,8 +16,13 @@ import { conversationTagRouter } from '../tags/tag.routes.js';
 
 import {
   assignConversation,
+  changeConversationCategory,
   changeConversationStage,
+  createManualLead,
+  deleteConversation,
   getConversation,
+  listAiCategories,
+  restoreConversationHandler,
   getConversationActivity,
   getConversationLeadSubmissions,
   getConversationMessages,
@@ -32,6 +38,9 @@ conversationRouter.use(authenticateRequest);
 conversationRouter.use(requirePasswordChanged);
 
 conversationRouter.get('/', requireConversationsRead, listConversations);
+// Adding a lead by hand. Gated on MESSAGES_SEND rather than read: this creates a contact and can
+// send an unsolicited opening message, so it belongs with the permissions that reach a customer.
+conversationRouter.post('/', requireMessagesSend, createManualLead);
 conversationRouter.get('/:conversationId', requireConversationsRead, getConversation);
 conversationRouter.get(
   '/:conversationId/messages',
@@ -65,6 +74,22 @@ conversationRouter.patch(
   '/:conversationId/stage',
   requireConversationsRead,
   changeConversationStage,
+);
+// The service-playbook picker and its options. Same gate as stage: anyone who can work a
+// conversation can correct how it is being handled.
+conversationRouter.get('/meta/ai-categories', requireConversationsRead, listAiCategories);
+conversationRouter.patch(
+  '/:conversationId/category',
+  requireConversationsRead,
+  changeConversationCategory,
+);
+// Delete hides the chat and stops every automation on it; restore brings it back with the AI
+// still off. Gated separately from reading and assigning - `staff` deliberately cannot do this.
+conversationRouter.delete('/:conversationId', requireConversationsDelete, deleteConversation);
+conversationRouter.post(
+  '/:conversationId/restore',
+  requireConversationsDelete,
+  restoreConversationHandler,
 );
 conversationRouter.post('/:conversationId/messages', requireMessagesSend, sendConversationMessage);
 conversationRouter.post('/:conversationId/ai-draft', requireAiGenerate, generateAiDraft);

@@ -84,14 +84,51 @@ describe('changing your mind during the pause', () => {
     expect(d.greetImportedLead).not.toHaveBeenCalled();
   });
 
-  it('still greets when the source has since been deleted', async () => {
+  it('skips a lead whose source has since been deleted', async () => {
     const d = deps([conversation('c1')]);
     d.findLeadSourceById.mockResolvedValue(null);
 
     await createAutoGreetSweepService(d).run();
 
+    // This used to greet. It was changed when the gate was rewritten as "what says we MAY message
+    // first" rather than "what says we may not": the old shape needed a lead source to exist in
+    // order to refuse anything, so a missing one fell straight through.
+    //
+    // A deleted source is the absence of evidence of consent, not evidence of consent - and
+    // deleting the whole source is a louder change of mind than flicking its toggle off, which
+    // the test above already honours. The two outcomes are not symmetrical either: a greeting
+    // dropped leaves the lead sitting in the inbox for the owner to message himself, while a
+    // greeting sent to someone whose form he just deleted cannot be taken back.
+    expect(d.greetImportedLead).not.toHaveBeenCalled();
+  });
+
+  it('refuses to greet a hand-added lead nobody approved', async () => {
+    const d = deps([{ ...conversation('c1'), leadSourceId: null, manualOutreachApprovedAt: null }]);
+
+    await createAutoGreetSweepService(d).run();
+
+    // The regression this pins: the gate used to read `if (leadSource && ...)`, and a manually
+    // added lead has no lead source at all - so the check was skipped entirely and the greeting
+    // fired unconditionally. Cold outbound was permanently on, and invisible, for exactly the
+    // leads where a person typed the number in by hand.
+    expect(d.findLeadSourceById).not.toHaveBeenCalled();
+    expect(d.greetImportedLead).not.toHaveBeenCalled();
+  });
+
+  it('greets a hand-added lead the owner did approve, without claiming a form', async () => {
+    const d = deps([
+      {
+        ...conversation('c1'),
+        leadSourceId: null,
+        manualOutreachApprovedAt: new Date('2026-09-21T09:00:00.000Z'),
+        manualOriginNote: 'met at the wedding expo',
+      },
+    ]);
+
+    await createAutoGreetSweepService(d).run();
+
     expect(d.greetImportedLead).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceLabel: 'our enquiry form' }),
+      expect.objectContaining({ origin: 'manual', originNote: 'met at the wedding expo' }),
     );
   });
 });

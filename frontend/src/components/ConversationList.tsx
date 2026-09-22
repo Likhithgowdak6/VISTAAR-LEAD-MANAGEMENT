@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { listConversations, listStages, listTags, setAiAutomation } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
+import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
+import AddLeadDialog from './AddLeadDialog';
 import EmptyState from './EmptyState';
 import InboxFilters from './InboxFilters';
 import LeadScoreBadge from './LeadScoreBadge';
@@ -29,8 +31,12 @@ type Props = {
 };
 
 const ConversationList = ({ selectedId, onSelect }: Props) => {
-  const { authedRequest } = useAuth() as AuthValue;
+  const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
+  // Same gate as the route: adding a lead creates a contact and can send an unsolicited opening
+  // message, so it belongs with the permissions that reach a customer, not with reading.
+  const canAddLead = hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
+  const [addingLead, setAddingLead] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [stages, setStages] = useState<StageOption[]>(mergeStages());
   const [tags, setTags] = useState<Tag[]>([]);
@@ -125,6 +131,15 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
         <h2 className="eyebrow">Conversations</h2>
         <div className="flex items-center gap-3">
           <output className="text-[0.6875rem] text-muted">{conversations.length}</output>
+          {canAddLead ? (
+            <button
+              type="button"
+              onClick={() => setAddingLead(true)}
+              className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+            >
+              + Lead
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={load}
@@ -134,6 +149,19 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
           </button>
         </div>
       </header>
+
+      {addingLead ? (
+        <AddLeadDialog
+          onClose={() => setAddingLead(false)}
+          onCreated={(conversationId) => {
+            setAddingLead(false);
+            // Refetch before selecting: a lead added by hand is not in this list yet, and opening
+            // a thread the list has never heard of leaves the row unhighlighted behind it.
+            load();
+            onSelect(conversationId);
+          }}
+        />
+      ) : null}
 
       <InboxFilters
         stages={stages}

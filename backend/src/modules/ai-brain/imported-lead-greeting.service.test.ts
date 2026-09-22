@@ -49,6 +49,63 @@ describe('the directive', () => {
   });
 });
 
+describe('the directive for a hand-added lead', () => {
+  it('never claims they filled in a form, because they did not', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'our enquiry form',
+      category: 'birthday',
+      origin: 'manual',
+    });
+
+    // The form variant instructs the model to open by naming the form. Sent to someone the owner
+    // typed in by hand, that asserts something the person knows perfectly well never happened -
+    // which is the fastest possible way to be reported.
+    expect(directive).toContain('added them to the system by hand');
+    expect(directive).toContain('did NOT fill in a form');
+    expect(directive).not.toContain('our enquiry form');
+  });
+
+  it('uses the owner\'s own words for how they know the lead', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'unused',
+      category: 'wedding',
+      origin: 'manual',
+      originNote: 'met at the wedding expo on Sunday',
+    });
+
+    expect(directive).toContain('met at the wedding expo on Sunday');
+  });
+
+  it('forbids inventing a reason when the owner gave no context', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'unused',
+      category: 'wedding',
+      origin: 'manual',
+      originNote: null,
+    });
+
+    // A vague honest opening is recoverable. A confident false one is not.
+    expect(directive).toContain('Do not invent a reason');
+    expect(directive).toContain('do not imply they contacted us');
+  });
+
+  it.each([undefined, '', '   '])('treats %p as no context at all', (note) => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'unused',
+      origin: 'manual',
+      originNote: note,
+    });
+
+    expect(directive).toContain('Do not invent a reason');
+  });
+
+  it('still names the service, which is the one thing the owner did tell us', () => {
+    expect(
+      buildGreetingDirective({ sourceLabel: 'unused', category: 'car_delivery', origin: 'manual' }),
+    ).toContain('car delivery');
+  });
+});
+
 describe('sending it', () => {
   it('runs the normal qualifying graph with no inbound text', async () => {
     const handleInboundMessageForAutomation = vi.fn().mockResolvedValue(undefined);

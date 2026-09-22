@@ -16,6 +16,7 @@ vi.mock('../../config/env.js', () => ({
 }));
 
 const {
+  buildDailySchedule,
   compressScheduleForEvent,
   createNurtureSweepService,
   furthestEarnedBump,
@@ -506,6 +507,125 @@ describe('scheduleForBand', () => {
 
   it('returns a copy, never the caller\'s array', () => {
     expect(scheduleForBand(schedule, LEAD_SCORE_BANDS.WARM)).not.toBe(schedule);
+  });
+});
+
+describe('buildDailySchedule', () => {
+  it('is every day from 1 to the cap', () => {
+    expect(buildDailySchedule(5)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it.each([0, -1, -99])('is empty for %s, so nothing is ever sent', (max) => {
+    expect(buildDailySchedule(max)).toEqual([]);
+  });
+
+  it('floors a fractional cap rather than producing a ragged array', () => {
+    expect(buildDailySchedule(3.7)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('sweepOnce — the daily cadence', () => {
+  const dailyHarness = (conversation: Record<string, unknown>, config: Record<string, unknown> = {}) => {
+    const harness = createHarness({
+      config: {
+        NURTURE_CADENCE: 'daily',
+        NURTURE_MAX_FOLLOWUPS: 30,
+        NURTURE_COLD_AFTER_DAYS: 20,
+        NURTURE_LOW_INTENT_MULTIPLIER: 1,
+        ...config,
+      } as never,
+    });
+    withOneBatch(harness.conversationRepository.findNurturableConversations, [conversation]);
+
+    return harness;
+  };
+
+  it('nudges after a single day of silence, which the staged cadence would not', async () => {
+    const { service, outboundMessageService, conversationRepository } = dailyHarness(
+      baseConversation({ nurtureStep: 0, lastOutboundAt: daysAgo(1), lastInboundAt: daysAgo(30) }),
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(result.nudged).toBe(1);
+    expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
+    expect(conversationRepository.bumpNurtureStep).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 1 }),
+    );
+  });
+
+  it('sends one per day, not one per sweep — a second tick on the same day does nothing', async () => {
+    const { service, outboundMessageService } = dailyHarness(
+      baseConversation({ nurtureStep: 4, lastOutboundAt: daysAgo(4), lastInboundAt: daysAgo(30) }),
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(result.nudged).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it('stops at the cap instead of chasing a silent lead forever', async () => {
+    const { service, outboundMessageService, conversationRepository } = dailyHarness(
+      baseConversation({ nurtureStep: 3, lastOutboundAt: daysAgo(9), lastInboundAt: daysAgo(40) }),
+      { NURTURE_MAX_FOLLOWUPS: 3, NURTURE_COLD_AFTER_DAYS: 5 },
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
+    expect(result.markedCold).toBe(1);
+    expect(conversationRepository.markConversationCold).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses to send on the event day itself', async () => {
+    const { service, outboundMessageService } = dailyHarness(
+      baseConversation({
+        nurtureStep: 0,
+        lastOutboundAt: daysAgo(2),
+        lastInboundAt: daysAgo(30),
+        eventDate: eventIn(0),
+      }),
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(result.skipped).toBe(1);
+    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it('still stops dead once the event has passed', async () => {
+    const { service, outboundMessageService, conversationRepository } = dailyHarness(
+      baseConversation({
+        nurtureStep: 2,
+        lastOutboundAt: daysAgo(3),
+        lastInboundAt: daysAgo(30),
+        eventDate: eventIn(-1),
+      }),
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(result.markedCold).toBe(1);
+    expect(conversationRepository.markConversationCold).toHaveBeenCalledTimes(1);
+    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it('chases a LOW INTENT lead daily too when the multiplier is 1', async () => {
+    const { service, outboundMessageService } = dailyHarness(
+      baseConversation({
+        nurtureStep: 0,
+        lastOutboundAt: daysAgo(1),
+        lastInboundAt: daysAgo(30),
+        leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
+      }),
+    );
+
+    const result = await service.sweepOnce();
+
+    expect(result.nudged).toBe(1);
+    expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
   });
 });
 

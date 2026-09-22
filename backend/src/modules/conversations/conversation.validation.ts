@@ -77,6 +77,50 @@ export const changeStageBodySchema = z.object({
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
 });
 
+/**
+ * The add-a-lead-by-hand form.
+ *
+ * `phone` is accepted loosely on purpose - an owner types "98765 43210", "+91 98765-43210" or
+ * "09876543210" and all three are the same person. normalizePhoneNumber does the real work; this
+ * only rejects input with no digits in it at all.
+ *
+ * `greetNow` defaults to FALSE and is the one field that causes an unsolicited message. Adding a
+ * lead and messaging a stranger are separate decisions, so the default is the safe one and the
+ * client has to ask for the other explicitly.
+ */
+export const createManualLeadBodySchema = z.object({
+  phone: z
+    .string()
+    .trim()
+    .min(6)
+    .max(24)
+    .regex(/\d/, 'A phone number needs at least one digit.'),
+  whatsappAccountId: z.string().trim().min(1),
+  displayName: z.string().trim().min(1).max(120).optional(),
+  aiCategory: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(60)
+    .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/)
+    .optional(),
+  eventDate: z.string().trim().max(40).optional(),
+  originNote: z.string().trim().max(200).optional(),
+  greetNow: z.boolean().default(false),
+});
+
+// Shape only - that the key is a real playbook is checked in the service against
+// CATEGORY_PLAYBOOKS, for the same reason stages are: the valid set is not a literal here.
+export const changeCategoryBodySchema = z.object({
+  aiCategory: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/),
+});
+
 export const conversationActivityQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   skip: z.coerce.number().int().min(0).default(0),

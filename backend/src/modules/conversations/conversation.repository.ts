@@ -20,6 +20,18 @@ const removeUndefinedValues = <T extends object>(value: T): Partial<T> =>
     Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
   ) as Partial<T>;
 
+/**
+ * "Not deleted by the owner." Spread into every query that either shows a conversation to a human
+ * or picks one up for automation.
+ *
+ * A NAMED CONSTANT RATHER THAN A LITERAL, because the failure it prevents is silent and specific:
+ * a sweep query that forgets this keeps nurturing, greeting, reminding and payment-chasing a
+ * conversation the owner deleted and can no longer see. Hidden-but-still-messaging is strictly
+ * worse than never having had a delete button. Grep `NOT_DELETED` to audit the full set; the
+ * exceptions are deliberate and commented at each site.
+ */
+const NOT_DELETED = Object.freeze({ deletedAt: null });
+
 export const createConversation = (conversationData: Partial<ConversationDocument>) =>
   Conversation.create(conversationData);
 
@@ -33,6 +45,7 @@ export const findConversationById = ({
   organizationId,
 }: FindConversationByIdParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     _id: conversationId,
   };
 
@@ -65,6 +78,7 @@ export const listConversations = ({
   skip = 0,
 }: ListConversationsParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     organizationId,
   };
 
@@ -188,6 +202,14 @@ export const updateConversationPreview = ({
       nextFollowUpAt,
       lastInboundAt,
       lastOutboundAt,
+      // A deleted chat comes back the moment the lead writes in again. Keyed on `lastInboundAt`
+      // specifically - an OUTBOUND message must not resurrect it, or the very queued reply the
+      // delete was meant to stop would undo the delete on its way out.
+      //
+      // The alternative - staying hidden - means a real customer's message lands nowhere and
+      // nobody ever learns it arrived. A thread reappearing is visible and takes one click to
+      // deal with; a silently swallowed enquiry is neither.
+      deletedAt: lastInboundAt ? null : undefined,
     }),
   };
 
@@ -863,6 +885,7 @@ export const findMostRecentlyEscalatedConversation = ({
     aiAutomationPausedReason: { $ne: null },
     ownerLastTypedAt: null,
     optedOutAt: null,
+    ...NOT_DELETED,
   })
     .sort({ updatedAt: -1 })
     .exec();
@@ -903,6 +926,143 @@ export const updateStage = ({
     },
   ).exec();
 
+export interface SoftDeleteConversationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Hides a conversation and stops every automation on it in one write.
+ *
+ * `aiAutomationEnabled: false` is not belt-and-braces on top of the `deletedAt` filters - it is
+ * the part that holds if a future query forgets the filter, and it is also what the OUTBOUND SEND
+ * GATE already checks on every AI-authored message, including ones queued minutes ago. Setting
+ * both means a delete stops work that is already in flight, not just work not yet started.
+ *
+ * `$set` on a filter that does not itself exclude deleted rows, so deleting twice is a harmless
+ * no-op rather than a 404.
+ */
+export const softDeleteConversation = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+  session,
+}: SoftDeleteConversationParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: {
+        deletedAt: now,
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: 'The owner deleted this chat.',
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface RestoreConversationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  session?: DatabaseSession;
+}
+
+/**
+ * Undoes a delete. Deliberately does NOT switch automation back on: the lead's situation has moved
+ * on since it was hidden, and quietly resuming an AI sales conversation days later is a decision
+ * only a person should make. The owner gets the thread back and the existing toggle to restart it.
+ */
+export const restoreConversation = ({
+  conversationId,
+  organizationId,
+  session,
+}: RestoreConversationParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: {
+        deletedAt: null,
+        aiAutomationPausedReason: null,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+/**
+ * The one reader that sees deleted rows. Needed because `findConversationById` filters them out,
+ * which is correct for every normal operation and useless for restoring one.
+ */
+export const findConversationByIdIncludingDeleted = ({
+  conversationId,
+  organizationId,
+}: FindConversationByIdParams = {}) =>
+  Conversation.findOne(
+    removeUndefinedValues({ _id: conversationId, organizationId }),
+  ).exec();
+
+export interface SetAiCategoryParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  aiCategory?: string;
+  lastHandledBy?: ObjectIdLike | null;
+  session?: DatabaseSession;
+}
+
+/**
+ * A HUMAN overriding the AI's classification. Deliberately a plain `$set`, unlike
+ * `mergeConversationAiContext`, whose `$cond` only ever writes over `''`/`unknown`.
+ *
+ * That first-write-wins rule exists to stop the MODEL swapping the playbook on turn four, and it
+ * is right for the model - but it also makes a misclassification permanent, which is the whole
+ * reason this function exists. The owner looking at the thread knows better than the classifier
+ * that read one ambiguous opening line, so when a person says "this is a wedding", it is a
+ * wedding, and it takes effect on the very next turn.
+ *
+ * Nothing here validates the key: a category with no playbook resolves to the `unknown` fallback
+ * rather than throwing (see playbookForCategory). The service layer restricts the input to keys
+ * that actually exist; this is the storage primitive.
+ */
+export const setAiCategory = ({
+  conversationId,
+  organizationId,
+  aiCategory,
+  lastHandledBy,
+  session,
+}: SetAiCategoryParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: removeUndefinedValues({
+        aiCategory,
+        lastHandledBy,
+        lastHandledAt: new Date(),
+      }),
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
 // --------------------------------------------------------------------------
 // The day-2/5/9/15 nurture sweep: conversations that got at least one outbound message, are
 // still in an active pipeline stage, and still have automation on (an automation-off
@@ -933,6 +1093,7 @@ export const findNurturableConversations = ({
   now = new Date(),
 }: FindNurturableConversationsParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     stage: { $in: ACTIVE_PIPELINE_STAGES },
     aiAutomationEnabled: true,
     lastOutboundAt: { $ne: null },
@@ -1099,6 +1260,7 @@ export const findConversationsDueForHandoverRead = ({
   limit = 200,
 }: FindConversationsDueForHandoverReadParams) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     aiAutomationEnabled: false,
     ownerLastTypedAt: { $ne: null, $lt: before },
   };
@@ -1133,6 +1295,7 @@ export const findParkedConversations = ({
   limit = 50,
 }: FindParkedConversationsParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     aiAutomationEnabled: false,
     aiAutomationPausedReason: { $ne: null },
   };
@@ -1163,6 +1326,7 @@ export const findGoingColdConversations = ({
   limit = 50,
 }: FindGoingColdConversationsParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     nurtureStep: { $gte: minNurtureStep },
     stage: { $in: ACTIVE_PIPELINE_STAGES },
   };
@@ -1189,6 +1353,7 @@ export const countConversationsCreatedSince = ({
   since,
 }: CountConversationsCreatedSinceParams) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     createdAt: { $gte: since },
   };
 
@@ -1261,6 +1426,7 @@ export const findConversationsNeedingOwnerCall = ({
   limit = 25,
 }: FindConversationsNeedingOwnerCallParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     newLeadAlertSentAt: { $ne: null, $lte: alertedBefore },
     ownerCallEscalationSentAt: null,
     optedOutAt: null,
@@ -1361,6 +1527,7 @@ export const findConversationsAwaitingCallOutcome = ({
   limit = 10,
 }: FindConversationsAwaitingCallOutcomeParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     ownerCallEscalationCallId: { $ne: null },
     ownerCallEscalationOutcome: null,
   };
@@ -1396,6 +1563,7 @@ export const findConversationsWithUpcomingEvents = ({
   limit = 200,
 }: FindConversationsWithUpcomingEventsParams) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     stage: CONVERSATION_STAGES.WON,
     eventDate: { $gt: from, $lte: to },
     eventReminderSentAt: null,
@@ -1524,7 +1692,7 @@ const buildConversationQueryFilter = ({
   eventFrom,
   eventTo,
 }: ConversationQueryFilterParams): QueryFilter<ConversationDocument> => {
-  const filter: QueryFilter<ConversationDocument> = {};
+  const filter: QueryFilter<ConversationDocument> = { ...NOT_DELETED };
 
   if (organizationId) {
     filter.organizationId = organizationId;
@@ -1617,6 +1785,7 @@ export const findConversationsDueForAutoGreet = ({
   limit = 25,
 }: FindConversationsDueForAutoGreetParams = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     autoGreetDueAt: { $ne: null, $lte: dueBefore },
     autoGreetSentAt: null,
     optedOutAt: null,
@@ -1650,6 +1819,30 @@ export const scheduleAutoGreet = ({
     },
     { $set: { autoGreetDueAt: dueAt } } as UpdateQuery<ConversationDocument>,
     { returnDocument: 'after' },
+  ).exec();
+
+/**
+ * Records that a human approved messaging a manually added lead first.
+ *
+ * Its own function rather than a field on the create, so that the approval is a separate write
+ * from the lead existing - the sweep re-reads it at send time, and an owner who changes his mind
+ * during the pause needs somewhere to un-approve without deleting the lead.
+ */
+export const approveManualOutreach = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+  session,
+}: {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+  session?: DatabaseSession;
+}) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    { $set: { manualOutreachApprovedAt: now } } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after', session },
   ).exec();
 
 /** Claims the right to send this lead's one opening message. */
@@ -1711,6 +1904,7 @@ export const findBookingsAwaitingPaymentPrompt = ({
   limit = 25,
 }: FindBookingsAwaitingPaymentPromptParams) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     stage: CONVERSATION_STAGES.WON,
     eventDate: { $ne: null, $lte: endedBefore },
     paymentPromptSentAt: null,
@@ -1786,6 +1980,7 @@ export const findConversationByPaymentCode = ({
     organizationId,
     paymentPromptCode: code,
     paymentSettledAt: null,
+    ...NOT_DELETED,
   }).exec();
 
 export const recordPaymentSettled = ({
@@ -1850,6 +2045,7 @@ export const findWonBookingsBetween = ({
   limit = 100,
 }: FindWonBookingsBetweenParams) => {
   const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
     stage: CONVERSATION_STAGES.WON,
     eventDate: { $gte: from, $lte: to },
   };

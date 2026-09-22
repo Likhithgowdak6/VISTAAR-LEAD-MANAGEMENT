@@ -1,5 +1,10 @@
 import { requireAuthContext } from '../../middleware/auth.middleware.js';
 import {
+  createManualLeadService,
+  ManualLeadError,
+} from '../lead-sources/manual-lead.service.js';
+import { serializeConversation } from './conversation.serializer.js';
+import {
   getConversationSummaryForActor,
   regenerateConversationSummaryForActor,
 } from '../ai-brain/conversation-summary.service.js';
@@ -9,7 +14,11 @@ import { parseWithSchema } from '../../utils/parse-with-schema.js';
 
 import {
   assignConversationForActor,
+  changeConversationCategoryForActor,
   changeConversationStageForActor,
+  deleteConversationForActor,
+  restoreConversationForActor,
+  SELECTABLE_AI_CATEGORIES,
   getConversationActivityForActor,
   getConversationForActor,
   getConversationMessagesForActor,
@@ -19,7 +28,9 @@ import {
 } from './conversation.service.js';
 import {
   assignConversationBodySchema,
+  changeCategoryBodySchema,
   changeStageBodySchema,
+  createManualLeadBodySchema,
   conversationActivityQuerySchema,
   conversationIdParamsSchema,
   conversationMessagesQuerySchema,
@@ -40,6 +51,10 @@ const conversationErrorMap = {
   INVALID_STAGE: {
     statusCode: 400,
     message: 'Stage is not a recognized built-in or an active custom stage.',
+  },
+  INVALID_AI_CATEGORY: {
+    statusCode: 400,
+    message: 'That service is not one the AI has a playbook for.',
   },
   WHATSAPP_ACCOUNT_NOT_SENDABLE: {
     statusCode: 400,
@@ -237,6 +252,133 @@ export const changeConversationStage = asyncHandler(async (req, res) => {
   } catch (error: unknown) {
     mapConversationError(error);
   }
+});
+
+export const changeConversationCategory = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+
+  const body = parseWithSchema({
+    schema: changeCategoryBodySchema,
+    value: req.body,
+    source: 'Body',
+  });
+
+  try {
+    const conversation = await changeConversationCategoryForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actor: auth.user,
+      aiCategory: body.aiCategory,
+    });
+
+    res.status(200).json({
+      data: conversation,
+    });
+  } catch (error: unknown) {
+    mapConversationError(error);
+  }
+});
+
+const manualLeadService = createManualLeadService();
+
+/**
+ * Adds a lead by hand. 201 for a new one, 200 when the number already had a conversation - the
+ * distinction matters to the client, which shows "already in your inbox" and opens the existing
+ * thread rather than reporting a success that changed nothing.
+ */
+export const createManualLead = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const body = parseWithSchema({
+    schema: createManualLeadBodySchema,
+    value: req.body,
+    source: 'Body',
+  });
+
+  try {
+    const result = await manualLeadService.createManualLead({
+      organizationId: auth.organization._id,
+      whatsappAccountId: body.whatsappAccountId,
+      actorId: auth.user._id,
+      phone: body.phone,
+      displayName: body.displayName ?? null,
+      aiCategory: body.aiCategory ?? null,
+      eventDate: body.eventDate ?? null,
+      originNote: body.originNote ?? null,
+      greetNow: body.greetNow,
+    });
+
+    res.status(result.outcome === 'created' ? 201 : 200).json({
+      data: serializeConversation(result.conversation),
+      meta: { outcome: result.outcome },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ManualLeadError) {
+      throw createHttpError({ statusCode: 400, message: error.message, code: error.code });
+    }
+
+    mapConversationError(error);
+  }
+});
+
+export const deleteConversation = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+
+  try {
+    const conversation = await deleteConversationForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actor: auth.user,
+    });
+
+    res.status(200).json({
+      data: conversation,
+    });
+  } catch (error: unknown) {
+    mapConversationError(error);
+  }
+});
+
+export const restoreConversationHandler = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+
+  try {
+    const conversation = await restoreConversationForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actor: auth.user,
+    });
+
+    res.status(200).json({
+      data: conversation,
+    });
+  } catch (error: unknown) {
+    mapConversationError(error);
+  }
+});
+
+/** The picker's options. Served from the backend so the two can never drift apart. */
+export const listAiCategories = asyncHandler(async (_req, res) => {
+  res.status(200).json({
+    data: SELECTABLE_AI_CATEGORIES,
+  });
 });
 
 export const getConversationActivity = asyncHandler(async (req, res) => {

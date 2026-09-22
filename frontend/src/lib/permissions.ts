@@ -3,6 +3,7 @@ import { type AssignableRole, type NoteVisibility, type Role } from '../types';
 export const PERMISSIONS = {
   CONVERSATIONS_READ_ALL: 'conversations.read_all',
   CONVERSATIONS_ASSIGN: 'conversations.assign',
+  CONVERSATIONS_DELETE: 'conversations.delete',
   MESSAGES_SEND: 'messages.send',
   CRM_TAGS_MANAGE: 'crm.tags.manage',
   CRM_TASKS_MANAGE: 'crm.tasks.manage',
