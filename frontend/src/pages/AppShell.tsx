@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
+import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import ChangePasswordGate from '../components/ChangePasswordGate';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
@@ -81,6 +82,7 @@ const AppShell = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);
+  const [changingPassword, setChangingPassword] = useState(false);
   const canReadAccounts = hasPermission(permissions, PERMISSIONS.ACCOUNTS_READ);
   const canReadUsers = hasPermission(permissions, PERMISSIONS.USERS_READ);
   const canManageStages = hasPermission(permissions, PERMISSIONS.CRM_STAGE_MANAGE);
@@ -175,6 +177,13 @@ const AppShell = () => {
           </div>
           <button
             type="button"
+            onClick={() => setChangingPassword(true)}
+            className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+          >
+            Password
+          </button>
+          <button
+            type="button"
             onClick={logout}
             className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
           >
@@ -182,6 +191,10 @@ const AppShell = () => {
           </button>
         </div>
       </header>
+
+      {changingPassword ? (
+        <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
+      ) : null}
 
       {view === 'accounts' && canReadAccounts ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
