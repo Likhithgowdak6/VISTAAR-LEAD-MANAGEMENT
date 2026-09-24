@@ -4,7 +4,8 @@ import { changePassword } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { type AuthUser, type AuthValue, errorMessage } from './types';
 
-const MIN_PASSWORD_LENGTH = 12;
+/** Mirrors PASSWORD_POLICY.MIN_LENGTH in the backend's password.service.ts - change both together. */
+const MIN_PASSWORD_LENGTH = 8;
 
 type PasswordForm = {
   currentPassword: string;

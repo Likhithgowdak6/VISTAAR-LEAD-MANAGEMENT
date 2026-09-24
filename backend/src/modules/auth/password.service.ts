@@ -3,7 +3,10 @@ import bcrypt from 'bcryptjs';
 import { env } from '../../config/env.js';
 
 export const PASSWORD_POLICY = Object.freeze({
-  MIN_LENGTH: 12,
+  // 8 at the owner's request. The three frontend copies of this number
+  // (ChangePasswordGate, UserRow, AddUserForm) must move with it - they are hints, but a hint
+  // that disagrees with the server rejects a password the server would have accepted.
+  MIN_LENGTH: 8,
   MAX_LENGTH: 128,
 });
 

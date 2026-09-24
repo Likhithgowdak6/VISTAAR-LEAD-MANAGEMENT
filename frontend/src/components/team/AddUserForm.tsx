@@ -6,7 +6,8 @@ import { ASSIGNABLE_ROLES, ROLE_LABELS } from '../../lib/permissions';
 import { type AssignableRole } from '../../types';
 import { type AuthValue, errorMessage } from '../types';
 
-const MIN_PASSWORD_LENGTH = 12;
+/** Mirrors PASSWORD_POLICY.MIN_LENGTH in the backend's password.service.ts - change both together. */
+const MIN_PASSWORD_LENGTH = 8;
 
 type UserForm = {
   name: string;

@@ -6,7 +6,8 @@ import { hasPermission, PERMISSIONS } from '../../lib/permissions';
 import { type AuthValue, type AuthedRequest, errorMessage, type TeamMember } from '../types';
 import RoleBadge from './RoleBadge';
 
-const MIN_PASSWORD_LENGTH = 12;
+/** Mirrors PASSWORD_POLICY.MIN_LENGTH in the backend's password.service.ts - change both together. */
+const MIN_PASSWORD_LENGTH = 8;
 
 type ActionTone = 'default' | 'danger';
 
