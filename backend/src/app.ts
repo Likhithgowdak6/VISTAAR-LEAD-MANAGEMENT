@@ -77,7 +77,17 @@ app.use('/api/v1/lead-sources', leadSourceRouter);
 app.use('/api/v1/whatsapp-accounts', whatsappAccountRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/settings', organizationSettingsRouter);
-app.use('/api/v1/dev-tools', testDataRouter);
+// NEVER in production. This router can wipe every conversation, contact and message in the
+// organization in one request, and it can place real phone calls. It is genuinely useful while
+// testing, so it is gated rather than deleted - but the gate is here, at the mount, so that in
+// production the path does not exist at all and there is no permission check left to get wrong.
+//
+// Checked against NODE_ENV rather than a dedicated flag on purpose: an extra DEV_TOOLS_ENABLED
+// variable is one more thing to copy to the server and forget to turn off, and "forgot to turn it
+// off" is exactly the failure this is preventing.
+if (env.NODE_ENV !== 'production') {
+  app.use('/api/v1/dev-tools', testDataRouter);
+}
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -13,8 +13,11 @@ import {
   readTestCallOutcome,
 } from './test-data.controller.js';
 
-// Mounted at /api/v1/dev-tools. TEST-PHASE ONLY - see test-data.service.ts. Delete this whole
-// module before production.
+// Mounted at /api/v1/dev-tools, and ONLY when NODE_ENV is not production - see the guard at the
+// mount in app.ts. TEST-PHASE ONLY: see test-data.service.ts for what it can destroy.
+//
+// The permission checks below are the second line of defence, not the first. In production these
+// routes are never registered, so the path 404s and none of this code is reachable.
 const testDataRouter = Router();
 
 testDataRouter.use(authenticateRequest);

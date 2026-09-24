@@ -14,11 +14,16 @@ const { createAutoGreetSweepService } = await import('./auto-greet-sweep.service
 
 const NOW = new Date('2026-09-12T10:00:00.000Z');
 
+// The three nullable fields are annotated rather than inferred: a hand-added lead sets
+// leadSourceId to null and manualOutreachApprovedAt to a date, and TypeScript would otherwise
+// narrow them to the literal types of the defaults and reject those overrides.
 const conversation = (id: string) => ({
   _id: { toString: () => id },
   organizationId: 'org-1',
-  leadSourceId: 'src-1',
+  leadSourceId: 'src-1' as string | null,
   aiCategory: 'wedding',
+  manualOutreachApprovedAt: null as Date | null,
+  manualOriginNote: null as string | null,
 });
 
 const deps = (due: ReturnType<typeof conversation>[] = []) => ({
