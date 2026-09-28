@@ -60,9 +60,24 @@ describe('the directive for a hand-added lead', () => {
     // The form variant instructs the model to open by naming the form. Sent to someone the owner
     // typed in by hand, that asserts something the person knows perfectly well never happened -
     // which is the fastest possible way to be reported.
-    expect(directive).toContain('added them to the system by hand');
     expect(directive).toContain('did NOT fill in a form');
     expect(directive).not.toContain('our enquiry form');
+  });
+
+  it('writes as the studio, never as someone running the owner\'s errand', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'unused',
+      category: 'car_delivery',
+      origin: 'manual',
+    });
+
+    // The real message this pins down: "Himanshu asked me to get in touch about your car delivery
+    // shoot" - which reads as an assistant relaying an errand. At a two-person studio the client
+    // expects to be talking to the studio, and a note from "their helper" is colder and stranger
+    // than one from the business itself.
+    expect(directive).toContain('WRITE AS THE STUDIO ITSELF, IN THE FIRST PERSON');
+    expect(directive).toContain('never say anyone asked or told you to make contact');
+    expect(directive).toContain('There is no third party in this conversation');
   });
 
   it('uses the owner\'s own words for how they know the lead', () => {

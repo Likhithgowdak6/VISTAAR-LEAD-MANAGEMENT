@@ -72,14 +72,20 @@ export const buildGreetingDirective = ({
 
   if (origin === 'manual') {
     const context = originNote?.trim()
-      ? `Here is how we know them, in the owner's words: "${originNote.trim()}". Refer to it naturally in your first line so they can place us.`
-      : 'You do NOT know how we got their number. Do not invent a reason, do not mention a form, an ad or an enquiry, and do not imply they contacted us. Open by introducing the studio plainly and saying the owner asked you to get in touch about their shoot.';
+      ? `How we know them, in the owner's own words: "${originNote.trim()}". Work that into your first line so they can place us.`
+      : 'You do NOT know how we got their number. Do not invent a reason, do not mention a form, an ad or an enquiry, and do not imply they contacted us. Just open with who we are and what they need.';
 
     return [
       'This is your FIRST message to this person and they have never messaged us.',
-      'The owner added them to the system by hand.',
       `${about} ${context}`,
       'They did NOT fill in a form - never say or imply that they did.',
+      // The failure this exists to stop: "Himanshu asked me to get in touch" - which casts the
+      // message as a middleman relaying an errand. The studio is one or two people; the client
+      // expects to be talking to them, and a WhatsApp from "their assistant" is both stranger
+      // and colder than one from the studio itself. Say "we", never "the owner" or "he".
+      'WRITE AS THE STUDIO ITSELF, IN THE FIRST PERSON. Never mention the owner by name or',
+      'by title, never say anyone asked or told you to make contact, and never present yourself',
+      'as passing on someone else\'s message. There is no third party in this conversation.',
       'Then follow the normal opening: confirm we do the thing they need,',
       'and ask your opening questions. Keep it short and do not apologise for messaging them.',
     ].join(' ');
