@@ -269,6 +269,7 @@ export const handleInboundMessageForAutomation = async ({
       rulesText: context.rulesText,
       serviceBrief: context.serviceBrief,
       styleExamples: context.styleExamples,
+      today: context.today,
       ownerInstruction,
       // Every playbook key, minus the fallback: "unknown" is what an unclassified conversation
       // already is, so offering it as a choice only invites the model to pick it.

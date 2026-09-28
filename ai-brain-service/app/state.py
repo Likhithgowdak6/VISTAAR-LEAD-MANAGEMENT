@@ -48,6 +48,12 @@ class ConversationState(TypedDict, total=False):
     # conversation's category, never all sixteen - see its category-playbooks.ts.
     service_brief: str
     style_examples: str
+    # Today, in the business's own timezone, as YYYY-MM-DD. Sent by wam-crm-ai rather than read
+    # off this container's clock, which is UTC and would be a day out for an evening enquiry in
+    # India. Without it the model has no anchor, so "10th next month" or "next Saturday" is stored
+    # as those literal words - and wam-crm-ai's parseEventDate only understands absolute dates, so
+    # Conversation.eventDate stays null and every event-aware behaviour silently does nothing.
+    today: str
     # Every category wam-crm-ai has a playbook for, so the qualifier can classify
     # an organic chat into one. Sent by wam-crm-ai rather than hardcoded here:
     # category-playbooks.ts is the single source of truth for the list.

@@ -22,7 +22,40 @@ vi.mock('../ai-knowledge/ai-knowledge.repository.js', () => ({
   findActiveKnowledgeForOrganization: mocks.findActiveKnowledgeForOrganization,
 }));
 
-const { buildAiBrainContext } = await import('./ai-brain-context.service.js');
+const { buildAiBrainContext, todayInBusinessTimezone } = await import(
+  './ai-brain-context.service.js'
+);
+
+describe('todayInBusinessTimezone', () => {
+  // 20:30 UTC on the 27th is already 02:00 on the 28th in Kolkata. This is the case that matters:
+  // an evening enquiry anchored to the server's UTC date resolves "next Saturday" a day early,
+  // and a day early is a shoot booked on the wrong date.
+  const eveningUtc = new Date('2026-09-27T20:30:00.000Z');
+
+  it('uses the business day, not the UTC day', () => {
+    expect(todayInBusinessTimezone(eveningUtc, 'Asia/Kolkata')).toBe('2026-09-28');
+    expect(eveningUtc.toISOString().slice(0, 10)).toBe('2026-09-27');
+  });
+
+  it('formats as YYYY-MM-DD, which is what event-date.ts can parse back', () => {
+    expect(todayInBusinessTimezone(new Date('2026-01-05T06:00:00.000Z'), 'Asia/Kolkata')).toBe(
+      '2026-01-05',
+    );
+  });
+
+  it('handles a timezone behind UTC too', () => {
+    // 01:00 UTC on the 28th is still the 27th in New York.
+    expect(todayInBusinessTimezone(new Date('2026-09-28T01:00:00.000Z'), 'America/New_York')).toBe(
+      '2026-09-27',
+    );
+  });
+
+  it('falls back to the UTC date rather than throwing on a bad timezone', () => {
+    // A day out is survivable and the prompt still tells the model to confirm an uncertain date.
+    // Throwing here would take down every AI reply for the sake of a malformed config value.
+    expect(todayInBusinessTimezone(eveningUtc, 'Not/AZone')).toBe('2026-09-27');
+  });
+});
 
 const organizationId = 'org-1';
 

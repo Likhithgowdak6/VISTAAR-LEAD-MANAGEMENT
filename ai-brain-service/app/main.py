@@ -104,6 +104,10 @@ class LeadMessageIn(BaseModel):
     rules_text: str = "(none supplied - promise nothing at all)"
     service_brief: str = "(nothing specific - treat it generally)"
     style_examples: str = "(none saved - use your own judgement)"
+    today: str = Field(
+        "",
+        description="Today in the business's timezone, YYYY-MM-DD. The anchor for resolving 'next month' or 'this Saturday' into a real date. Blank means the model must not guess one.",
+    )
     owner_instruction: str = Field(
         "", description="A live, one-turn-only directive from the owner for this reply. Cleared after use."
     )
@@ -164,6 +168,7 @@ def lead_message(conversation_id: str, body: LeadMessageIn) -> BrainResult:
         "rules_text": body.rules_text,
         "service_brief": body.service_brief,
         "style_examples": body.style_examples,
+        "today": body.today,
         "owner_instruction": body.owner_instruction,
         "category_options": body.category_options,
     }

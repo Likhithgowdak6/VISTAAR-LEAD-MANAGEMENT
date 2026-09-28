@@ -112,6 +112,12 @@ export interface AiBrainConversationContext {
   serviceBrief: string;
   styleExamples: string;
   /**
+   * Today in the business's timezone, YYYY-MM-DD. The anchor the model needs to turn "10th next
+   * month" into a real date - without it a relative date is stored as those literal words, and
+   * conversations/event-date.ts parses only absolute forms, so eventDate silently stays null.
+   */
+  today?: string;
+  /**
    * A live, one-turn-only directive from the owner (e.g. "ask about their budget"), separate
    * from `facts` for the same reason `rulesText` is separate from `knowledgeText`: mixed into
    * facts it would read as trivia about the lead rather than an order to follow. Cleared by
@@ -151,6 +157,7 @@ export const sendLeadMessage = (
     rules_text: params.rulesText,
     service_brief: params.serviceBrief,
     style_examples: params.styleExamples,
+    today: params.today ?? '',
     owner_instruction: params.ownerInstruction ?? '',
     category_options: params.categoryOptions ?? [],
   });

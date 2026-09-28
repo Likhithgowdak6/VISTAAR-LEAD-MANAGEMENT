@@ -133,6 +133,9 @@ def qualify(state: ConversationState) -> dict:
         owner_instruction=state.get("owner_instruction") or "(none)",
         category_options=", ".join(state.get("category_options") or []) or "(none supplied)",
         lead_name=state.get("lead_name") or "(not known - do not guess it)",
+        # Never this container's own clock: it runs UTC, and an evening enquiry in India would be
+        # anchored to yesterday. wam-crm-ai sends the date in the business's timezone or nothing.
+        today=state.get("today") or "(not supplied - do not compute a date, ask the lead instead)",
     )
     result = complete_json(
         system=system,

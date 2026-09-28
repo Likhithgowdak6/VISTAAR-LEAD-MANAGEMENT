@@ -28,6 +28,7 @@ import {
   type AiKnowledgeCategory,
 } from '../../constants/ai-knowledge-statuses.js';
 import { DEFAULT_AI_RULES } from '../../constants/ai-knowledge-defaults.js';
+import { env } from '../../config/env.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { findActiveKnowledgeForOrganization } from '../ai-knowledge/ai-knowledge.repository.js';
 import { requiredFieldsForCategory, serviceBriefForCategory } from './category-playbooks.js';
@@ -53,7 +54,37 @@ export interface AiBrainBusinessContext {
   /** How THIS service differs, and only this one - see category-playbooks.ts on why not all 16. */
   serviceBrief: string;
   styleExamples: string;
+  /** Today in the business's own timezone, YYYY-MM-DD. See todayInBusinessTimezone. */
+  today: string;
 }
+
+/**
+ * Today's date where the BUSINESS is, not where the server is.
+ *
+ * ai-brain-service runs in a UTC container, so a lead messaging at 9pm in Bengaluru would have
+ * their "next Saturday" resolved against yesterday's date. A day out is not a rounding error
+ * here - it is a shoot booked for the wrong day.
+ *
+ * `en-CA` because it formats as YYYY-MM-DD, which is what the prompt asks the model to write back
+ * and what conversations/event-date.ts's ISO_PATTERN parses. Chosen for the format, not the locale.
+ */
+export const todayInBusinessTimezone = (
+  now: Date = new Date(),
+  timeZone: string = env.WHATSAPP_BUSINESS_TIMEZONE ?? 'Asia/Kolkata',
+): string => {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    // An unrecognised timezone string must not take the whole reply down. UTC is a day out at
+    // worst, and the prompt still tells the model to confirm a date it is unsure of.
+    return now.toISOString().slice(0, 10);
+  }
+};
 
 export const buildAiBrainContext = async ({
   organizationId,
@@ -87,5 +118,6 @@ export const buildAiBrainContext = async ({
     // no equivalent here) - a fixed placeholder until that's built, same as vistaar-agent used
     // when a category had none saved.
     styleExamples: NO_STYLE,
+    today: todayInBusinessTimezone(),
   };
 };
