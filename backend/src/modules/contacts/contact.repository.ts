@@ -245,6 +245,18 @@ export interface FindOrCreateContactByProviderKeyParams {
   phone?: string | null;
   providerJids?: string[] | null;
   source?: string;
+  /**
+   * Other blind indexes that identify the SAME human, tried in order after `providerContactKey`
+   * misses. Never used for the insert - only for the lookup.
+   *
+   * This exists because WhatsApp identifies one person two ways. A lead imported from a Meta form
+   * is keyed by the blind index of `<phone>@s.whatsapp.net`; when that same person replies,
+   * WhatsApp increasingly delivers the message under an opaque `<id>@lid` privacy identifier,
+   * whose blind index is a completely different hash. Keyed on the JID alone, the reply looks like
+   * a stranger: a second contact, a second conversation, a second lead id, and an AI that
+   * re-asks for the date it was already given.
+   */
+  alternateProviderContactKeys?: readonly (string | null | undefined)[];
 }
 
 export const findOrCreateContactByProviderKey = async ({
@@ -255,21 +267,33 @@ export const findOrCreateContactByProviderKey = async ({
   phone,
   providerJids,
   source = 'whatsapp',
+  alternateProviderContactKeys = [],
 }: FindOrCreateContactByProviderKeyParams = {}) => {
   if (!providerContactKey) {
     throw new Error('CONTACT_PROVIDER_KEY_REQUIRED');
   }
 
-  const existingContact = await findContactByProviderKey({
-    organizationId,
+  // Ordered, deduped, and the primary key first: the caller's own identity for this message wins,
+  // and an alternate only ever rescues a lookup that would otherwise have missed.
+  const candidateKeys = [
     providerContactKey,
-  });
+    ...alternateProviderContactKeys.filter(
+      (key): key is string => typeof key === 'string' && key !== '' && key !== providerContactKey,
+    ),
+  ];
 
-  if (existingContact) {
-    return {
-      contact: existingContact,
-      created: false,
-    };
+  for (const candidate of candidateKeys) {
+    const match = await findContactByProviderKey({
+      organizationId,
+      providerContactKey: candidate,
+    });
+
+    if (match) {
+      return {
+        contact: match,
+        created: false,
+      };
+    }
   }
 
   const contactData: Partial<ContactDocument> = {

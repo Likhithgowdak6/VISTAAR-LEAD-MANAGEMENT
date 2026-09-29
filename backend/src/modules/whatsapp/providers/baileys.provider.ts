@@ -50,6 +50,17 @@ export interface BaileysInboundRawMessage {
     remoteJid?: string | null;
     fromMe?: boolean | null;
     participant?: string | null;
+    /**
+     * The sender's PHONE JID, when the message was addressed by `@lid`. Baileys fills these from
+     * the stanza's `sender_pn` / `participant_pn` attributes (see its decode-wa-message).
+     * `remoteJidAlt` is the 1:1 case, `participantAlt` the group one.
+     *
+     * Declared here because this interface is the ceiling for everything downstream: a field the
+     * provider does not name is invisible to the whole pipeline, and this one is the difference
+     * between recognising a returning lead and filing them as a stranger.
+     */
+    remoteJidAlt?: string | null;
+    participantAlt?: string | null;
   };
   message?: {
     conversation?: string;
@@ -564,6 +575,12 @@ export const normalizeBaileysInboundMessage = (
     // Use participant only when it is a non-empty value; newer WhatsApp/LID direct
     // messages set `participant` to '' which must fall back to remoteJid (|| not ??).
     senderJid: message.key?.participant || remoteJid,
+    // The sender's phone JID, when WhatsApp addressed the message by `@lid` and told us the
+    // number anyway. Taken straight off the key here rather than looked up: the LID mapping
+    // store is only populated as a side effect of traffic, so it is empty for the very first
+    // message from a lead - which is precisely the message that decides whether an imported
+    // lead is recognised or filed as a stranger. `participantAlt` is the group form.
+    senderPhoneJid: message.key?.remoteJidAlt || message.key?.participantAlt || null,
     pushName: message.pushName ?? null,
     text,
     messageType,
@@ -799,12 +816,20 @@ export const createBaileysProvider = ({
           .filter((message): message is NormalizedInboundMessage => Boolean(message));
 
         for (const inboundMessage of inboundMessages) {
-          // `@lid` senders carry no phone in the JID. Resolve it here, where the socket (and so
-          // the LID mapping store) is in scope, and hand it to ingestion as a separate field.
-          const senderPhoneJid = await resolveLidPhoneJid({
-            socket,
-            jid: inboundMessage.senderJid,
-          });
+          // `@lid` senders carry no phone in the JID. Two ways to recover it, in this order:
+          //
+          //  1. Off the message key itself (`remoteJidAlt`), set from the stanza's `sender_pn`.
+          //     Already extracted during normalisation, and the only one that works on a first
+          //     contact.
+          //  2. The session's LID mapping store, which Baileys populates as a side effect of
+          //     traffic - reliable for someone we have exchanged messages with before, empty for
+          //     everyone else.
+          const senderPhoneJid =
+            inboundMessage.senderPhoneJid ??
+            (await resolveLidPhoneJid({
+              socket,
+              jid: inboundMessage.senderJid,
+            }));
 
           await safeCall({
             callback: sessionInput.onInboundMessage,

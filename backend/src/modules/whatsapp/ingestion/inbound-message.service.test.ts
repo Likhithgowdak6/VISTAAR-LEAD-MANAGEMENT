@@ -80,6 +80,10 @@ const createHarness = (
       createInboundMessage,
     } as never,
     computeContactProviderKey: () => 'provider-key-1',
+    // Injected for the same reason as the line above: the real one reaches the encryption keyring,
+    // which no unit test has. Distinct from the JID-derived key on purpose - these two being
+    // different is exactly the condition the alternate-key lookup exists to survive.
+    computeContactProviderKeyFromPhone: () => 'phone-key-1',
     extractPhoneFromJid: () => '919876543210',
     normalizeProviderJid: (jid: unknown) => String(jid),
     publishEvent: vi.fn().mockResolvedValue(undefined),
@@ -447,6 +451,10 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
         createInboundMessage: vi.fn().mockResolvedValue({ _id: 'msg-1', sentAt: new Date() }),
       } as never,
       computeContactProviderKey: () => 'provider-key-1',
+    // Injected for the same reason as the line above: the real one reaches the encryption keyring,
+    // which no unit test has. Distinct from the JID-derived key on purpose - these two being
+    // different is exactly the condition the alternate-key lookup exists to survive.
+    computeContactProviderKeyFromPhone: () => 'phone-key-1',
       extractPhoneFromJid: () => '919876543210',
       normalizeProviderJid: (jid: unknown) => String(jid),
       publishEvent: vi.fn().mockResolvedValue(undefined),
@@ -533,5 +541,118 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
     const h = createHarness();
 
     await expect(h.run()).resolves.toMatchObject({ persisted: true });
+  });
+});
+
+/**
+ * The @lid split: one human arriving as two contacts.
+ *
+ * WhatsApp increasingly delivers a direct message under an opaque `<id>@lid` privacy identifier
+ * rather than `<phone>@s.whatsapp.net`. A lead imported from a Meta form is stored under the blind
+ * index of their PHONE JID; when that same person replies, the blind index of the `@lid` is an
+ * unrelated hash. Keyed on the JID alone the reply is a stranger.
+ *
+ * That is not hypothetical - it happened in production on 2026-09-29. One lead became
+ * LEAD-20260929-BTR4UR (imported, greeted by the AI) and LEAD-20260929-GQ5ADF (his reply, a fresh
+ * contact), and the AI answered in the second thread re-asking for the city and the date it had
+ * already been told.
+ */
+describe('ingestInboundMessage - a @lid reply must not fork the contact', () => {
+  const lidHarness = (inboundOverrides: Record<string, unknown> = {}) => {
+    const findOrCreateContactByProviderKey = vi.fn().mockResolvedValue({
+      contact: { _id: 'contact-1', leadId: 'LEAD-20260825-ABC123', displayName: 'Riya Sharma' },
+      created: false,
+    });
+
+    const service = createInboundMessageIngestionService({
+      contactRepository: {
+        findOrCreateContactByProviderKey,
+        attachContactPhoneIfMissing: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      conversationRepository: {
+        upsertConversationForContact: vi.fn().mockResolvedValue({
+          _id: 'conv-1',
+          organizationId: 'org-1',
+          leadId: 'LEAD-20260825-ABC123',
+          displayName: 'Riya Sharma',
+          assignedTo: null,
+          lastInboundAt: null,
+        }),
+        updateConversationPreview: vi.fn().mockResolvedValue({}),
+        markOptedOut: vi.fn().mockResolvedValue({}),
+      } as never,
+      messageRepository: {
+        createInboundMessage: vi
+          .fn()
+          .mockResolvedValue({ _id: 'msg-1', sentAt: new Date('2026-09-29T10:31:00.000Z') }),
+      } as never,
+      computeContactProviderKey: () => 'lid-key',
+      computeContactProviderKeyFromPhone: () => 'phone-key',
+      extractPhoneFromJid: (jid: unknown) =>
+        String(jid).endsWith('@s.whatsapp.net') ? '916361322519' : null,
+      normalizeProviderJid: (jid: unknown) => String(jid),
+      publishEvent: vi.fn().mockResolvedValue(undefined),
+      handleAutomation: vi.fn().mockResolvedValue(undefined),
+      sendNewLeadAlert: vi.fn().mockResolvedValue({ sent: true }),
+      sendOptOutAlert: vi.fn().mockResolvedValue(undefined),
+      recomputeLeadScore: vi.fn().mockResolvedValue(null),
+      logger: { error: vi.fn() },
+      now: () => new Date('2026-09-29T10:31:00.000Z'),
+    });
+
+    return {
+      findOrCreateContactByProviderKey,
+      run: () =>
+        service.ingestInboundMessage({
+          organizationId: 'org-1',
+          whatsappAccountId: 'account-1',
+          inboundMessage: {
+            ...inboundMessage,
+            remoteJid: '271122334455667@lid',
+            senderJid: '271122334455667@lid',
+            ...inboundOverrides,
+          } as never,
+        }),
+    };
+  };
+
+  it('offers the phone-derived key as an alternate when the phone is known', async () => {
+    const h = lidHarness({ senderPhoneJid: '916361322519@s.whatsapp.net' });
+
+    await h.run();
+
+    // The lid key stays primary - a contact already stored under it must keep matching - and the
+    // phone key rescues the lookup that would otherwise have missed the imported lead.
+    expect(h.findOrCreateContactByProviderKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerContactKey: 'lid-key',
+        alternateProviderContactKeys: ['phone-key'],
+      }),
+    );
+  });
+
+  it('still stores the resolved phone on the contact', async () => {
+    const h = lidHarness({ senderPhoneJid: '916361322519@s.whatsapp.net' });
+
+    await h.run();
+
+    expect(h.findOrCreateContactByProviderKey).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '916361322519' }),
+    );
+  });
+
+  it('offers no alternate when the phone is genuinely unknown', async () => {
+    // A bare @lid with no sender_pn and no mapping. Inventing a key here would be worse than
+    // missing: it would collide two different strangers onto one contact.
+    const h = lidHarness();
+
+    await h.run();
+
+    expect(h.findOrCreateContactByProviderKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerContactKey: 'lid-key',
+        alternateProviderContactKeys: [null],
+      }),
+    );
   });
 });

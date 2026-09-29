@@ -37,6 +37,7 @@ import { type MessageDocument, type MessageMedia } from '../../messages/message.
 import { createInboundMessage as defaultCreateInboundMessage } from '../../messages/message.repository.js';
 import {
   computeContactProviderKey as defaultComputeContactProviderKey,
+  computeContactProviderKeyFromPhone as defaultComputeContactProviderKeyFromPhone,
   extractPhoneFromJid as defaultExtractPhoneFromJid,
   normalizeProviderJid as defaultNormalizeProviderJid,
 } from '../../privacy/protected-pii.service.js';
@@ -100,6 +101,8 @@ export interface ContactRepositoryLike {
   findOrCreateContactByProviderKey: (options: {
     organizationId?: ObjectIdLike;
     providerContactKey?: string | null;
+    /** Other blind indexes for the same human, tried when the primary key misses. */
+    alternateProviderContactKeys?: readonly (string | null | undefined)[];
     displayName?: string;
     profileName?: string | null;
     phone?: string | null;
@@ -144,6 +147,7 @@ export interface CreateInboundMessageIngestionServiceOptions {
   conversationRepository?: ConversationRepositoryLike;
   messageRepository?: MessageRepositoryLike;
   computeContactProviderKey?: (jid: unknown) => string | null;
+  computeContactProviderKeyFromPhone?: (phone: unknown) => string | null;
   extractPhoneFromJid?: (jid: unknown) => string | null;
   normalizeProviderJid?: (jid: unknown) => string | null;
   publishEvent?: (options: {
@@ -229,6 +233,9 @@ export const createInboundMessageIngestionService = ({
       defaultCreateInboundMessage as MessageRepositoryLike['createInboundMessage'],
   },
   computeContactProviderKey = defaultComputeContactProviderKey as (jid: unknown) => string | null,
+  computeContactProviderKeyFromPhone = defaultComputeContactProviderKeyFromPhone as (
+    phone: unknown,
+  ) => string | null,
   extractPhoneFromJid = defaultExtractPhoneFromJid as (jid: unknown) => string | null,
   normalizeProviderJid = defaultNormalizeProviderJid as (jid: unknown) => string | null,
   publishEvent = defaultPublishConversationChanged as CreateInboundMessageIngestionServiceOptions['publishEvent'],
@@ -291,15 +298,26 @@ export const createInboundMessageIngestionService = ({
     const normalizedJid = normalizeProviderJid(senderJid);
 
     // `senderJid` may be an opaque `@lid` that carries no phone. The provider resolves it to a
-    // phone JID when the mapping is known, so prefer that. Contact identity stays keyed on the
-    // sender JID's blind index either way — changing that basis would fork existing contacts.
+    // phone JID when WhatsApp supplies one, so prefer that.
     const phone =
       extractPhoneFromJid(inboundMessage.senderPhoneJid) ?? extractPhoneFromJid(senderJid);
+
+    // The SAME human, keyed the other way. A lead imported from a Meta form or a sheet is stored
+    // under the blind index of `<phone>@s.whatsapp.net`; when they reply, WhatsApp hands us a
+    // `<id>@lid` whose blind index is unrelated. Keyed on the JID alone the reply is a stranger -
+    // which is exactly what happened in production: one person, two contacts, two conversations,
+    // and an AI that re-asked for a date it had already been told.
+    //
+    // Offered as an ALTERNATE rather than swapped in as the primary, deliberately. Contacts
+    // already stored under a `@lid` key keep matching on it, so this repairs the split without
+    // forking every contact created before the phone was resolvable.
+    const phoneContactKey = phone ? computeContactProviderKeyFromPhone(phone) : null;
 
     const { contact, created: contactCreated } =
       await contactRepository.findOrCreateContactByProviderKey({
         organizationId,
         providerContactKey,
+        alternateProviderContactKeys: [phoneContactKey],
         displayName: resolveDisplayName(inboundMessage.pushName),
         profileName: resolveProfileName(inboundMessage.pushName),
         phone,
