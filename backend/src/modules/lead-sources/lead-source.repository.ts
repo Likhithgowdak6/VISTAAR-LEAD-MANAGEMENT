@@ -180,6 +180,8 @@ export interface UpdateLeadSourceParams {
   whatsappAccountId?: ObjectIdLike;
   defaultCountryCode?: string;
   aiContextEnabled?: boolean;
+  /** Whether the AI opens the conversation itself. The one switch that messages a stranger. */
+  autoGreetEnabled?: boolean;
   status?: LeadSourceStatus;
   columnMapping?: Partial<LeadSourceColumnMapping>;
   /** Meta sources: rotate the token. Plaintext in, ciphertext out; never stored as given. */
@@ -197,6 +199,7 @@ export const updateLeadSource = ({
   whatsappAccountId,
   defaultCountryCode,
   aiContextEnabled,
+  autoGreetEnabled,
   status,
   columnMapping,
   metaAccessToken,
@@ -220,6 +223,13 @@ export const updateLeadSource = ({
 
   if (aiContextEnabled !== undefined) {
     update.aiContextEnabled = aiContextEnabled;
+  }
+
+  // `!== undefined` rather than a truthiness check, for the same reason as every field here:
+  // `false` is the value that turns cold outbound OFF, and a truthy test would silently refuse
+  // to ever switch it back off.
+  if (autoGreetEnabled !== undefined) {
+    update.autoGreetEnabled = autoGreetEnabled;
   }
 
   if (status !== undefined) {

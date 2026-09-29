@@ -214,6 +214,7 @@ export const updateLeadSource = asyncHandler(async (req, res) => {
       whatsappAccountId: body.whatsappAccountId,
       defaultCountryCode: body.defaultCountryCode,
       aiContextEnabled: body.aiContextEnabled,
+      autoGreetEnabled: body.autoGreetEnabled,
       status: body.status,
       columnMapping: body.columnMapping,
       accessToken: body.accessToken,

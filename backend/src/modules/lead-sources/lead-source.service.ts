@@ -300,6 +300,7 @@ export interface UpdateLeadSourceForActorParams {
   whatsappAccountId?: ObjectIdLike;
   defaultCountryCode?: string;
   aiContextEnabled?: boolean;
+  autoGreetEnabled?: boolean;
   status?: LeadSourceStatus;
   columnMapping?: Partial<LeadSourceColumnMapping>;
   /** Meta sources only: rotate the stored token. Never echoed back. */
@@ -316,6 +317,7 @@ export const updateLeadSourceForActor = async ({
   whatsappAccountId,
   defaultCountryCode,
   aiContextEnabled,
+  autoGreetEnabled,
   status,
   columnMapping,
   accessToken,
@@ -346,6 +348,7 @@ export const updateLeadSourceForActor = async ({
     whatsappAccountId,
     defaultCountryCode,
     aiContextEnabled,
+    autoGreetEnabled,
     status,
     columnMapping,
     metaAccessToken: accessToken,
