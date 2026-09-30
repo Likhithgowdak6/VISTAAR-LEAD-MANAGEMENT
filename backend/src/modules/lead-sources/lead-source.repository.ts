@@ -12,6 +12,7 @@ import {
 import { type ObjectIdLike, toObjectId } from '../../types/common.js';
 import { type EncryptedField } from '../security/encrypted-field.schema.js';
 import {
+  type LeadSourceFieldMapping,
   LeadSource,
   type LeadSourceColumnMapping,
   type LeadSourceDocument,
@@ -49,7 +50,22 @@ export interface CreateLeadSourceParams {
   whatsappAccountId: ObjectIdLike;
   defaultCountryCode: string;
   aiContextEnabled?: boolean;
+  /** The one switch that makes the AI message a stranger. Off unless asked for. */
+  autoGreetEnabled?: boolean;
   columnMapping?: Partial<LeadSourceColumnMapping>;
+  /** Human overrides of the automatic label mapping. Empty means fully automatic. */
+  fieldMappings?: LeadSourceFieldMapping[];
+  /** Applied on INSERT only - a returning lead keeps the stage it already earned. */
+  defaultStage?: string | null;
+  defaultTagIds?: ObjectIdLike[];
+  defaultAssigneeId?: ObjectIdLike | null;
+  /**
+   * `paused` while a webhook subscription is still being confirmed. Activation flips it to
+   * `active` only once Meta says the Page is subscribed - see meta-activation.service.ts.
+   */
+  status?: LeadSourceStatus;
+  /** The OAuth connection this was created through, if any. */
+  metaConnectionId?: ObjectIdLike | null;
   importFromTime?: Date;
   createdBy?: ObjectIdLike | null;
 }
@@ -65,7 +81,14 @@ export const createLeadSource = ({
   whatsappAccountId,
   defaultCountryCode,
   aiContextEnabled = false,
+  autoGreetEnabled = false,
   columnMapping,
+  fieldMappings = [],
+  defaultStage = null,
+  defaultTagIds = [],
+  defaultAssigneeId = null,
+  status = LEAD_SOURCE_STATUSES.ACTIVE,
+  metaConnectionId = null,
   importFromTime = new Date(),
   createdBy = null,
 }: CreateLeadSourceParams) =>
@@ -98,7 +121,14 @@ export const createLeadSource = ({
     whatsappAccountId: toObjectId(whatsappAccountId),
     defaultCountryCode,
     aiContextEnabled,
+    autoGreetEnabled,
     columnMapping,
+    fieldMappings,
+    defaultStage,
+    defaultTagIds: defaultTagIds.map((id) => toObjectId(id)),
+    defaultAssigneeId: defaultAssigneeId ? toObjectId(defaultAssigneeId) : null,
+    status,
+    metaConnectionId: metaConnectionId ? toObjectId(metaConnectionId) : null,
     importFromTime,
     createdBy: createdBy ? toObjectId(createdBy) : null,
   });
@@ -161,6 +191,41 @@ export const findLeadSourceByIdWithSecrets = ({
   })
     .select(WITH_SECRETS)
     .exec();
+
+export interface RecordMetaWebhookSubscriptionParams {
+  leadSourceId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  subscribed: boolean;
+  error?: string | null;
+  now?: Date;
+}
+
+/**
+ * Records whether the Page is subscribed to leadgen, and activates the source when it is.
+ *
+ * Status and subscription move together on purpose. A source that is `active` but unsubscribed
+ * looks healthy in the dashboard while silently depending on the ten-minute poll; a source left
+ * `paused` with the error attached is visibly unfinished and retryable, which is what a failed
+ * activation actually is.
+ */
+export const recordMetaWebhookSubscription = ({
+  leadSourceId,
+  organizationId,
+  subscribed,
+  error = null,
+  now = new Date(),
+}: RecordMetaWebhookSubscriptionParams) =>
+  LeadSource.findOneAndUpdate(
+    { _id: leadSourceId, organizationId },
+    {
+      $set: {
+        'meta.webhookSubscribedAt': subscribed ? now : null,
+        'meta.webhookError': error ? String(error).slice(0, 500) : null,
+        status: subscribed ? LEAD_SOURCE_STATUSES.ACTIVE : LEAD_SOURCE_STATUSES.PAUSED,
+      },
+    } as UpdateQuery<LeadSourceDocument>,
+    { returnDocument: 'after', runValidators: true },
+  ).exec();
 
 export interface FindLeadSourceForMetaFormParams {
   pageId?: string;

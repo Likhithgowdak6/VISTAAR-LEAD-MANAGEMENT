@@ -244,10 +244,14 @@ const requestGraph = async <T>({
   url,
   fetchFn = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  // Every read is a GET. POST and DELETE exist only for the webhook subscription, which is the
+  // one thing this client changes on Meta's side rather than reads from it.
+  method = 'GET',
 }: {
   url: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
+  method?: 'GET' | 'POST' | 'DELETE';
 }): Promise<T> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -258,7 +262,7 @@ const requestGraph = async <T>({
 
   try {
     response = await fetchFn(url, {
-      method: 'GET',
+      method,
       redirect: 'follow',
       signal: controller.signal,
     });
@@ -669,4 +673,124 @@ export const fetchMetaLeadById = async ({
     fetchFn,
     timeoutMs,
   });
+};
+
+// --------------------------------------------------------------------------
+// Webhook subscription. The only calls in this file that CHANGE anything on Meta's side.
+// --------------------------------------------------------------------------
+
+/** The webhook field that carries lead submissions. The only one this app subscribes to. */
+export const META_LEADGEN_FIELD = 'leadgen';
+
+/**
+ * Subscribes a Page to this app's leadgen webhook.
+ *
+ * NEEDS THE PAGE TOKEN, not the user token: `subscribed_apps` is page-scoped, and a user token
+ * fails with a permissions error that names neither the page nor the missing scope.
+ *
+ * IDEMPOTENT AT META'S END. Subscribing a Page that is already subscribed returns `success: true`
+ * rather than an error, so activation does not have to know whether it has run before - which
+ * matters because a retry after a half-failed activation is the normal repair path.
+ */
+export const subscribePageToLeadgen = async ({
+  pageId,
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions & { pageId: string }): Promise<boolean> => {
+  const token = assertToken(accessToken);
+
+  const body = await requestGraph<{ success?: unknown }>({
+    url: buildMetaGraphUrl({
+      path: `${pageId}/subscribed_apps`,
+      params: { access_token: token, subscribed_fields: META_LEADGEN_FIELD },
+    }),
+    method: 'POST',
+    fetchFn,
+    timeoutMs,
+  });
+
+  return body?.success === true;
+};
+
+/**
+ * Removes this app's subscription from a Page.
+ *
+ * Called when a source is deleted or the account disconnected. Deliberately best-effort at the
+ * call site: failing to unsubscribe leaves Meta posting events we will ignore (the webhook drops
+ * anything with no configured source), which is untidy but harmless - whereas refusing to let
+ * someone disconnect because Meta is briefly unreachable is not.
+ */
+export const unsubscribePageFromLeadgen = async ({
+  pageId,
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions & { pageId: string }): Promise<boolean> => {
+  const token = assertToken(accessToken);
+
+  const body = await requestGraph<{ success?: unknown }>({
+    url: buildMetaGraphUrl({
+      path: `${pageId}/subscribed_apps`,
+      params: { access_token: token },
+    }),
+    method: 'DELETE',
+    fetchFn,
+    timeoutMs,
+  });
+
+  return body?.success === true;
+};
+
+export interface MetaSubscribedApp {
+  id: string;
+  name: string | null;
+  subscribedFields: string[];
+}
+
+/**
+ * Which apps this Page is subscribed to, and for what.
+ *
+ * Used by the diagnostics: "is the Page actually subscribed" is otherwise unanswerable from our
+ * side, and it is the single most common reason webhooks are configured correctly and still
+ * deliver nothing.
+ */
+export const fetchPageSubscribedApps = async ({
+  pageId,
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions & { pageId: string }): Promise<MetaSubscribedApp[]> => {
+  const token = assertToken(accessToken);
+
+  const body = await requestGraph<MetaGraphPage<unknown>>({
+    url: buildMetaGraphUrl({
+      path: `${pageId}/subscribed_apps`,
+      params: { access_token: token, fields: 'id,name,subscribed_fields' },
+    }),
+    fetchFn,
+    timeoutMs,
+  });
+
+  return (body.data ?? [])
+    .map((entry) => {
+      const record = (entry ?? {}) as {
+        id?: unknown;
+        name?: unknown;
+        subscribed_fields?: unknown;
+      };
+
+      if (typeof record.id !== 'string' || record.id === '') {
+        return null;
+      }
+
+      return {
+        id: record.id,
+        name: typeof record.name === 'string' ? record.name : null,
+        subscribedFields: Array.isArray(record.subscribed_fields)
+          ? record.subscribed_fields.filter((field): field is string => typeof field === 'string')
+          : [],
+      };
+    })
+    .filter((app): app is MetaSubscribedApp => app !== null);
 };

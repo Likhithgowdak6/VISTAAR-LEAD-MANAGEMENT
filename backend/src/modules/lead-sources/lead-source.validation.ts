@@ -143,3 +143,75 @@ export const leadSourceIdParamsSchema = z.object({
 });
 
 export type LeadSourceIdParams = z.infer<typeof leadSourceIdParamsSchema>;
+
+// ---- Facebook Login (OAuth) ----
+
+/**
+ * Meta's callback query. Everything is optional because Meta sends either `code` or `error`, and
+ * a strict schema would turn "the owner pressed Cancel" into a validation failure.
+ */
+export const metaOauthCallbackQuerySchema = z.object({
+  code: z.string().trim().min(1).max(1000).optional(),
+  state: z.string().trim().min(1).max(2000).optional(),
+  error: z.string().trim().max(200).optional(),
+  error_description: z.string().trim().max(500).optional(),
+});
+
+/** Meta ids are numeric strings. Bounded so a path parameter cannot be a payload. */
+const metaObjectIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^\d+$/, 'That does not look like a Facebook id.');
+
+export const metaPageFormsParamsSchema = z.object({
+  pageId: metaObjectIdSchema,
+});
+
+export const metaFormFieldsParamsSchema = z.object({
+  pageId: metaObjectIdSchema,
+  formId: metaObjectIdSchema,
+});
+
+/**
+ * One row of the mapping table. `factKey` is nullable on purpose: null is "drop this answer",
+ * which is a decision the owner can make and which must survive the round trip.
+ */
+export const leadSourceFieldMappingSchema = z.object({
+  metaKey: z.string().trim().min(1).max(200),
+  metaLabel: z.string().trim().max(300).nullable().optional(),
+  factKey: z
+    .string()
+    .trim()
+    .max(80)
+    .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/, 'A field key is lower_snake_case.')
+    .nullable()
+    .optional(),
+});
+
+/** Creating a lead source from a connected Facebook account - no token in the body. */
+export const createMetaOauthLeadSourceBodySchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  pageId: metaObjectIdSchema,
+  pageName: z.string().trim().max(200).optional(),
+  formId: metaObjectIdSchema,
+  formName: z.string().trim().max(200).optional(),
+  whatsappAccountId: objectIdSchema,
+  defaultCountryCode: countryCodeSchema,
+  aiContextEnabled: z.boolean().default(false),
+  autoGreetEnabled: z.boolean().default(false),
+  importExisting: z.boolean().default(false),
+  fieldMappings: z.array(leadSourceFieldMappingSchema).max(100).default([]),
+  defaultStage: z.string().trim().max(60).nullable().optional(),
+  defaultTagIds: z.array(objectIdSchema).max(20).default([]),
+  defaultAssigneeId: objectIdSchema.nullable().optional(),
+  /** Subscribe the Page to leadgen webhooks so leads arrive in seconds, not on the poll. */
+  subscribeWebhook: z.boolean().default(true),
+});
+
+/** Diagnostics can run mid-wizard, before any source exists, so the form is optional. */
+export const metaDiagnosticsQuerySchema = z.object({
+  pageId: metaObjectIdSchema,
+  formId: metaObjectIdSchema.optional(),
+});

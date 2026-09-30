@@ -4,7 +4,7 @@
  * and - the one that matters most - that an opening message is only ever scheduled on an explicit
  * yes. Every collaborator is injected, following this codebase's DI test style; no real Mongo.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../config/env.js', () => ({
   env: { LOG_LEVEL: 'silent', NODE_ENV: 'test' },

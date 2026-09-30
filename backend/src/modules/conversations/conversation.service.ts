@@ -530,7 +530,7 @@ export const deleteConversationForActor = async ({
   return serializeConversation(updated);
 };
 
-export interface RestoreConversationForActorParams extends DeleteConversationForActorParams {}
+export type RestoreConversationForActorParams = DeleteConversationForActorParams;
 
 /** Brings a deleted chat back. Automation stays off - see restoreConversation on why. */
 export const restoreConversationForActor = async ({

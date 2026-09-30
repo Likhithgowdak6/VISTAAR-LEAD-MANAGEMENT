@@ -14,6 +14,7 @@ import testDataRouter from './modules/dev-tools/test-data.routes.js';
 import followUpRouter from './modules/followups/followup.routes.js';
 import healthRouter from './modules/health/health.routes.js';
 import leadSourceRouter from './modules/lead-sources/lead-source.routes.js';
+import metaPublicRouter from './modules/lead-sources/meta-public.routes.js';
 import messageTemplateRouter from './modules/message-templates/message-template.routes.js';
 import organizationSettingsRouter from './modules/organizations/organization-settings.routes.js';
 import realtimeRouter from './modules/realtime/realtime.routes.js';
@@ -58,7 +59,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(express.json({ limit: '1mb' }));
+app.use(
+  express.json({
+    limit: '1mb',
+    /**
+     * Keeps the raw bytes alongside the parsed body, for Meta's webhook signature.
+     *
+     * The signature is an HMAC over exactly what was sent. Re-serializing `req.body` produces
+     * different key order and whitespace, so the digest never matches - and the only way to
+     * "fix" that without the raw body is to stop verifying, which would leave the webhook open
+     * to anyone who learns its URL.
+     *
+     * Attached for every request rather than only the webhook because the parser is mounted once
+     * here; a 1mb body is already the ceiling, so the extra reference costs nothing meaningful.
+     */
+    verify: (req, _res, buffer) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = buffer;
+    },
+  }),
+);
 app.use(requestContextMiddleware);
 app.use(rateLimitMiddleware);
 
@@ -74,6 +93,10 @@ app.use('/api/v1/templates', messageTemplateRouter);
 app.use('/api/v1/ai-brain', aiBrainRouter);
 app.use('/api/v1/follow-ups', followUpRouter);
 app.use('/api/v1/lead-sources', leadSourceRouter);
+// Meta calls these two itself, so they carry no session and cannot sit behind authenticateRequest.
+// Mounted on their own path rather than inside the router above, so the separation survives
+// somebody reordering that file. Each proves its own authenticity - see meta-public.routes.ts.
+app.use('/api/v1/meta', metaPublicRouter);
 app.use('/api/v1/whatsapp-accounts', whatsappAccountRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/settings', organizationSettingsRouter);

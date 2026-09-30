@@ -283,7 +283,7 @@ export const createManualLeadService = ({
           organizationId,
           dueAt: new Date(now().getTime() + greetDelayMs),
         });
-      } catch (error: unknown) {
+      } catch {
         logger.error?.(
           { conversationId: conversation._id.toString() },
           'Could not schedule the opening message; the lead is saved either way.',
