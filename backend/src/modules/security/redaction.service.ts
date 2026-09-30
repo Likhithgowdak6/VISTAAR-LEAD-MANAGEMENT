@@ -21,11 +21,29 @@ const SENSITIVE_KEY_PARTS = Object.freeze([
   'encryptedpayload',
   'authstate',
   'ciphertext',
-  'iv',
   'authtag',
   'encryptionkey',
   'rawpayload',
 ]);
+
+/**
+ * Blocked only as a WHOLE key, never as a substring.
+ *
+ * `iv` is the AES initialization vector and must never be logged - but it is two letters, and the
+ * substring test above normalises punctuation away before matching. That made it block every key
+ * containing those letters anywhere: `private`, `car_delivery` -> `cardelivery`, `arrival`,
+ * `festival`, `receive`, `deliverables`.
+ *
+ * Which was not merely noisy. assertNoSensitiveKeys THROWS, and createActivity runs inside the
+ * transaction that writes an AI turn - so a Meta form field called
+ * `kind_of_event_private_socials_birthday_or_others` aborted the whole turn and the lead was never
+ * greeted. Observed in production on 2026-09-29.
+ *
+ * Lead facts are attacker-influenced in the sense that matters here: the field names come from
+ * whatever the studio typed into their own Meta form, so the guard has to be precise rather than
+ * eager.
+ */
+const SENSITIVE_KEYS_EXACT = Object.freeze(['iv']);
 
 export interface AssertNoSensitiveKeysOptions {
   label?: string;
@@ -39,6 +57,10 @@ const normalizeKey = (key: unknown): string =>
 
 export const isSensitiveKey = (key: unknown): boolean => {
   const normalizedKey = normalizeKey(key);
+
+  if (SENSITIVE_KEYS_EXACT.includes(normalizedKey)) {
+    return true;
+  }
 
   return SENSITIVE_KEY_PARTS.some((blockedPart) => normalizedKey.includes(blockedPart));
 };

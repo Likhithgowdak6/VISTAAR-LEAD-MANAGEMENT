@@ -85,6 +85,10 @@ export const createLeadSource = ({
           accessTokenLast4: metaAccessTokenLast4(meta.accessToken),
           accessTokenSetAt: new Date(),
           lastLeadCreatedAt: null,
+          // A source starts poll-only. The webhook subscription is a separate, explicitly
+          // requested step, so a failure to subscribe never blocks creating the source.
+          webhookSubscribedAt: null,
+          webhookError: null,
         } satisfies LeadSourceMetaConfig)
       : undefined,
     // The one place a plaintext Meta token is written, and it is encrypted on the way in.
@@ -155,6 +159,39 @@ export const findLeadSourceByIdWithSecrets = ({
     _id: leadSourceId,
     organizationId,
   })
+    .select(WITH_SECRETS)
+    .exec();
+
+export interface FindLeadSourceForMetaFormParams {
+  pageId?: string;
+  formId?: string | null;
+}
+
+/**
+ * The source a leadgen webhook belongs to, with its token loaded.
+ *
+ * NOT organization-scoped, and cannot be: a webhook arrives from Meta with no session and no
+ * tenant. The page id IS the tenancy check - it resolves to a source some organisation
+ * configured, and everything downstream uses that source's own organizationId. An event for a
+ * page nobody configured finds nothing and is dropped, which is what makes a forged webhook body
+ * unable to create a lead in someone else's account.
+ *
+ * A source configured for ALL forms on a page (`meta.formId: null`) matches any form on it, so
+ * the exact-form source is preferred and the catch-all is the fallback. Sorting by formId
+ * descending puts the non-null one first; `null` sorts last in Mongo's ordering.
+ */
+export const findLeadSourceForMetaForm = ({
+  pageId,
+  formId = null,
+}: FindLeadSourceForMetaFormParams = {}) =>
+  LeadSource.findOne({
+    kind: LEAD_SOURCE_KINDS.META_LEAD_ADS,
+    status: LEAD_SOURCE_STATUSES.ACTIVE,
+    'meta.pageId': pageId,
+    // Either the source that names this exact form, or the one that takes every form on the page.
+    $or: [{ 'meta.formId': formId }, { 'meta.formId': null }],
+  })
+    .sort({ 'meta.formId': -1 })
     .select(WITH_SECRETS)
     .exec();
 

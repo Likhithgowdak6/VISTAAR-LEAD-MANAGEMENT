@@ -514,3 +514,159 @@ export const listMetaLeadForms = async ({
     .filter((form): form is MetaLeadFormSummary => form !== null)
     .slice(0, maxForms);
 };
+
+// --------------------------------------------------------------------------
+// Facebook Login (OAuth) support.
+//
+// Everything above this line works from a token somebody pasted in. Everything below exists so
+// nobody has to: these are the calls the OAuth flow makes on the user's behalf, plus the two
+// lookups the webhook path needs.
+// --------------------------------------------------------------------------
+
+/** A Page the authorising user administers, WITH the Page token minted for it. */
+export interface MetaPageWithToken extends MetaPageSummary {
+  /** The Page access token. Long-lived, because it was derived from a long-lived user token. */
+  accessToken: string;
+  /** Square avatar, purely so the picker does not look like a list of database ids. */
+  pictureUrl: string | null;
+}
+
+/**
+ * Every Page the authorising user can manage, each with its own Page token.
+ *
+ * ORDER MATTERS UPSTREAM, NOT HERE. These Page tokens inherit the lifetime of the user token they
+ * were minted from, so the caller must extend the user token BEFORE calling this - otherwise
+ * every Page token here expires in about an hour and the integration dies overnight with a 190.
+ */
+export const listMetaPagesWithTokens = async ({
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions): Promise<MetaPageWithToken[]> => {
+  const token = assertToken(accessToken);
+
+  const body = await requestGraph<MetaGraphPage<unknown>>({
+    url: buildMetaGraphUrl({
+      path: 'me/accounts',
+      params: {
+        access_token: token,
+        fields: 'id,name,access_token,picture{url}',
+        limit: META_GRAPH_PAGE_SIZE,
+      },
+    }),
+    fetchFn,
+    timeoutMs,
+  });
+
+  return (body.data ?? [])
+    .map((entry) => {
+      const record = (entry ?? {}) as {
+        id?: unknown;
+        name?: unknown;
+        access_token?: unknown;
+        picture?: { data?: { url?: unknown } };
+      };
+
+      // A Page with no token is a Page we cannot read leads from. Dropping it is kinder than
+      // offering it in the picker and failing at the next step.
+      if (typeof record.id !== 'string' || record.id === '') {
+        return null;
+      }
+
+      if (typeof record.access_token !== 'string' || record.access_token === '') {
+        return null;
+      }
+
+      const pictureUrl = record.picture?.data?.url;
+
+      return {
+        id: record.id,
+        name: typeof record.name === 'string' ? record.name : null,
+        accessToken: record.access_token,
+        pictureUrl: typeof pictureUrl === 'string' ? pictureUrl : null,
+      };
+    })
+    .filter((page): page is MetaPageWithToken => page !== null);
+};
+
+/** One question on a lead form, normalised away from Meta's wire shape. */
+export interface MetaFormQuestion {
+  /** Meta's stable key - what `field_data[].name` will be on every lead from this form. */
+  key: string;
+  /** What the person filling the form actually read. */
+  label: string;
+  /** Meta's own type hint, lowercased. Absent on older forms. */
+  type: string | null;
+}
+
+/**
+ * The questions on one lead form.
+ *
+ * This is what makes a mapping UI possible at all: without it the only way to learn a form's
+ * field keys is to wait for a real submission and read `field_data`, which is a poor thing to ask
+ * someone to do before their integration will work.
+ */
+export const fetchMetaFormQuestions = async ({
+  formId,
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions & { formId: string }): Promise<MetaFormQuestion[]> => {
+  const token = assertToken(accessToken);
+
+  const body = await requestGraph<{ questions?: unknown[] }>({
+    url: buildMetaGraphUrl({
+      path: formId,
+      params: { access_token: token, fields: 'questions{key,label,type}' },
+    }),
+    fetchFn,
+    timeoutMs,
+  });
+
+  return (body.questions ?? [])
+    .map((entry) => {
+      const record = (entry ?? {}) as { key?: unknown; label?: unknown; type?: unknown };
+
+      // `key` is what arrives on the lead; a question without one cannot be mapped to anything.
+      if (typeof record.key !== 'string' || record.key === '') {
+        return null;
+      }
+
+      return {
+        key: record.key,
+        label: typeof record.label === 'string' && record.label !== '' ? record.label : record.key,
+        type: typeof record.type === 'string' ? record.type.toLowerCase() : null,
+      };
+    })
+    .filter((question): question is MetaFormQuestion => question !== null);
+};
+
+/**
+ * One lead by id - the webhook path's only Graph call.
+ *
+ * A leadgen webhook carries an id and nothing else; the answers have to be fetched. Deliberately
+ * asks for the same field set the polling importer already maps, so both paths produce the same
+ * NormalizedMetaLead and there is exactly one mapper to keep correct.
+ */
+export const fetchMetaLeadById = async ({
+  leadgenId,
+  accessToken,
+  fetchFn = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: MetaGraphRequestOptions & { leadgenId: string }): Promise<MetaGraphLead> => {
+  const token = assertToken(accessToken);
+
+  return requestGraph<MetaGraphLead>({
+    url: buildMetaGraphUrl({
+      path: leadgenId,
+      params: {
+        access_token: token,
+        // The SAME field list the poller asks for, so both paths hand meta-graph-lead.mapper.ts
+        // an identical shape and there is one mapper to keep correct rather than two.
+        fields: LEAD_FIELDS.join(','),
+      },
+    }),
+    fetchFn,
+    timeoutMs,
+  });
+};

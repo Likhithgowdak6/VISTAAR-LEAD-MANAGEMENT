@@ -468,3 +468,79 @@ describe('the form parser keeps storing "not decided yet"', () => {
     expect(facts.city).toBeUndefined();
   });
 });
+
+/**
+ * Human overrides of the automatic mapping.
+ *
+ * LABEL_RULES gets most forms right unaided - the production Meta test lead mapped event_date,
+ * city, guest_count and package_interest correctly with no configuration at all. These cover the
+ * cases where it does not, and where a person has told it otherwise.
+ */
+describe('parseFormFields - field key overrides', () => {
+  const entry = (label: string, value: string) => ({ label, value });
+
+  it('uses LABEL_RULES when nothing is overridden', () => {
+    const { facts } = parseFormFields([entry('Which city?', 'Bengaluru')]);
+
+    expect(facts).toMatchObject({ city: 'Bengaluru' });
+  });
+
+  it('lets an override win over LABEL_RULES', () => {
+    // "Venue" maps to `city` automatically. An owner who wants it kept separately says so.
+    const { facts, unmapped } = parseFormFields([entry('Venue', 'Taj West End')], {
+      Venue: 'venue_name',
+    });
+
+    expect(facts).toMatchObject({ venue_name: 'Taj West End' });
+    expect(facts.city).toBeUndefined();
+    expect(unmapped.venue).toBeUndefined();
+  });
+
+  it('maps a question LABEL_RULES could not place', () => {
+    const label = 'kind_of_event_private_socials_birthday_or_others';
+
+    const { facts } = parseFormFields([entry(label, 'private wedding')], {
+      [label]: 'event_type',
+    });
+
+    expect(facts).toMatchObject({ event_type: 'private wedding' });
+  });
+
+  it('drops an answer mapped to null, without keeping it as unmapped', () => {
+    // "Ignore" has to mean ignore. Falling through to keepUnmapped would quietly store it in
+    // aiFacts anyway, which is the opposite of what the owner asked for - and aiFacts is sent to
+    // the AI on every turn.
+    const { facts, unmapped } = parseFormFields([entry('Internal note', 'do not send')], {
+      'Internal note': null,
+    });
+
+    expect(facts['internal_note']).toBeUndefined();
+    expect(unmapped['internal_note']).toBeUndefined();
+    expect(Object.keys(unmapped)).toHaveLength(0);
+  });
+
+  it('distinguishes an explicit null from an absent key', () => {
+    // Absent means "nobody has looked at this question", so the automatic rule still applies.
+    const { facts } = parseFormFields([entry('Which city?', 'Mysuru')], { Venue: null });
+
+    expect(facts).toMatchObject({ city: 'Mysuru' });
+  });
+
+  it('matches on the raw label, not a slug of it', () => {
+    // The stored key is Meta's own question key. Slugging either side would make the mapping the
+    // UI displayed and the mapping that runs two different things.
+    const { facts } = parseFormFields([entry('What is your budget?', '2 lakh')], {
+      'What is your budget?': 'budget_range',
+    });
+
+    expect(facts).toMatchObject({ budget_range: '2 lakh' });
+  });
+
+  it('still normalises a phone answer when the mapping was overridden onto phone', () => {
+    const { facts } = parseFormFields([entry('Best number', '+91 98765-43210')], {
+      'Best number': 'phone',
+    });
+
+    expect(facts).toMatchObject({ phone: '919876543210' });
+  });
+});

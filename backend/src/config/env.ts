@@ -199,6 +199,32 @@ const envSchema = z.object({
   // rather than holding the loop open.
   META_GRAPH_MAX_PAGES_PER_TICK: z.coerce.number().int().min(1).max(100).default(10),
 
+  // ---- Facebook Login (OAuth), so nobody has to paste a Page token ----
+  //
+  // All four are blank by default and the connect route refuses to start without them. That is
+  // deliberate: a half-configured OAuth app fails at Meta's redirect with an opaque error, and
+  // failing here instead names the missing variable.
+  //
+  // WHO THIS WORKS FOR. Until the Meta app has Advanced Access (App Review plus Business
+  // Verification), Facebook only returns Pages belonging to people with a role on the app. For a
+  // studio connecting its OWN page that is enough. It is not enough to onboard a client.
+  META_APP_ID: z.string().default(''),
+
+  // Server-side only. Never sent to the browser, never logged, never in a URL.
+  META_APP_SECRET: z.string().default(''),
+
+  // Must match the redirect URI registered in the Meta app EXACTLY - Meta compares the full
+  // string including scheme, host, port and path. A trailing slash is a different URI.
+  META_REDIRECT_URI: z.string().default(''),
+
+  // The shared secret Meta echoes back on the webhook verification handshake. Ours to invent;
+  // it only has to match what is typed into the Meta app's webhook configuration.
+  META_WEBHOOK_VERIFY_TOKEN: z.string().default(''),
+
+  // How long an in-flight OAuth handshake stays valid. Short on purpose: the state token is a
+  // CSRF guard, and a long window is a long window in which a stolen one still works.
+  META_OAUTH_STATE_TTL_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(600_000),
+
   // ADR-005's disable switch: AI features stay off until explicitly enabled.
   AI_ENABLED: booleanString.default(false),
 

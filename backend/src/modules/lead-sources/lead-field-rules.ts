@@ -397,8 +397,21 @@ const truncateValue = (value: string): string =>
  * Never throws and never returns null: a form half-understood is still worth more than nothing,
  * and both callers run somewhere an exception costs a lead.
  */
+/**
+ * A human's answer to "what does this question mean", overriding LABEL_RULES.
+ *
+ * Keyed by the RAW label exactly as it arrives, so the Meta question key
+ * (`kind_of_event_private_socials_birthday_or_others`) is what the caller stores and what is
+ * looked up - no slugging, no guessing, no drift between what the UI showed and what runs.
+ *
+ * A `null` value means "the owner looked at this question and chose to drop it", which is
+ * different from absent. Absent means nobody has looked, so LABEL_RULES decides as it always has.
+ */
+export type FieldKeyOverrides = Readonly<Record<string, string | null>>;
+
 export const parseFormFields = (
   entries: readonly FormFieldEntry[] | null | undefined,
+  overrides: FieldKeyOverrides = {},
 ): ParsedFormFields => {
   const facts: Record<string, string> = {};
   const unmapped: Record<string, string> = {};
@@ -436,7 +449,17 @@ export const parseFormFields = (
           continue;
         }
 
-        const key = keyForLabel(label);
+        // An explicit override wins over LABEL_RULES. `hasOwn` rather than a truthiness test:
+        // the stored value may legitimately be null, meaning "drop this answer", and `?? ` or
+        // `||` would silently fall back to the automatic rule the owner just overrode.
+        const overridden = Object.hasOwn(overrides, label);
+        const key = overridden ? overrides[label] ?? null : keyForLabel(label);
+
+        // Dropped on purpose: not kept as an unmapped fact either, or "ignore" would mean
+        // "store it somewhere else", which is not what the owner asked for.
+        if (overridden && key === null) {
+          continue;
+        }
 
         if (key === null) {
           keepUnmapped(label, truncateValue(rawValue));

@@ -50,6 +50,36 @@ export interface LeadSourceMetaConfig {
    * Purely an optimisation: `LeadSubmission`'s unique index is still what stops a double import.
    */
   lastLeadCreatedAt: Date | null;
+  /**
+   * Set when the Page was subscribed to leadgen webhooks, so leads arrive in seconds rather than
+   * on the ten-minute poll. Null means this source is poll-only, which still works - the webhook
+   * is an accelerator, never the only path. See meta-webhook.service.ts.
+   */
+  webhookSubscribedAt: Date | null;
+  /** Meta's reason if the subscription failed, shown to the owner instead of silently polling. */
+  webhookError: string | null;
+}
+
+/**
+ * One Meta form question, pointed at a key in the existing canonical vocabulary.
+ *
+ * `factKey` is a key from lead-field-rules.ts - `event_date`, `city`, `guest_count` and friends -
+ * or one of the three contact keys (`name`, `phone`, `email`), or null for "ignore this answer".
+ *
+ * DELIBERATELY NOT A CUSTOM-FIELD SYSTEM. `Conversation.aiFacts` is already an open blob, and
+ * `buildLeadFormFacts` already keeps answers it could not map. A second field registry would be
+ * a second source of truth for the same data, and the AI reads only the first one.
+ *
+ * Empty means "use the automatic mapping", which is what `keyForLabel` has always done and gets
+ * right for most forms unaided. Rows exist only where a human disagreed with it.
+ */
+export interface LeadSourceFieldMapping {
+  /** Meta's stable question key, as it arrives in `field_data[].name`. */
+  metaKey: string;
+  /** The question as the lead read it, kept so the UI can show it without another Graph call. */
+  metaLabel: string | null;
+  /** Canonical fact or contact key, or null to drop the answer. */
+  factKey: string | null;
 }
 
 export interface LeadSourceSyncCounts {
@@ -90,6 +120,25 @@ export interface LeadSourceDocument {
   autoGreetEnabled: boolean;
   columnMapping: LeadSourceColumnMapping;
   /**
+   * The OAuth connection this source was created through, when it was. Null for a source whose
+   * Page token was pasted in by hand - that path still works and is not being removed.
+   *
+   * Held so a revoked authorisation can mark every source that depends on it, rather than each
+   * one discovering the same 190 separately ten minutes apart.
+   */
+  metaConnectionId: Types.ObjectId | null;
+  /** Human overrides of the automatic label mapping. Empty means "automatic for everything". */
+  fieldMappings: LeadSourceFieldMapping[];
+  /**
+   * What a lead from this source starts as. All three are optional and all three are applied on
+   * INSERT only, through the same `defaults` the importer already passes to
+   * upsertConversationForContact - so a lead who fills two forms keeps the stage it earned in the
+   * first conversation rather than being reset to `new` by the second.
+   */
+  defaultStage: string | null;
+  defaultTagIds: Types.ObjectId[];
+  defaultAssigneeId: Types.ObjectId | null;
+  /**
    * Rows created at or before this instant are ignored. Set to "now" when the source is added
    * so connecting a sheet with two years of history does not flood the inbox on first poll.
    */
@@ -127,10 +176,23 @@ const leadSourceMetaSchema = new mongoose.Schema<LeadSourceMetaConfig>(
     accessTokenLast4: { type: String, trim: true, maxlength: 4, default: null },
     accessTokenSetAt: { type: Date, default: null },
     lastLeadCreatedAt: { type: Date, default: null },
+    webhookSubscribedAt: { type: Date, default: null },
+    webhookError: { type: String, trim: true, maxlength: 500, default: null },
   },
   {
     _id: false,
   },
+);
+
+const leadSourceFieldMappingSchema = new mongoose.Schema<LeadSourceFieldMapping>(
+  {
+    metaKey: { type: String, required: true, trim: true, maxlength: 200 },
+    metaLabel: { type: String, default: null, trim: true, maxlength: 300 },
+    // Null is a real, meaningful value here: "the owner looked at this question and chose to
+    // drop it". Not the same as absent, which means "nobody has looked, use the automatic rule".
+    factKey: { type: String, default: null, trim: true, maxlength: 80 },
+  },
+  { _id: false },
 );
 
 const leadSourceSyncCountsSchema = new mongoose.Schema<LeadSourceSyncCounts>(
@@ -256,6 +318,38 @@ const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
     columnMapping: {
       type: leadSourceColumnMappingSchema,
       default: () => ({}),
+    },
+
+    metaConnectionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MetaConnection',
+      default: null,
+      index: true,
+    },
+
+    fieldMappings: {
+      type: [leadSourceFieldMappingSchema],
+      default: () => [],
+    },
+
+    // Applied on insert only - see the interface. A stage the lead has already progressed past
+    // must never be pulled back to the source's default by a second form submission.
+    defaultStage: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+      default: null,
+    },
+
+    defaultTagIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Tag' }],
+      default: () => [],
+    },
+
+    defaultAssigneeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
 
     importFromTime: {
