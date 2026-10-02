@@ -25,9 +25,11 @@ const PAGE = { id: '464675790673972', name: 'Wedding Genie', accessToken: 'page-
 const FORM = { id: '2166324230964931', name: 'wedding/Birthday Sept- dec', status: 'ACTIVE' };
 
 const createHarness = (overrides: Record<string, unknown> = {}) => {
-  const findMetaConnectionWithSecrets = vi
-    .fn()
-    .mockResolvedValue({ status: 'active', encryptedUserAccessToken: { ciphertext: 'x' } });
+  const findMetaConnectionWithSecrets = vi.fn().mockResolvedValue({
+    _id: 'conn-1',
+    status: 'active',
+    encryptedUserAccessToken: { ciphertext: 'x' },
+  });
   const markMetaConnectionStatus = vi.fn().mockResolvedValue(undefined);
   const listMetaPagesWithTokens = vi.fn().mockResolvedValue([PAGE]);
   const listMetaLeadForms = vi.fn().mockResolvedValue([FORM]);
@@ -110,6 +112,20 @@ describe('activateMetaLeadSource - the happy path', () => {
       expect.objectContaining({ subscribed: true, error: null }),
     );
     expect(result.webhookSubscribed).toBe(true);
+  });
+
+  it('records WHICH Facebook authorisation produced the source', async () => {
+    // Caught in production: the repository accepted `metaConnectionId` and the serializer
+    // derived `usesFacebookLogin` from it, but activation never passed it - so every
+    // OAuth-created source looked like a pasted-token one and the connection panel never
+    // appeared. The parameter was optional with a default, so the compiler could not say so.
+    const h = createHarness();
+
+    await h.service.activateMetaLeadSource(activateParams);
+
+    expect(h.createLeadSource).toHaveBeenCalledWith(
+      expect.objectContaining({ metaConnectionId: 'conn-1' }),
+    );
   });
 
   it('stores the Page token minted through OAuth, never a pasted one', async () => {

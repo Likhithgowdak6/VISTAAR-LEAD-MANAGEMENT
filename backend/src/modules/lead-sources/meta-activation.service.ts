@@ -103,7 +103,9 @@ export const createMetaActivationService = ({
    * Also the place a revoked authorisation is recognised and RECORDED, so every source that
    * depends on it stops guessing independently ten minutes apart.
    */
-  const requireUserToken = async (organizationId: ObjectIdLike): Promise<string> => {
+  const requireUserToken = async (
+    organizationId: ObjectIdLike,
+  ): Promise<{ token: string; connectionId: ObjectIdLike | null }> => {
     const connection = await findMetaConnectionWithSecrets({ organizationId });
 
     if (!connection || connection.status === META_CONNECTION_STATUSES.DISCONNECTED) {
@@ -124,7 +126,10 @@ export const createMetaActivationService = ({
       });
     }
 
-    return token;
+    // The id travels with the token because the source being created has to record WHICH
+    // authorisation produced it. Returning only the token is what left `metaConnectionId` null on
+    // every OAuth-created source, and with it `usesFacebookLogin` permanently false.
+    return { token, connectionId: (connection as { _id?: ObjectIdLike })._id ?? null };
   };
 
   /**
@@ -137,8 +142,10 @@ export const createMetaActivationService = ({
   const requirePage = async (
     organizationId: ObjectIdLike,
     pageId: string,
-  ): Promise<MetaPageWithToken> => {
-    const userToken = await requireUserToken(organizationId);
+    // Widened rather than changed: the three read-only callers keep ignoring the extra field,
+    // and only activation — the one that persists a source — reads it.
+  ): Promise<MetaPageWithToken & { connectionId: ObjectIdLike | null }> => {
+    const { token: userToken, connectionId } = await requireUserToken(organizationId);
 
     let pages: MetaPageWithToken[];
 
@@ -170,7 +177,7 @@ export const createMetaActivationService = ({
       });
     }
 
-    return page;
+    return { ...page, connectionId };
   };
 
   /**
@@ -263,6 +270,9 @@ export const createMetaActivationService = ({
         formName: formName ?? form.name,
         accessToken: page.accessToken,
       },
+      // Which authorisation this source belongs to. Without it the dashboard cannot tell an
+      // OAuth source from a pasted-token one, and the connection panel never appears.
+      metaConnectionId: page.connectionId,
       whatsappAccountId,
       defaultCountryCode,
       aiContextEnabled,
