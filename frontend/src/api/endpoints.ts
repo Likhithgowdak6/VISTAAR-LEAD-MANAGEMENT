@@ -31,8 +31,17 @@ import {
   type Message,
   type MessageTemplate,
   type MessageTemplateKind,
+  type MetaActivationResult,
+  type MetaConnectedPage,
+  type MetaConnectionState,
   type MetaConnectionTest,
+  type MetaDiagnostics,
+  type MetaFieldKey,
+  type MetaFieldMapping,
+  type MetaFormField,
   type MetaLeadFormSummary,
+  type MetaOauthStart,
+  type MetaSubscriptionResult,
   type Note,
   type NoteVisibility,
   type OrganizationSettings,
@@ -948,6 +957,122 @@ export const listMetaLeadForms = ({
     token,
     body: { accessToken, pageId },
   });
+
+// --- Lead sources (Facebook Login) ---
+//
+// The manual-token calls above are untouched and still supported. These are the OAuth route: no
+// token ever crosses this boundary in either direction. The browser asks the server to mint a
+// Facebook URL, Facebook redirects back to the SERVER, and everything afterwards is the server
+// using a credential the browser has never seen.
+
+/** Whether this org has authorised Facebook, and whether the server can even offer to ask. */
+export const getMetaConnection = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<MetaConnectionState>
+> => apiFetch('/lead-sources/meta/connection', { token });
+
+/**
+ * Mints the Facebook consent URL. The `state` inside it is signed with the org and user, so the
+ * URL is specific to whoever asked and cannot be replayed against another tenant — which is also
+ * why it is short-lived and must be followed promptly.
+ */
+export const startMetaOauth = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<MetaOauthStart>
+> => apiFetch('/lead-sources/meta/oauth/start', { token });
+
+/** Destroys the stored credential. Existing lead sources keep their own Page tokens. */
+export const disconnectMeta = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<unknown>
+> => apiFetch('/lead-sources/meta/connection', { method: 'DELETE', token });
+
+export const listConnectedMetaPages = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<MetaConnectedPage[]>
+> => apiFetch('/lead-sources/meta/pages', { token });
+
+export interface MetaPageParams extends TokenParams {
+  pageId: string;
+}
+
+export const listConnectedMetaForms = ({
+  token,
+  pageId,
+}: MetaPageParams): Promise<ApiSuccessResponse<MetaLeadFormSummary[]>> =>
+  apiFetch(`/lead-sources/meta/pages/${encodeURIComponent(pageId)}/forms`, { token });
+
+export interface MetaFormParams extends MetaPageParams {
+  formId: string;
+}
+
+/** Each question with the mapping the importer would choose, so the step is a review. */
+export const listConnectedMetaFormFields = ({
+  token,
+  pageId,
+  formId,
+}: MetaFormParams): Promise<ApiSuccessResponse<MetaFormField[]>> =>
+  apiFetch(
+    `/lead-sources/meta/pages/${encodeURIComponent(pageId)}/forms/${encodeURIComponent(formId)}/fields`,
+    { token },
+  );
+
+/** The canonical keys an override can point at, straight from the importer's own rule table. */
+export const listMetaFieldKeys = ({ token }: TokenParams = {}): Promise<
+  ApiSuccessResponse<MetaFieldKey[]>
+> => apiFetch('/lead-sources/meta/field-keys', { token });
+
+export interface CreateMetaOauthLeadSourceParams extends TokenParams {
+  name: string;
+  pageId: string;
+  pageName?: string | null;
+  formId: string;
+  formName?: string | null;
+  whatsappAccountId: string;
+  defaultCountryCode: string;
+  aiContextEnabled?: boolean;
+  autoGreetEnabled?: boolean;
+  importExisting?: boolean;
+  fieldMappings?: MetaFieldMapping[];
+  defaultStage?: string | null;
+  defaultTagIds?: string[];
+  defaultAssigneeId?: string | null;
+  subscribeWebhook?: boolean;
+}
+
+/**
+ * Creates the source, subscribes the Page and activates — server-side, in that order.
+ *
+ * Resolves for a partial success too: a 201 whose `webhookSubscribed` is false means the source
+ * was created and left paused with the mapping intact, and the caller should offer Retry rather
+ * than make someone rebuild it.
+ */
+export const createMetaOauthLeadSource = ({
+  token,
+  ...body
+}: CreateMetaOauthLeadSourceParams): Promise<ApiSuccessResponse<MetaActivationResult>> =>
+  apiFetch('/lead-sources/meta/sources', { method: 'POST', token, body });
+
+/** Idempotent at Meta's end, so this is safe to press twice. */
+export const retryMetaWebhookSubscription = ({
+  token,
+  leadSourceId,
+}: TokenParams & { leadSourceId: string }): Promise<
+  ApiSuccessResponse<MetaSubscriptionResult>
+> =>
+  apiFetch(`/lead-sources/meta/sources/${encodeURIComponent(leadSourceId)}/subscribe`, {
+    method: 'POST',
+    token,
+  });
+
+export interface MetaDiagnosticsParams extends TokenParams {
+  pageId: string;
+  formId?: string | null;
+}
+
+/** Re-checks connection, page, form and subscription against Meta rather than against our copy. */
+export const runMetaDiagnostics = ({
+  token,
+  pageId,
+  formId,
+}: MetaDiagnosticsParams): Promise<ApiSuccessResponse<MetaDiagnostics>> =>
+  apiFetch(`/lead-sources/meta/diagnostics${buildQuery({ pageId, formId })}`, { token });
 
 export interface UpdateLeadSourceParams extends TokenParams {
   leadSourceId: string;

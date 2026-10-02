@@ -446,6 +446,18 @@ export interface LeadSourceMeta {
   accessTokenLast4: string | null;
   accessTokenSetAt: string | null;
   lastLeadCreatedAt: string | null;
+  /**
+   * When the Page was subscribed to leadgen webhooks. Null on a manually-tokened source, which
+   * has no subscription at all and relies entirely on the poll — absence is not a fault there.
+   */
+  webhookSubscribedAt?: string | null;
+  /** Why the last subscribe attempt failed. Present only when one failed. */
+  webhookError?: string | null;
+  /**
+   * True when this source came from Facebook Login. Absent on a source serialized before the
+   * field existed, which is by definition a manually-tokened one.
+   */
+  usesFacebookLogin?: boolean;
 }
 
 /** A Facebook page a pasted token can act for. */
@@ -467,6 +479,101 @@ export interface MetaConnectionTest {
   pages: MetaPageSummary[];
   /** True when the token is already page-scoped, so `pages` holds exactly that one page. */
   pageScoped: boolean;
+}
+
+/* --- Facebook Login (the OAuth wizard). The manual-token types above stay as they are: both
+   routes into Meta remain supported, and neither is expressed in the other's shapes. --- */
+
+/** `needs_attention` means the stored credential is there but no longer usable. */
+export type MetaConnectionStatus = 'active' | 'needs_attention' | 'disconnected';
+
+/**
+ * The organisation's Facebook authorisation. There is no token field, by design: the API reports
+ * the last four characters so a person can tell two credentials apart, and nothing more.
+ */
+export interface MetaConnection {
+  id: string | null;
+  metaUserId: string | null;
+  metaUserName: string | null;
+  status: MetaConnectionStatus;
+  grantedScopes: string[];
+  accessTokenLast4: string | null;
+  accessTokenSetAt: string | null;
+  /** Null when Meta returned a long-lived token without an expiry. */
+  accessTokenExpiresAt: string | null;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** `configured` is about the SERVER's Meta credentials, not the org's — it gates the button. */
+export interface MetaConnectionState {
+  connection: MetaConnection | null;
+  configured: boolean;
+}
+
+export interface MetaOauthStart {
+  authorizeUrl: string;
+  scopes: string[];
+}
+
+/** A Page the connected Facebook account manages. The Page token is never included. */
+export interface MetaConnectedPage {
+  id: string;
+  name: string | null;
+  pictureUrl: string | null;
+}
+
+/** One question on a lead form, with the mapping the importer would choose unaided. */
+export interface MetaFormField {
+  key: string;
+  label: string;
+  type: string | null;
+  /** Null when no rule matched: the answer would be kept as free text under its own label. */
+  suggestedFactKey: string | null;
+}
+
+/** A canonical fact key the mapping step can be pointed at. */
+export interface MetaFieldKey {
+  key: string;
+  /** Identity (name/email/phone): stored on the contact and never sent to the AI. */
+  isContact: boolean;
+}
+
+/** An owner's decision about one question. `factKey: null` means "drop this answer". */
+export interface MetaFieldMapping {
+  metaKey: string;
+  metaLabel?: string | null;
+  factKey?: string | null;
+}
+
+/**
+ * Activation's answer. `webhookSubscribed: false` is NOT a failed request — the source exists and
+ * the poller will use it; only the instant delivery is missing, and `webhookError` says why.
+ */
+export interface MetaActivationResult {
+  leadSource: LeadSource;
+  webhookSubscribed: boolean;
+  webhookError: string | null;
+}
+
+/** Retry answers the same shape, minus the guarantee that the source still exists. */
+export interface MetaSubscriptionResult {
+  leadSource: LeadSource | null;
+  webhookSubscribed: boolean;
+  webhookError: string | null;
+}
+
+export interface MetaDiagnosticCheck {
+  key: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface MetaDiagnostics {
+  ok: boolean;
+  checks: MetaDiagnosticCheck[];
 }
 
 export interface LeadSource {

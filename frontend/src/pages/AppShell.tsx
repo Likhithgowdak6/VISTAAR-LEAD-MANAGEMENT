@@ -7,6 +7,7 @@ import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
 import { useAuth } from '../auth/AuthContext';
 import { getInitials } from '../lib/format';
+import { readMetaConnectReturn } from '../lib/meta-connect';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import AccountsPage from './AccountsPage';
 import AiKnowledgePage from './AiKnowledgePage';
@@ -78,7 +79,12 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
 
 const AppShell = () => {
   const { user, organization, logout, permissions } = useAuth() as AuthValue;
-  const [view, setView] = useState<AppView>('inbox');
+  // Facebook's callback redirects the browser to `/`, which reloads the whole app at the inbox.
+  // Landing there after signing in would strand the person two clicks from what they were doing,
+  // so the return trip opens on Lead sources, where the wizard is waiting.
+  const [view, setView] = useState<AppView>(() =>
+    readMetaConnectReturn() ? 'lead-sources' : 'inbox',
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);

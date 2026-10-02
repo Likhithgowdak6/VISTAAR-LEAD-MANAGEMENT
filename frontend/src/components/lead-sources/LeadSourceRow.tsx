@@ -5,11 +5,14 @@ import { useAuth } from '../../auth/AuthContext';
 import RelativeTime from '../RelativeTime';
 import ToggleSwitch from '../ToggleSwitch';
 import { type AuthValue, errorMessage, type LeadSource, type WhatsAppAccount } from '../types';
+import MetaSourceDetails from './meta/MetaSourceDetails';
 
 type Props = {
   leadSource: LeadSource;
   accounts: readonly WhatsAppAccount[];
   onChanged?: () => void;
+  /** Opens the Facebook wizard at step one. Absent for callers that have no wizard. */
+  onReconnectMeta?: () => void;
 };
 
 const SYNC_BADGE: Readonly<Record<string, string>> = {
@@ -27,10 +30,11 @@ const SYNC_LABEL: Readonly<Record<string, string>> = {
   pending: 'Not synced yet',
 };
 
-const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
+const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Props) => {
   const { authedRequest } = useAuth() as AuthValue;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const accountName =
     accounts.find((account) => account.id === leadSource.whatsappAccountId)?.name ??
@@ -38,6 +42,14 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
   const isPaused = leadSource.status === 'paused';
   // A source stored before the field existed has no `kind` on the wire: it is a sheet.
   const isMeta = leadSource.kind === 'meta_lead_ads';
+  // Only a Facebook Login source has a connection to diagnose or re-subscribe. A manually-tokened
+  // one has none, so the details panel would have nothing to say. The webhook fields are a
+  // fallback for a source serialized before `usesFacebookLogin` existed.
+  const isFacebookLogin =
+    isMeta &&
+    (leadSource.meta.usesFacebookLogin === true ||
+      leadSource.meta.webhookSubscribedAt != null ||
+      leadSource.meta.webhookError != null);
 
   const run = async (action: string, task: () => Promise<unknown>) => {
     setBusy(action);
@@ -142,6 +154,19 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
               {leadSource.meta.accessTokenLast4 ? (
                 <span className="text-slate-400"> · token ····{leadSource.meta.accessTokenLast4}</span>
               ) : null}
+              {isFacebookLogin ? (
+                <span
+                  className={
+                    leadSource.meta.webhookSubscribedAt
+                      ? ' text-emerald-700'
+                      : ' text-amber-700'
+                  }
+                >
+                  {leadSource.meta.webhookSubscribedAt
+                    ? ' · instant delivery on'
+                    : ' · instant delivery off'}
+                </span>
+              ) : null}
             </p>
           ) : null}
 
@@ -158,6 +183,15 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
         </div>
 
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {isFacebookLogin ? (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Connection
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleSync}
@@ -243,6 +277,18 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged }: Props) => {
         <p role="alert" className="mt-2 text-xs text-red-600">
           {error}
         </p>
+      ) : null}
+
+      {detailsOpen ? (
+        <MetaSourceDetails
+          leadSource={leadSource}
+          onClose={() => setDetailsOpen(false)}
+          onChanged={() => onChanged?.()}
+          onReconnect={() => {
+            setDetailsOpen(false);
+            onReconnectMeta?.();
+          }}
+        />
       ) : null}
     </li>
   );

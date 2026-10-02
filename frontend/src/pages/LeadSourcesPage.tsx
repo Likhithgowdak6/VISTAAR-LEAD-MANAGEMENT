@@ -6,7 +6,13 @@ import EmptyState from '../components/EmptyState';
 import AddLeadSourceForm from '../components/lead-sources/AddLeadSourceForm';
 import AddMetaLeadSourceForm from '../components/lead-sources/AddMetaLeadSourceForm';
 import LeadSourceRow from '../components/lead-sources/LeadSourceRow';
+import MetaConnectWizard from '../components/lead-sources/meta/MetaConnectWizard';
 import Spinner from '../components/Spinner';
+import {
+  clearMetaConnectReturn,
+  readMetaConnectReturn,
+  type MetaConnectReturn,
+} from '../lib/meta-connect';
 import { type LeadSource, type WhatsAppAccount } from '../components/types';
 
 type SourceKindTab = 'google_sheet' | 'meta_lead_ads';
@@ -23,6 +29,13 @@ const LeadSourcesPage = () => {
   const [sourceKind, setSourceKind] = useState<SourceKindTab>('google_sheet');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Read once, on the first render, and wiped from the address bar immediately - otherwise a
+  // refresh would reopen the wizard on a "connected" that happened an hour ago.
+  const [metaReturn] = useState<MetaConnectReturn | null>(() => readMetaConnectReturn());
+  const [wizardOpen, setWizardOpen] = useState(() => readMetaConnectReturn() !== null);
+  // Distinguishes "add a form" (skip ahead if Facebook is already connected) from "reconnect"
+  // (hold on step one, which is the button they asked for).
+  const [wizardAtConnect, setWizardAtConnect] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +60,10 @@ const LeadSourcesPage = () => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    clearMetaConnectReturn();
+  }, []);
+
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <div>
@@ -65,6 +82,28 @@ const LeadSourcesPage = () => {
         </p>
       ) : (
         <div className="space-y-3">
+          {/* The recommended route, above the tabs rather than inside them: signing in with
+              Facebook and pasting a Page token are not two flavours of the same task, and the
+              one that needs no token should not be something you have to find. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-slate-900">Connect Facebook leads</h3>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Sign in with Facebook and pick your lead form. Nothing to copy or paste.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setWizardAtConnect(false);
+                setWizardOpen(true);
+              }}
+              className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Connect Facebook
+            </button>
+          </div>
+
           <div role="tablist" aria-label="Lead source type" className="flex gap-2">
             <button
               type="button"
@@ -126,10 +165,24 @@ const LeadSourcesPage = () => {
               leadSource={leadSource}
               accounts={accounts}
               onChanged={load}
+              onReconnectMeta={() => {
+                setWizardAtConnect(true);
+                setWizardOpen(true);
+              }}
             />
           ))}
         </ul>
       </div>
+
+      {wizardOpen ? (
+        <MetaConnectWizard
+          accounts={accounts}
+          returned={metaReturn}
+          startAtConnect={wizardAtConnect}
+          onClose={() => setWizardOpen(false)}
+          onCreated={load}
+        />
+      ) : null}
     </div>
   );
 };
