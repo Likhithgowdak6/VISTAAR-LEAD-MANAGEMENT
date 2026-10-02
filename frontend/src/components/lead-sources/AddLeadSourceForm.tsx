@@ -4,6 +4,20 @@ import { createLeadSource } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { type AuthValue, errorMessage, type WhatsAppAccount } from '../types';
 
+/**
+ * Connects a Google Sheet that lead ads write into.
+ *
+ * NOT CURRENTLY MOUNTED, and kept on purpose. Routing lead ads through a spreadsheet was the
+ * workaround for not having Meta's API; LeadSourcesPage now offers Facebook Login instead and
+ * no longer renders this form. Everything behind it is untouched and still live: the API still
+ * accepts `kind: 'google_sheet'`, the importer still polls, and every sheet source already
+ * configured keeps syncing and rendering in the list.
+ *
+ * It is covered by its own tests rather than through the page, so the path stays known-good.
+ * Re-mount it here if the sheet route ever needs offering again; delete it only once no
+ * organisation has a sheet source left.
+ */
+
 type Props = {
   accounts: readonly WhatsAppAccount[];
   onCreated?: () => void;

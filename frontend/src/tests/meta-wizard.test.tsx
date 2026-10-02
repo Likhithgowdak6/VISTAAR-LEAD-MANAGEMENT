@@ -595,13 +595,20 @@ describe('Step 7 — an existing connection', () => {
 });
 
 describe('The manual Page-token form still works', () => {
-  it('is still reachable, and the Google Sheet tab is still the default', async () => {
+  it('is still reachable, now behind the fallback disclosure', async () => {
     renderAuthed(<LeadSourcesPage />);
 
-    expect(await screen.findByLabelText('Google Sheet link')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Meta Lead Ads' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a Page access token instead' }));
 
     expect(screen.getByLabelText('Page access token')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeInTheDocument();
+  });
+
+  it('does not offer Google Sheet creation any more', async () => {
+    renderAuthed(<LeadSourcesPage />);
+
+    await screen.findByRole('button', { name: 'Connect Facebook' });
+
+    expect(screen.queryByLabelText('Google Sheet link')).not.toBeInTheDocument();
   });
 });

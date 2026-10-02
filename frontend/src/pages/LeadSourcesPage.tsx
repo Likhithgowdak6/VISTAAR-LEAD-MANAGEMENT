@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { listAccounts, listLeadSources } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import EmptyState from '../components/EmptyState';
-import AddLeadSourceForm from '../components/lead-sources/AddLeadSourceForm';
 import AddMetaLeadSourceForm from '../components/lead-sources/AddMetaLeadSourceForm';
 import LeadSourceRow from '../components/lead-sources/LeadSourceRow';
 import MetaConnectWizard from '../components/lead-sources/meta/MetaConnectWizard';
@@ -15,18 +14,29 @@ import {
 } from '../lib/meta-connect';
 import { type LeadSource, type WhatsAppAccount } from '../components/types';
 
-type SourceKindTab = 'google_sheet' | 'meta_lead_ads';
-
-const TAB_BUTTON_CLASS =
-  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50';
-
+/*
+ * ONE WAY IN, plus a fallback.
+ *
+ * The Google Sheet CREATION form is deliberately no longer offered here. Routing lead ads through
+ * a spreadsheet was a workaround for not having Meta's API; now that Facebook Login does the job
+ * directly, offering the sheet as a peer choice invites people into the slower, lossier path for
+ * no reason.
+ *
+ * Nothing about sheets has been deleted. AddLeadSourceForm still exists, the API still accepts
+ * `kind: 'google_sheet'`, the importer still polls, and every sheet source already configured
+ * keeps rendering and syncing in the list below - see LeadSourceRow, which still links out to the
+ * spreadsheet. This is a change to what is OFFERED, not to what is SUPPORTED.
+ *
+ * The pasted Page-access-token form stays too, but behind a disclosure: it is the way out when
+ * Facebook Login cannot be used (an unpublished app, a Page the signed-in account has no role
+ * on), not a second front door.
+ */
 const LeadSourcesPage = () => {
   const { authedRequest } = useAuth();
   const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
   const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
-  // The sheet importer stays the default tab: it is what every existing install uses, and
-  // switching the default would move an admin's furniture for no reason.
-  const [sourceKind, setSourceKind] = useState<SourceKindTab>('google_sheet');
+  // Collapsed by default. Open, it would read as "two equal options".
+  const [tokenFallbackOpen, setTokenFallbackOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Read once, on the first render, and wiped from the address bar immediately - otherwise a
@@ -69,9 +79,8 @@ const LeadSourcesPage = () => {
       <div>
         <h1 className="text-xl font-bold text-slate-900">Lead sources</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Where Meta lead ads reach the CRM: straight from the Meta Lead Ads API, or from a Google
-          Sheet the ads write into. New leads arrive in the inbox as unassigned, ready to be picked
-          up — nothing is messaged automatically.
+          Where your Facebook lead ads reach the CRM. New leads arrive in the inbox as unassigned,
+          ready to be picked up — nothing is messaged automatically.
         </p>
       </div>
 
@@ -82,62 +91,48 @@ const LeadSourcesPage = () => {
         </p>
       ) : (
         <div className="space-y-3">
-          {/* The recommended route, above the tabs rather than inside them: signing in with
-              Facebook and pasting a Page token are not two flavours of the same task, and the
-              one that needs no token should not be something you have to find. */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-slate-900">Connect Facebook leads</h3>
-              <p className="mt-0.5 text-xs text-slate-600">
-                Sign in with Facebook and pick your lead form. Nothing to copy or paste.
-              </p>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900">Connect Facebook leads</h3>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Sign in with Facebook and pick your lead form. Nothing to copy or paste.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setWizardAtConnect(false);
+                  setWizardOpen(true);
+                }}
+                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Connect Facebook
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setWizardAtConnect(false);
-                setWizardOpen(true);
-              }}
-              className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Connect Facebook
-            </button>
           </div>
 
-          <div role="tablist" aria-label="Lead source type" className="flex gap-2">
+          <div>
             <button
               type="button"
-              role="tab"
-              aria-selected={sourceKind === 'google_sheet'}
-              onClick={() => setSourceKind('google_sheet')}
-              className={`${TAB_BUTTON_CLASS} ${
-                sourceKind === 'google_sheet'
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
+              aria-expanded={tokenFallbackOpen}
+              onClick={() => setTokenFallbackOpen((open) => !open)}
+              className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
             >
-              Google Sheet
+              {tokenFallbackOpen ? 'Hide' : 'Use a Page access token instead'}
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={sourceKind === 'meta_lead_ads'}
-              onClick={() => setSourceKind('meta_lead_ads')}
-              className={`${TAB_BUTTON_CLASS} ${
-                sourceKind === 'meta_lead_ads'
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              Meta Lead Ads
-            </button>
+            {/* Named for when you need it, not for what it is: nobody goes looking for "the
+                manual path", they go looking for why Facebook sign-in did not work. */}
+            {tokenFallbackOpen ? (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-slate-500">
+                  For a Page the signed-in Facebook account has no role on, or while the Meta app
+                  is still unpublished.
+                </p>
+                <AddMetaLeadSourceForm accounts={accounts} onCreated={load} />
+              </div>
+            ) : null}
           </div>
-
-          {sourceKind === 'meta_lead_ads' ? (
-            <AddMetaLeadSourceForm accounts={accounts} onCreated={load} />
-          ) : (
-            <AddLeadSourceForm accounts={accounts} onCreated={load} />
-          )}
         </div>
       )}
 
@@ -155,7 +150,7 @@ const LeadSourcesPage = () => {
         {!loading && leadSources.length === 0 ? (
           <EmptyState
             title="No lead sources yet"
-            description="Connect your Meta lead form, or the sheet your lead ads write to."
+            description="Connect Facebook and pick the lead form your ads point at."
           />
         ) : null}
         <ul>

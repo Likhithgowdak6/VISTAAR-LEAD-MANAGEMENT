@@ -43,8 +43,13 @@ const META_SOURCE = {
   totalImported: 21,
 };
 
+/**
+ * The pasted-token form is no longer a tab — it is the fallback behind a disclosure, now that
+ * Facebook Login is the offered route. Everything below still applies to it unchanged; only how
+ * it is reached has moved.
+ */
 const openMetaTab = async () => {
-  fireEvent.click(await screen.findByRole('tab', { name: 'Meta Lead Ads' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use a Page access token instead' }));
 };
 
 beforeEach(() => {
@@ -77,11 +82,17 @@ afterEach(() => {
 });
 
 describe('Connecting a Meta Lead Ads source', () => {
-  it('keeps the Google Sheet form as the default, so nothing moved for existing admins', async () => {
+  it('is reached through the fallback disclosure, not offered up front', async () => {
     renderAuthed(<LeadSourcesPage />);
 
-    expect(await screen.findByLabelText('Google Sheet link')).toBeInTheDocument();
+    // Facebook Login is the offered route; pasting a token is the way out when it cannot be
+    // used, so it starts hidden.
+    expect(await screen.findByRole('button', { name: 'Connect Facebook' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Page access token')).not.toBeInTheDocument();
+
+    await openMetaTab();
+
+    expect(screen.getByLabelText('Page access token')).toBeInTheDocument();
   });
 
   it('will not save until the pasted token has actually been tested', async () => {

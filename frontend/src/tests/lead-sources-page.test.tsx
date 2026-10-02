@@ -2,6 +2,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as endpointsApi from '../api/endpoints';
+import AddLeadSourceForm from '../components/lead-sources/AddLeadSourceForm';
+import { type WhatsAppAccount } from '../components/types';
 import { PERMISSIONS } from '../lib/permissions';
 import LeadSourcesPage from '../pages/LeadSourcesPage';
 import { AUTH_PAYLOAD, renderAuthed } from './lead-helpers';
@@ -57,6 +59,47 @@ describe('LeadSourcesPage', () => {
     expect(screen.getByText(/12 leads imported/)).toHaveTextContent('1 skipped');
   });
 
+  it('no longer offers to create a Google Sheet source', async () => {
+    renderAuthed(<LeadSourcesPage />);
+
+    await screen.findByRole('button', { name: 'Connect Facebook' });
+
+    expect(screen.queryByLabelText('Google Sheet link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect sheet' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Google Sheet' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Meta Lead Ads' })).not.toBeInTheDocument();
+  });
+
+  it('keeps an already-configured sheet source fully usable', async () => {
+    // Withdrawing the creation form must not strand the sources it created: they still render,
+    // still link out to the spreadsheet, and still sync.
+    renderAuthed(<LeadSourcesPage />);
+
+    expect(await screen.findByText('Meta wedding leads')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open sheet' })).toHaveAttribute(
+      'href',
+      LEAD_SOURCE.sheetUrl,
+    );
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /Pause importing from/ })).toBeInTheDocument();
+  });
+
+  it('makes Facebook the one prominent way in, with the token form tucked away', async () => {
+    renderAuthed(<LeadSourcesPage />);
+
+    const fallback = await screen.findByRole('button', {
+      name: 'Use a Page access token instead',
+    });
+
+    // Collapsed by default: open, it would read as a peer option rather than a fallback.
+    expect(fallback).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('Page access token')).not.toBeInTheDocument();
+
+    fireEvent.click(fallback);
+
+    expect(screen.getByLabelText('Page access token')).toBeInTheDocument();
+  });
+
   it('surfaces the sheet error so an admin can fix the sharing setting', async () => {
     endpoints.listLeadSources.mockResolvedValue({
       data: [
@@ -74,31 +117,10 @@ describe('LeadSourcesPage', () => {
     expect(screen.getByText('Sync failed')).toBeInTheDocument();
   });
 
-  it('connects a sheet with backfill off and AI context off by default', async () => {
-    renderAuthed(<LeadSourcesPage />);
-
-    fireEvent.change(await screen.findByLabelText('Name'), {
-      target: { value: 'Birthday leads' },
-    });
-    fireEvent.change(screen.getByLabelText('Google Sheet link'), {
-      target: { value: 'https://docs.google.com/spreadsheets/d/xyz/edit#gid=3' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Connect sheet' }));
-
-    await waitFor(() => expect(endpoints.createLeadSource).toHaveBeenCalledTimes(1));
-    expect(endpoints.createLeadSource.mock.calls[0][0]).toMatchObject({
-      name: 'Birthday leads',
-      sheetUrl: 'https://docs.google.com/spreadsheets/d/xyz/edit#gid=3',
-      whatsappAccountId: 'acc-1',
-      defaultCountryCode: '91',
-      aiContextEnabled: false,
-      importExisting: false,
-    });
-  });
-
   it('does not offer a removed number as a destination', async () => {
     renderAuthed(<LeadSourcesPage />);
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a Page access token instead' }));
     await screen.findByLabelText('WhatsApp number for new leads');
 
     expect(screen.getByRole('option', { name: 'Studio Main' })).toBeInTheDocument();
@@ -153,6 +175,41 @@ describe('LeadSourcesPage', () => {
     renderAuthed(<LeadSourcesPage />);
 
     expect(await screen.findByText(/Add a WhatsApp number on the Accounts page first/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Google Sheet link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect Facebook' })).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * The sheet IMPORTER is still supported; the sheet CREATION form is simply no longer offered on
+ * the page. So it is exercised directly here rather than through LeadSourcesPage - deleting the
+ * coverage along with the mount point would leave a live API path with nothing testing it.
+ */
+describe('AddLeadSourceForm (kept, no longer mounted on the page)', () => {
+  it('still connects a sheet, with backfill and AI context off by default', async () => {
+    // The fixture is a partial DTO; the form reads only id, name and status. Rendering the
+    // component directly type-checks its props, which going through a mocked endpoint did not.
+    const accounts = ACCOUNTS.filter(
+      (account) => account.status !== 'removed',
+    ) as unknown as WhatsAppAccount[];
+
+    renderAuthed(<AddLeadSourceForm accounts={accounts} />);
+
+    fireEvent.change(await screen.findByLabelText('Name'), {
+      target: { value: 'Birthday leads' },
+    });
+    fireEvent.change(screen.getByLabelText('Google Sheet link'), {
+      target: { value: 'https://docs.google.com/spreadsheets/d/xyz/edit#gid=3' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect sheet' }));
+
+    await waitFor(() => expect(endpoints.createLeadSource).toHaveBeenCalledTimes(1));
+    expect(endpoints.createLeadSource.mock.calls[0][0]).toMatchObject({
+      name: 'Birthday leads',
+      sheetUrl: 'https://docs.google.com/spreadsheets/d/xyz/edit#gid=3',
+      whatsappAccountId: 'acc-1',
+      defaultCountryCode: '91',
+      aiContextEnabled: false,
+      importExisting: false,
+    });
   });
 });
