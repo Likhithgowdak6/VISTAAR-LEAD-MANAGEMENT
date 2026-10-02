@@ -18,7 +18,7 @@ import {
   listMetaLeadForms,
   listMetaPagesWithTokens,
 } from './meta-graph.client.js';
-import { keyForLabel } from './lead-field-rules.js';
+import { CONTACT_FACT_KEYS, keyForLabel, LEAD_FACT_KEYS } from './lead-field-rules.js';
 import {
   assertMetaOauthConfigured,
   buildMetaAuthorizeUrl,
@@ -326,6 +326,25 @@ export const listConnectedMetaFormFields = asyncHandler(async (req, res) => {
       ...question,
       // What the importer would do with this question today, with no configuration at all.
       suggestedFactKey: keyForLabel(question.label) ?? keyForLabel(question.key) ?? null,
+    })),
+  });
+});
+
+/**
+ * GET /meta/field-keys — the vocabulary the mapping step offers as overrides.
+ *
+ * Served from LABEL_RULES rather than duplicated in the dashboard, so a rule added to the
+ * importer is immediately offerable. `isContact` marks the three that are the lead's identity:
+ * they are stored on the contact and deliberately never reach the AI, which is worth saying in
+ * the picker rather than leaving someone to wonder why `email` never appears in a draft.
+ */
+export const listMetaFieldKeys = asyncHandler(async (req, res) => {
+  requireAuthContext(req);
+
+  res.status(200).json({
+    data: LEAD_FACT_KEYS.map((key) => ({
+      key,
+      isContact: CONTACT_FACT_KEYS.includes(key),
     })),
   });
 });

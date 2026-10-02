@@ -12,12 +12,14 @@ import {
   buildLeadFormFacts,
   CATEGORY_HINTS,
   classifyCategory,
+  CONTACT_FACT_KEYS,
   deriveFacts,
   isBlankAnswer,
   isUnansweredValue,
   keyForLabel,
   LABEL_RULES,
   LEAD_CATEGORIES,
+  LEAD_FACT_KEYS,
   looksLikeForm,
   parseFormFields,
   parsePastedForm,
@@ -54,6 +56,29 @@ describe('LABEL_RULES', () => {
 
   it('keeps the live form\'s "pacakage" typo', () => {
     expect(LABEL_RULES.some((rule) => rule.match === 'pacakage')).toBe(true);
+  });
+});
+
+describe('LEAD_FACT_KEYS', () => {
+  it('is every key the rules can produce, de-duplicated', () => {
+    // Several rules point at one key - three at `event_type` alone - and the picker must offer
+    // each key once.
+    expect(new Set(LEAD_FACT_KEYS).size).toBe(LEAD_FACT_KEYS.length);
+    expect([...LEAD_FACT_KEYS].sort()).toEqual([...new Set(LABEL_RULES.map((r) => r.key))].sort());
+  });
+
+  it('cannot fall behind LABEL_RULES, because it is derived from it', () => {
+    // The point of the derivation: a rule added above is offerable in the mapping wizard without
+    // anyone remembering to update a second list.
+    LABEL_RULES.forEach((rule) => {
+      expect(LEAD_FACT_KEYS).toContain(rule.key);
+    });
+  });
+
+  it('includes the contact keys, so a mis-titled question can be pointed back at them', () => {
+    CONTACT_FACT_KEYS.forEach((key) => {
+      expect(LEAD_FACT_KEYS).toContain(key);
+    });
   });
 });
 

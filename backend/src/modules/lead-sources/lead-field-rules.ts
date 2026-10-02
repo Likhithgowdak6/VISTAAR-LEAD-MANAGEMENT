@@ -77,6 +77,18 @@ export const LABEL_RULES: readonly LabelRule[] = Object.freeze([
 ]);
 
 /**
+ * Every distinct key LABEL_RULES can produce, in a stable order.
+ *
+ * DERIVED, never hand-written. The mapping wizard offers these as the "map this question to…"
+ * choices, and a hand-kept copy in the frontend would drift the first time a rule is added here -
+ * leaving the owner unable to choose a key the importer nonetheless understands. Deriving it
+ * means the picker cannot fall behind the rules it is picking from.
+ */
+export const LEAD_FACT_KEYS: readonly string[] = Object.freeze(
+  [...new Set(LABEL_RULES.map((rule) => rule.key))].sort(),
+);
+
+/**
  * The lead's own identity, which is never a qualifying fact.
  *
  * These keys exist so the parser recognises the questions (and so a second "name" question does

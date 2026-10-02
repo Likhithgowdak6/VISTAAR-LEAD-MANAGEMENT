@@ -82,7 +82,9 @@ const metaConnectionSchema = new mongoose.Schema<MetaConnectionDocument>(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Organization',
       required: true,
-      index: true,
+      // Deliberately NOT `index: true`: the unique index declared below already covers this key,
+      // and declaring both makes Mongoose build two indexes on {organizationId: 1} and warn
+      // about it at every boot.
     },
 
     metaUserId: { type: String, required: true, trim: true, maxlength: 64 },

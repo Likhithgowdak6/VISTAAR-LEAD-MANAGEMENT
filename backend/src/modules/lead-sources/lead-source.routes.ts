@@ -21,6 +21,7 @@ import {
   listConnectedMetaFormFields,
   listConnectedMetaForms,
   listConnectedMetaPages,
+  listMetaFieldKeys,
   removeMetaConnection,
   retryMetaWebhookSubscription,
   runMetaDiagnostics,
@@ -60,6 +61,9 @@ leadSourceRouter.get(
   requireLeadSourcesManage,
   listConnectedMetaFormFields,
 );
+// The override choices for the mapping step. Static, and above /:leadSourceId so the literal
+// path is not swallowed by the parameterised one.
+leadSourceRouter.get('/meta/field-keys', requireLeadSourcesManage, listMetaFieldKeys);
 // Activate: create the source, subscribe the page, go live. No token in the body - the Page token
 // is minted server-side from the stored connection.
 leadSourceRouter.post('/meta/sources', requireLeadSourcesManage, createMetaOauthLeadSource);

@@ -23,6 +23,19 @@ export interface SerializedLeadSourceMeta {
   accessTokenLast4: unknown;
   accessTokenSetAt: string | null;
   lastLeadCreatedAt: string | null;
+  /** Null on a source whose Page was never subscribed, or whose subscription was withdrawn. */
+  webhookSubscribedAt: string | null;
+  /** Why the last subscription attempt failed, so the dashboard can offer Retry with a reason. */
+  webhookError: unknown;
+  /**
+   * Whether this source came from Facebook Login rather than a pasted Page token.
+   *
+   * The connection id itself is not exposed — only that there is one. It is what tells the
+   * dashboard a source HAS a Facebook authorisation to diagnose and re-subscribe; a webhook
+   * timestamp cannot, because a source created with instant delivery switched off has none and
+   * would otherwise look identical to a manually-tokened one.
+   */
+  usesFacebookLogin: boolean;
 }
 
 export interface SerializedLeadSource {
@@ -92,6 +105,9 @@ export const serializeLeadSource = (leadSource: unknown): SerializedLeadSource |
       accessTokenLast4: meta.accessTokenLast4 ?? null,
       accessTokenSetAt: serializeDate(meta.accessTokenSetAt),
       lastLeadCreatedAt: serializeDate(meta.lastLeadCreatedAt),
+      webhookSubscribedAt: serializeDate(meta.webhookSubscribedAt),
+      webhookError: meta.webhookError ?? null,
+      usesFacebookLogin: Boolean(value.metaConnectionId),
     },
     whatsappAccountId: serializeId(value.whatsappAccountId),
     defaultCountryCode: value.defaultCountryCode,
