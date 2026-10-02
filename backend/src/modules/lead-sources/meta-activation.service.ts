@@ -180,6 +180,40 @@ export const createMetaActivationService = ({
     return { ...page, connectionId };
   };
 
+  /** Mongo's uniqueness complaint. Not an HTTP concept, so it has to be translated. */
+  const DUPLICATE_KEY_ERROR = 11000;
+
+  /**
+   * Creates the source, turning "that form is taken" into an answer rather than a crash.
+   *
+   * A second source for the same Page+Form hits the unique index on
+   * `(organizationId, meta.pageId, meta.formId)`. Unhandled, the driver's E11000 reaches the
+   * error middleware with no `statusCode`, so it became a 500 whose body carried the raw code
+   * `11000` and the words "Internal server error" - which told the owner nothing, and which the
+   * wizard then showed verbatim. Picking an already-connected form is an ordinary mistake, not a
+   * server fault, and the form list does not yet mark which ones are taken.
+   *
+   * Only 11000 is translated; any other failure still propagates untouched.
+   */
+  const createWithoutClashing = async (
+    params: Parameters<typeof createLeadSource>[0],
+    formLabel: string,
+  ) => {
+    try {
+      return await createLeadSource(params);
+    } catch (error: unknown) {
+      if ((error as { code?: unknown } | null)?.code !== DUPLICATE_KEY_ERROR) {
+        throw error;
+      }
+
+      throw createHttpError({
+        statusCode: 409,
+        message: `"${formLabel}" is already connected to a lead source. Choose a different form, or edit the existing one.`,
+        code: 'META_FORM_ALREADY_CONNECTED',
+      });
+    }
+  };
+
   /**
    * Subscribes a Page, and reports WHY it failed rather than just that it did.
    *
@@ -258,7 +292,7 @@ export const createMetaActivationService = ({
       });
     }
 
-    const leadSource = await createLeadSource({
+    const leadSource = await createWithoutClashing({
       organizationId,
       name,
       kind: LEAD_SOURCE_KINDS.META_LEAD_ADS,
@@ -287,7 +321,7 @@ export const createMetaActivationService = ({
       defaultAssigneeId,
       // Paused until the subscription is confirmed. See the header on why this order matters.
       status: LEAD_SOURCE_STATUSES.PAUSED,
-    });
+    }, form.name ?? formId);
 
     if (!leadSource) {
       throw createHttpError({

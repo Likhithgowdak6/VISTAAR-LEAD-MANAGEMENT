@@ -66,6 +66,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     field_data: [{ name: 'full_name', values: ['Likhith'] }],
   });
   const importLead = vi.fn().mockResolvedValue('imported');
+  const countLeadSourceImport = vi.fn().mockResolvedValue(null);
   const logger = { info: vi.fn(), error: vi.fn() };
 
   const service = createMetaWebhookService({
@@ -77,11 +78,19 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     decryptMetaAccessTokenFromStorage: ((field: unknown) =>
       field ? 'page-token' : null) as never,
     leadPipeline: { importLead } as never,
+    countLeadSourceImport: countLeadSourceImport as never,
     logger,
     ...overrides,
   });
 
-  return { service, findLeadSourceForMetaForm, fetchMetaLeadById, importLead, logger };
+  return {
+    service,
+    findLeadSourceForMetaForm,
+    fetchMetaLeadById,
+    importLead,
+    countLeadSourceImport,
+    logger,
+  };
 };
 
 beforeEach(() => {
@@ -300,5 +309,90 @@ describe('handleWebhookBody', () => {
       outcomes: [],
     });
     expect(h.importLead).not.toHaveBeenCalled();
+  });
+});
+
+/** The single event the counter tests drive, matching the envelope fixture above. */
+const EVENT = {
+  leadgenId: '1802669104075658',
+  pageId: '464675790673972',
+  formId: '2166324230964931',
+  createdTime: null,
+};
+
+describe('the source import counter', () => {
+  it('counts a genuinely new lead', async () => {
+    // Found in production: the webhook calls importLead directly and so never passed through
+    // the poller's recordLeadSourceSync, which is what maintains totalImported. A source fed
+    // entirely by webhook sat at "0 leads imported" however many it had actually brought in.
+    const h = createHarness();
+
+    await expect(h.service.handleLeadgenEvent(EVENT)).resolves.toBe('imported');
+
+    expect(h.countLeadSourceImport).toHaveBeenCalledTimes(1);
+    expect(h.countLeadSourceImport).toHaveBeenCalledWith({ leadSourceId: 'src-1' });
+  });
+
+  it('does NOT count a redelivery', async () => {
+    // Meta retries anything it thinks was not acknowledged, and we replay deliveries ourselves
+    // when testing. Counting a duplicate would inflate the figure every time the same lead
+    // arrived twice - which is precisely when the number matters.
+    const h = createHarness();
+    h.importLead.mockResolvedValue('duplicate');
+
+    await expect(h.service.handleLeadgenEvent(EVENT)).resolves.toBe('duplicate');
+
+    expect(h.countLeadSourceImport).not.toHaveBeenCalled();
+  });
+
+  it.each(['skipped', 'failed'])('does NOT count a %s lead', async (outcome) => {
+    const h = createHarness();
+    h.importLead.mockResolvedValue(outcome);
+
+    await h.service.handleLeadgenEvent(EVENT);
+
+    expect(h.countLeadSourceImport).not.toHaveBeenCalled();
+  });
+
+  it('does not count anything when no source matched', async () => {
+    const h = createHarness();
+    h.findLeadSourceForMetaForm.mockResolvedValue(null);
+
+    await expect(h.service.handleLeadgenEvent(EVENT)).resolves.toBe('no_source');
+
+    expect(h.countLeadSourceImport).not.toHaveBeenCalled();
+  });
+
+  it('still reports the lead as imported when the counter write fails', async () => {
+    // The lead is already saved by this point. A wrong number on a dashboard is worth far less
+    // than a redelivery storm, which is what returning anything other than 'imported' would
+    // cause - Meta retries whatever it is not told succeeded.
+    const h = createHarness();
+    h.countLeadSourceImport.mockRejectedValue(new Error('mongo is down'));
+
+    await expect(h.service.handleLeadgenEvent(EVENT)).resolves.toBe('imported');
+
+    expect(h.logger.error).toHaveBeenCalled();
+  });
+
+  it('counts once per new lead across a multi-event delivery', async () => {
+    const h = createHarness();
+    h.importLead.mockResolvedValueOnce('imported').mockResolvedValueOnce('duplicate');
+
+    const body = leadgenBody();
+    body.entry[0]!.changes.push({
+      field: 'leadgen',
+      value: {
+        leadgen_id: '1802669104075659',
+        page_id: '464675790673972',
+        form_id: '2166324230964931',
+        created_time: 1790000001,
+      },
+    });
+
+    await expect(h.service.handleWebhookBody(body)).resolves.toMatchObject({
+      outcomes: ['imported', 'duplicate'],
+    });
+    expect(h.countLeadSourceImport).toHaveBeenCalledTimes(1);
   });
 });

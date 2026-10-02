@@ -204,6 +204,46 @@ describe('activateMetaLeadSource - when Meta says no', () => {
     expect(result.webhookError).toMatch(/did not confirm/i);
   });
 
+  it('answers 409 when the form is already connected, not a raw 500', async () => {
+    // Found in production: a second activation of the same Page+Form hit the unique index on
+    // (organizationId, meta.pageId, meta.formId), and the driver's E11000 reached the error
+    // middleware with no statusCode - so the owner got HTTP 500 {"code":11000,"message":
+    // "Internal server error."} and the wizard showed exactly that. Picking a form that is
+    // already connected is an ordinary mistake, especially while the form list does not mark
+    // which ones are taken.
+    const h = createHarness();
+    h.createLeadSource.mockRejectedValue(
+      Object.assign(new Error('E11000 duplicate key error collection: wam_crm_ai.leadsources'), {
+        code: 11000,
+        keyPattern: { organizationId: 1, 'meta.pageId': 1, 'meta.formId': 1 },
+      }),
+    );
+
+    await expect(h.service.activateMetaLeadSource(activateParams)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'META_FORM_ALREADY_CONNECTED',
+    });
+
+    // Names the form, so the owner knows which one to change.
+    await expect(h.service.activateMetaLeadSource(activateParams)).rejects.toThrow(
+      new RegExp(FORM.name),
+    );
+
+    // Nothing was subscribed on the way out: the clash happens before the Page is touched.
+    expect(h.subscribePageToLeadgen).not.toHaveBeenCalled();
+  });
+
+  it('still propagates a non-duplicate failure untouched', async () => {
+    // Only 11000 is translated. Mislabelling an unrelated write failure as "already connected"
+    // would send the owner looking for a source that does not exist.
+    const h = createHarness();
+    h.createLeadSource.mockRejectedValue(new Error('connection timed out'));
+
+    await expect(h.service.activateMetaLeadSource(activateParams)).rejects.toThrow(
+      /connection timed out/,
+    );
+  });
+
   it('refuses a page this Facebook account does not manage', async () => {
     // A page id is a public number; possessing one proves nothing. Asking Meta which pages the
     // authorisation actually manages is the ownership check.

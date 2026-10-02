@@ -23,7 +23,10 @@ import { createLeadPipeline } from './lead-pipeline.service.js';
 import { fetchMetaLeadById as defaultFetchMetaLeadById } from './meta-graph.client.js';
 import { decryptMetaAccessTokenFromStorage as defaultDecryptMetaAccessTokenFromStorage } from './meta-credentials.service.js';
 import { mapMetaGraphLead } from './meta-lead.mapper.js';
-import { findLeadSourceForMetaForm as defaultFindLeadSourceForMetaForm } from './lead-source.repository.js';
+import {
+  countLeadSourceImport as defaultCountLeadSourceImport,
+  findLeadSourceForMetaForm as defaultFindLeadSourceForMetaForm,
+} from './lead-source.repository.js';
 import { type FieldKeyOverrides } from './lead-field-rules.js';
 import { type LeadSourceDocument } from './lead-source.model.js';
 
@@ -148,6 +151,7 @@ export interface CreateMetaWebhookServiceOptions {
   // which a unit test has no business needing.
   decryptMetaAccessTokenFromStorage?: typeof defaultDecryptMetaAccessTokenFromStorage;
   leadPipeline?: Pick<ReturnType<typeof createLeadPipeline>, 'importLead'>;
+  countLeadSourceImport?: typeof defaultCountLeadSourceImport;
   logger?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
 }
 
@@ -157,6 +161,7 @@ export const createMetaWebhookService = ({
   fetchMetaLeadById = defaultFetchMetaLeadById,
   decryptMetaAccessTokenFromStorage = defaultDecryptMetaAccessTokenFromStorage,
   leadPipeline = createLeadPipeline({ config }),
+  countLeadSourceImport = defaultCountLeadSourceImport,
   logger = defaultLogger,
 }: CreateMetaWebhookServiceOptions = {}) => {
   /**
@@ -210,7 +215,28 @@ export const createMetaWebhookService = ({
 
       // The same call the poller makes. Everything downstream - dedup, the ledger, the allowlist,
       // the owner alert, the auto-greet - is whatever importLead already does.
-      return await leadPipeline.importLead({ leadSource, lead });
+      const outcome = await leadPipeline.importLead({ leadSource, lead });
+
+      // Only a genuinely NEW lead counts. `duplicate` is the dedup working - Meta redelivers,
+      // and we replay deliveries ourselves - so counting it would inflate the figure every time
+      // the same lead arrived twice. `skipped` and `failed` produced no lead at all.
+      //
+      // The poller keeps this count through recordLeadSourceSync; the webhook never went through
+      // that, so a source fed entirely by webhook sat at "0 leads imported" however many it had
+      // actually brought in.
+      if (outcome === 'imported') {
+        // Deliberately not fatal: the lead is already saved. Losing the increment is a wrong
+        // number on a dashboard; turning that into 'failed' would have Meta redeliver a lead
+        // that imported perfectly well.
+        await countLeadSourceImport({ leadSourceId: leadSource._id }).catch((error: unknown) => {
+          logger.error?.(
+            { code: (error as { code?: unknown })?.code },
+            'Meta webhook imported a lead but could not update the source import count.',
+          );
+        });
+      }
+
+      return outcome;
     } catch (error: unknown) {
       const err = error as { code?: unknown; name?: unknown };
 

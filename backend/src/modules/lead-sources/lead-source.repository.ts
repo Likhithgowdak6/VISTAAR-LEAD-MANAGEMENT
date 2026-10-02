@@ -421,6 +421,37 @@ export const recordLeadSourceSync = ({
   }).exec();
 };
 
+export interface CountLeadSourceImportParams {
+  leadSourceId?: ObjectIdLike;
+  imported?: number;
+}
+
+/**
+ * Adds to a source's lifetime import count, and touches nothing else.
+ *
+ * DELIBERATELY NOT `recordLeadSourceSync`. That one also overwrites `lastSyncedAt`,
+ * `lastSyncStatus` and `lastSyncCounts`, which describe the last POLL - a webhook delivery is not
+ * a poll, and borrowing that function would have a single pushed lead report itself as a complete
+ * sync of one, wiping whatever the last real poll found.
+ *
+ * Needed because the webhook path calls `importLead` directly and so never passed through the
+ * poller's bookkeeping: a source could import leads all day and still show "0 leads imported".
+ */
+export const countLeadSourceImport = ({
+  leadSourceId,
+  imported = 1,
+}: CountLeadSourceImportParams) => {
+  if (imported <= 0) {
+    return Promise.resolve(null);
+  }
+
+  return LeadSource.findOneAndUpdate(
+    { _id: leadSourceId },
+    { $inc: { totalImported: imported } },
+    { returnDocument: 'after' },
+  ).exec();
+};
+
 export interface RecordMetaLeadWatermarkParams {
   leadSourceId?: ObjectIdLike;
   lastLeadCreatedAt: Date;
