@@ -151,6 +151,15 @@ const envSchema = z.object({
 
   WHATSAPP_BUSINESS_TIMEZONE: z.string().default('Asia/Kolkata'),
 
+  // How long to wait for a customer to finish typing before judging what they said.
+  //
+  // People send "Hi" / "I need a photographer" / "For my wedding" as four messages in six
+  // seconds. Without a window each one is a separate turn, which means four intent calls and
+  // four replies talking over someone who is still typing. With it, they are one turn and one
+  // answer. Capped at 30s because this is latency a waiting customer feels directly - the goal
+  // is to catch a burst, not to make the studio look slow. 0 disables batching entirely.
+  WHATSAPP_INBOUND_DEBOUNCE_MS: z.coerce.number().int().min(0).max(30_000).default(3_000),
+
   // Step-by-step pipeline tracing for a message travelling through the system (see
   // observability/pipeline-trace.ts): one aligned terminal line per stage, and a loud STOPPED
   // line wherever a message is dropped. Off by default, same gating style as NURTURE_ENABLED /

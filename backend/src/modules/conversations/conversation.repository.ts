@@ -1,6 +1,6 @@
 import { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
-import { type AiIntent } from '../../constants/ai-intents.js';
+import { AI_INTENTS, type AiIntent } from '../../constants/ai-intents.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import { type ConversationStatus } from '../../constants/conversation-statuses.js';
 import { type DatabaseSession } from '../../config/database.js';
@@ -1132,6 +1132,13 @@ export const findNurturableConversations = ({
     stage: { $in: ACTIVE_PIPELINE_STAGES },
     aiAutomationEnabled: true,
     lastOutboundAt: { $ne: null },
+    // Never chase someone the gate has read as not a customer. `lastOutboundAt` above already
+    // keeps out threads the AI has never spoken in, but a staff member answering a vendor by
+    // hand would otherwise make that thread nurturable - and a "still looking for a
+    // photographer?" sent to somebody's accounts department is the same mistake in slower
+    // motion. Only an explicit non_lead verdict is excluded, so the field being `unknown` on
+    // every conversation written before the gate existed changes nothing.
+    aiIntent: { $ne: AI_INTENTS.NON_LEAD },
     // A lead who asked to stop is never nurturable again. `aiAutomationEnabled: false` above
     // already covers them the moment they opt out, but this is the guarantee that survives
     // somebody flipping automation back on from the dashboard: opting out outranks the toggle.

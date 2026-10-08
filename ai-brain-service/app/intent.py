@@ -87,7 +87,33 @@ def _transcript_text(transcript) -> str:
     return "\n".join(lines)
 
 
-def classify(message: str, transcript=None) -> dict:
+# The brief the classifier judges enquiries against when the caller does not send one.
+#
+# WRITTEN AS A DESCRIPTION, NOT A KEYWORD LIST, and the difference is the whole point. The
+# services are named so the model knows the shape of the business, but the closing lines are
+# what matter: a customer saying "our online presence isn't working" has named none of these
+# and is still a lead. Anchoring on the words would re-create by prompt exactly the keyword
+# matching the code was rewritten to avoid.
+#
+# Photography is ONE line of several, deliberately placed mid-list. It used to be the entire
+# brief, which biased the classifier towards reading every non-photography enquiry - websites,
+# SEO, social media - as something other than a customer.
+DEFAULT_BUSINESS_BRIEF = (
+    "Vistaar Verse, a multi-service creative, digital and events agency in Bangalore, India. "
+    "It is hired for: content creation and content marketing; photo, video and podcast "
+    "production; corporate, commercial, event and real-estate photography; website design and "
+    "development, and e-commerce builds; social media management, strategy and marketing; "
+    "digital marketing, advertising and SEO; branding, brand marketing and creative media; and "
+    "event marketing. "
+    "Treat that list as a description of the kind of work it takes on, NOT as words to match. "
+    "A customer enquiring about any of it is a lead, and so is one describing the problem "
+    "rather than the service - \"our website looks dated\", \"nobody finds us on Google\", "
+    "\"we are launching next month and need help\" - or asking for something adjacent that an "
+    "agency like this would plausibly take on."
+)
+
+
+def classify(message: str, transcript=None, business_brief: str = "") -> dict:
     """
     Returns {intent, confidence, reason}.
 
@@ -100,6 +126,9 @@ def classify(message: str, transcript=None) -> dict:
         raise ValueError("nothing to classify")
 
     system = prompts.INTENT_SYSTEM.format(
+        # Defaulted rather than required: the caller does not yet send one, and a classifier
+        # with no idea what the business sells would be worse than one with a stale guess.
+        business_brief=(business_brief or "").strip() or DEFAULT_BUSINESS_BRIEF,
         transcript=_transcript_text(transcript) or "(no earlier messages)",
         message=text,
     )

@@ -209,6 +209,79 @@ export const MARKETING_PHRASES: readonly string[] = Object.freeze([
  * endless, would go stale, and would misfire on "I'll transfer from HDFC" - whereas nobody
  * asking about a wedding has ever written "select from the options below".
  */
+/**
+ * A whole message that is nothing but hello, thanks, or a nod.
+ *
+ * WHOLE-MESSAGE ONLY, and that is the entire safety argument: "hi" alone says nothing about
+ * wanting a photographer, but "hi, what do you charge for a wedding?" is a lead and must not be
+ * swallowed because it opens politely. Matching these as substrings would eat every enquiry that
+ * starts with a greeting, which is most of them.
+ *
+ * Silence here is also cheap to be wrong about. Someone who opens with "hi" and means business
+ * says what they want in the next message, and THAT one reaches the AI - automation is never
+ * paused, so nothing is lost but a few seconds.
+ */
+export const PLEASANTRY_WHOLE_MESSAGE_PHRASES: readonly string[] = Object.freeze([
+  'hi',
+  'hii',
+  'hiii',
+  'hey',
+  'heyy',
+  'hello',
+  'helo',
+  'hi there',
+  'hey there',
+  'hello there',
+  'good morning',
+  'good afternoon',
+  'good evening',
+  'gm',
+  'ge',
+  'namaste',
+  'namaskara',
+  'vanakkam',
+  'salaam',
+  'assalamualaikum',
+  'thanks',
+  'thank you',
+  'thank u',
+  'thanx',
+  'thx',
+  'tq',
+  'dhanyavad',
+  'ok',
+  'okay',
+  'okk',
+  'k',
+  'kk',
+  'fine',
+  'sure',
+  'got it',
+  'noted',
+  'alright',
+  'cool',
+  'nice',
+  'great',
+  'yes',
+  'yeah',
+  'yep',
+  'no',
+  'nope',
+  'hmm',
+  'hmmm',
+  'welcome',
+  'bye',
+  'good night',
+  'gn',
+  'who is this',
+  'whos this',
+  'who r u',
+  'who are you',
+  'whats up',
+  'wassup',
+  'sup',
+]);
+
 export const AUTOMATED_PHRASES: readonly string[] = Object.freeze([
   'select from the options below',
   'choose from the options below',
@@ -251,6 +324,7 @@ export const NON_LEAD_REASONS = Object.freeze({
   MARKETING: 'This looks like a promotional message, so the AI did not reply.',
   LINK_ONLY: 'This message was only a link, so the AI did not reply.',
   AUTOMATED: 'This looks like an automated message, so the AI did not reply.',
+  PLEASANTRY: 'This was a greeting with no enquiry in it, so the AI did not reply.',
 });
 
 export type NonLeadReason = (typeof NON_LEAD_REASONS)[keyof typeof NON_LEAD_REASONS];
@@ -354,6 +428,12 @@ export const classifyNonLead = (text: unknown): NonLeadVerdict => {
 
   if (matches(normalized, [], AUTOMATED_PHRASES)) {
     return { isNonLead: true, reason: NON_LEAD_REASONS.AUTOMATED };
+  }
+
+  // Whole-message only - see PLEASANTRY_WHOLE_MESSAGE_PHRASES. Deliberately last of the phrase
+  // rules so a greeting that also carries a real question has already been let through above.
+  if (matches(normalized, PLEASANTRY_WHOLE_MESSAGE_PHRASES, [])) {
+    return { isNonLead: true, reason: NON_LEAD_REASONS.PLEASANTRY };
   }
 
   if (isLinkOnly(text)) {

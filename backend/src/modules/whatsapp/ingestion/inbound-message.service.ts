@@ -1,5 +1,6 @@
 import { type HydratedDocument } from 'mongoose';
 
+import { env } from '../../../config/env.js';
 import { logger as defaultLogger } from '../../../config/logger.js';
 import { CONVERSATION_STAGES } from '../../../constants/conversation-stages.js';
 import { MESSAGE_TYPES, type MessageType } from '../../../constants/message-types.js';
@@ -11,6 +12,10 @@ import {
 } from '../../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../../types/common.js';
 import { handleInboundMessageForAutomation as defaultHandleAutomation } from '../../ai-brain/ai-brain.service.js';
+import {
+  createInboundBurstCollector,
+  type InboundBurstCollector,
+} from './inbound-burst.js';
 import { sendNewLeadAlert as defaultSendNewLeadAlert } from '../../ai-brain/new-lead-alert.service.js';
 import { sendOptOutAlert as defaultSendOptOutAlert } from '../../ai-brain/owner-approval-card.service.js';
 import {
@@ -48,7 +53,6 @@ import {
   isOptOutRequest as defaultIsOptOutRequest,
   OPT_OUT_PAUSED_REASON,
 } from '../automation/opt-out.js';
-import { classifyNonLead as defaultClassifyNonLead } from '../automation/non-lead.js';
 import { type NormalizedInboundMessage } from '../providers/whatsapp-provider.interface.js';
 import { WhatsAppProviderError } from '../whatsapp.errors.js';
 
@@ -173,10 +177,17 @@ export interface CreateInboundMessageIngestionServiceOptions {
     conversation: HydratedDocument<ConversationDocument>;
     inboundMessageId: ObjectIdLike;
     inboundText: string;
+    /** How many inbound messages this one logical turn was assembled from. */
+    inboundMessageCount?: number;
     messageType?: MessageType;
     isVoiceNote?: boolean;
     traceId?: string;
   }) => Promise<void>;
+  /**
+   * Groups a customer's rapid messages into one turn before the AI judges them. Injected so
+   * tests can close the window synchronously instead of waiting out the real debounce.
+   */
+  burstCollector?: InboundBurstCollector;
   /**
    * Pings the owner's WhatsApp self-chat about a brand-new lead's first message. Held to the
    * same contract as `handleAutomation`: internally failure-isolated, never throws, so a missing
@@ -185,8 +196,6 @@ export interface CreateInboundMessageIngestionServiceOptions {
   sendNewLeadAlert?: typeof defaultSendNewLeadAlert;
   /** "Did this lead just ask us to stop messaging them?" Pure; injected for tests. */
   isOptOutRequest?: (text: unknown) => boolean;
-  /** "Is this obviously not a sales enquiry at all?" Pure; injected for tests. */
-  classifyNonLead?: typeof defaultClassifyNonLead;
   /**
    * Tells the owner on WhatsApp that a lead opted out. Same contract as `sendNewLeadAlert`:
    * internally failure-isolated, never throws, and guarded again below regardless.
@@ -223,6 +232,26 @@ export interface IngestInboundMessageOptions {
  * returning senders reuse the same contact and conversation. Duplicate provider
  * messages are idempotent: they do not double-count unread or bump the preview.
  */
+/**
+ * One collector for the whole process, built lazily so importing this module does not read
+ * config. Shared on purpose: a burst is defined by a conversation, not by which request
+ * happened to receive its third message.
+ */
+let sharedBurstCollector: InboundBurstCollector | null = null;
+
+const defaultBurstCollector: InboundBurstCollector = {
+  collect: (params) => {
+    sharedBurstCollector ??= createInboundBurstCollector({
+      debounceMs: env.WHATSAPP_INBOUND_DEBOUNCE_MS,
+      logger: defaultLogger,
+    });
+
+    return sharedBurstCollector.collect(params);
+  },
+  flushAll: () => sharedBurstCollector?.flushAll() ?? Promise.resolve(),
+  isPending: (conversationId) => sharedBurstCollector?.isPending(conversationId) ?? false,
+};
+
 export const createInboundMessageIngestionService = ({
   contactRepository = {
     findOrCreateContactByProviderKey:
@@ -248,9 +277,9 @@ export const createInboundMessageIngestionService = ({
   normalizeProviderJid = defaultNormalizeProviderJid as (jid: unknown) => string | null,
   publishEvent = defaultPublishConversationChanged as CreateInboundMessageIngestionServiceOptions['publishEvent'],
   handleAutomation = defaultHandleAutomation,
+  burstCollector = defaultBurstCollector,
   sendNewLeadAlert = defaultSendNewLeadAlert,
   isOptOutRequest = defaultIsOptOutRequest,
-  classifyNonLead = defaultClassifyNonLead,
   sendOptOutAlert = defaultSendOptOutAlert,
   recomputeLeadScore = defaultRecomputeLeadScore,
   looksLikeForm = defaultLooksLikeForm,
@@ -605,39 +634,19 @@ export const createInboundMessageIngestionService = ({
       }
     }
 
-    // A bank OTP, a vendor's GST invoice, a marketing blast. Same shape as the opt-out above and
-    // for the same reason: the message is already persisted and visible, only the AI reply is
-    // suppressed. Placed AFTER opt-out so an opt-out keeps its own, more important reason, and
-    // after the scoring block so nothing that feeds the lead panel is skipped.
+    // NO NON-LEAD FILTER HERE ANY MORE, and that is deliberate.
     //
-    // A PASTED FORM IS EXEMPT. `looksLikeForm` ran above and its facts are already merged onto
-    // the conversation; a Meta form body carries "Full name", "Phone number", sometimes a
-    // package line, and must reach the AI with all of it. Checking the same predicate here
-    // rather than trusting the phrase lists keeps that guarantee explicit instead of accidental.
-    const nonLead =
-      !optedOut && !looksLikeForm(body) ? classifyNonLead(body) : { isNonLead: false, reason: null };
-
-    if (nonLead.isNonLead) {
-      // The existing automation-state mechanism, not a new one: same field, same reason string
-      // the dashboard already renders for an escalation, same switch the owner flips to override
-      // us. Failure-isolated like every other best-effort write here - if it cannot be recorded
-      // the AI still must not answer, which the branch below guarantees regardless.
-      try {
-        await conversationRepository.updateAutomationState?.({
-          conversationId: conversation._id,
-          organizationId,
-          aiAutomationEnabled: false,
-          aiAutomationPausedReason: nonLead.reason,
-        });
-      } catch (error: unknown) {
-        const err = error as { code?: unknown; name?: unknown };
-        logger?.error?.(
-          { code: err?.code, name: err?.name, conversationId: conversation._id.toString() },
-          'Non-lead pause could not be recorded; the message is saved and the AI is suppressed for it anyway.',
-        );
-      }
-    }
-
+    // This used to classify the message and, on a bank OTP or a promo blast, switch automation
+    // OFF for the conversation. Two things were wrong with that. It was a second, subtly
+    // different copy of a rule that also lived in the brain - and between the two of them an
+    // empty-bodied template message slipped past both. And pausing was far too final a
+    // punishment for one irrelevant message: a person who sends "hi", or whose number also
+    // carries their bank's alerts, was silenced for good, so the real enquiry that arrived
+    // afterwards was never answered.
+    //
+    // The decision now lives in exactly one place - ai-brain/ai-eligibility.ts - and it is
+    // judged per message with automation left alone. Ingestion's job is to persist the message
+    // and hand it on; deciding whether to speak is not its business.
     if (optedOut) {
       // Decided here rather than in ai-brain.service, so this is where it has to be said: the
       // message IS saved and visible in the dashboard, but no AI reply will ever follow it.
@@ -646,26 +655,33 @@ export const createInboundMessageIngestionService = ({
         'this lead has opted out, so the message is saved but the AI will not reply to it',
         () => ({ conversation: conversation._id.toString() }),
       );
-    } else if (nonLead.isNonLead) {
-      // Deliberately no owner ping. These arrive constantly - every OTP, every promo - and a
-      // notification per bank message would train the owner to ignore the alerts that matter.
-      // The conversation carries the reason and sits in the inbox; that is the notification.
-      trace.stop(
-        PIPELINE_STAGE.AI_ELIGIBILITY,
-        `this does not look like a sales enquiry, so the message is saved but the AI will not reply to it: ${nonLead.reason}`,
-        () => ({ conversation: conversation._id.toString() }),
-      );
     } else {
-      await handleAutomation?.({
-        organizationId,
-        conversation: conversationForAutomation,
-        inboundMessageId: message._id,
-        inboundText: body,
-        messageType,
-        isVoiceNote: inboundMedia?.isVoiceNote ?? false,
-        // Hands the AI stages this message's correlation id. They cannot derive it themselves:
-        // by then only the Mongo message id is in scope, not the WhatsApp one.
-        traceId: trace.id,
+      // NOT handed straight to the AI: handed to the burst window first, which closes a few
+      // seconds after this person stops typing and then passes everything they said as ONE
+      // turn. See inbound-burst.ts. A single message is simply a burst of one, so the only
+      // cost to the common case is the debounce itself.
+      //
+      // Deliberately not awaited - the window outlives this request by design, and holding
+      // ingestion open for three seconds per message would serialise the inbound pipeline.
+      burstCollector.collect({
+        conversationId: conversation._id,
+        messageId: message._id,
+        text: body,
+        flush: (turn) =>
+          handleAutomation?.({
+            organizationId,
+            conversation: conversationForAutomation,
+            // The turn's identity, not this message's: it is what the AI's reply is keyed on,
+            // so a burst can only ever produce one reply however many messages were in it.
+            inboundMessageId: turn.lastMessageId,
+            inboundText: turn.text,
+            inboundMessageCount: turn.messageCount,
+            messageType,
+            isVoiceNote: inboundMedia?.isVoiceNote ?? false,
+            // Hands the AI stages this message's correlation id. They cannot derive it
+            // themselves: by then only the Mongo message id is in scope, not the WhatsApp one.
+            traceId: trace.id,
+          }) ?? Promise.resolve(),
       });
     }
 

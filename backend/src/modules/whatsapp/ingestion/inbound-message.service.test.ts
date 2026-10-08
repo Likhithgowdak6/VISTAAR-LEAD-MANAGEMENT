@@ -16,6 +16,7 @@ vi.mock('../../../config/env.js', () => ({
 }));
 
 const { createInboundMessageIngestionService } = await import('./inbound-message.service.js');
+const { createInboundBurstCollector } = await import('./inbound-burst.js');
 const { createPipelineTrace, deriveTraceId } = await import(
   '../../../observability/pipeline-trace.js'
 );
@@ -30,11 +31,33 @@ const inboundMessage = {
   timestamp: 1_774_000_000,
 };
 
+/**
+ * A burst collector that does not batch: it hands the message straight on as a turn of one.
+ *
+ * The window itself is covered in inbound-burst.test.ts with injected timers. What these tests
+ * are about is what ingestion does with a message, and making every one of them wait out a
+ * real three-second debounce would buy nothing but a slow suite.
+ */
+const immediateBurstCollector = {
+  collect: ({ messageId, text, flush }: {
+    conversationId: unknown;
+    messageId: unknown;
+    text: string;
+    flush: (turn: { text: string; messageCount: number; lastMessageId: string }) => Promise<void>;
+  }) => {
+    void flush({ text, messageCount: 1, lastMessageId: String(messageId) });
+  },
+  flushAll: async () => undefined,
+  isPending: () => false,
+} as never;
+
 const createHarness = (
   conversationOverrides: Record<string, unknown> = {},
   inboundOverrides: Record<string, unknown> = {},
   /** Extra conversation-repository doubles, e.g. the pasted-form merge. */
   conversationRepositoryOverrides: Record<string, unknown> = {},
+  /** Swap the pass-through collector for a real window, in the burst tests. */
+  burstCollectorOverride: unknown = immediateBurstCollector,
 ) => {
   const conversation = {
     _id: 'conv-1',
@@ -60,6 +83,7 @@ const createHarness = (
   const logger = { error: vi.fn() };
 
   const service = createInboundMessageIngestionService({
+    burstCollector: burstCollectorOverride as never,
     contactRepository: {
       findOrCreateContactByProviderKey: vi.fn().mockResolvedValue({
         contact: {
@@ -108,11 +132,11 @@ const createHarness = (
     updateConversationPreview,
     createInboundMessage,
     logger,
-    run: () =>
+    run: (perCall: Record<string, unknown> = {}) =>
       service.ingestInboundMessage({
         organizationId: 'org-1',
         whatsappAccountId: 'account-1',
-        inboundMessage: { ...inboundMessage, ...inboundOverrides } as never,
+        inboundMessage: { ...inboundMessage, ...inboundOverrides, ...perCall } as never,
       }),
   };
 };
@@ -432,6 +456,7 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
     const handleAutomation = vi.fn().mockResolvedValue(undefined);
 
     const service = createInboundMessageIngestionService({
+      burstCollector: immediateBurstCollector,
       contactRepository: {
         findOrCreateContactByProviderKey: vi.fn().mockResolvedValue({
           contact: { _id: 'contact-1', displayName: 'Riya Sharma' },
@@ -568,6 +593,7 @@ describe('ingestInboundMessage - a @lid reply must not fork the contact', () => 
     });
 
     const service = createInboundMessageIngestionService({
+      burstCollector: immediateBurstCollector,
       contactRepository: {
         findOrCreateContactByProviderKey,
         attachContactPhoneIfMissing: vi.fn().mockResolvedValue(undefined),
@@ -660,129 +686,158 @@ describe('ingestInboundMessage - a @lid reply must not fork the contact', () => 
   });
 });
 
-describe('ingestInboundMessage - the non-lead filter', () => {
+// --------------------------------------------------------------------------
+// Ingestion no longer decides whether the AI may speak.
+//
+// It used to: a phrase filter ran here and, on a bank OTP or a promo blast, switched automation
+// OFF for the conversation. Two things were wrong with that. It was a second copy of a rule that
+// also lived in the brain, and between the two versions an empty-bodied template message slipped
+// past both. And the pause was permanent - the person who sent "hi", or whose number also
+// carries their bank's alerts, was silenced for good, so a real enquiry arriving afterwards was
+// never answered.
+//
+// Ingestion now persists the message and hands it on. Judging it belongs to exactly one place,
+// ai-brain/ai-eligibility.ts, which decides per message and never pauses anything.
+// --------------------------------------------------------------------------
+describe('ingestInboundMessage - it no longer judges the message', () => {
   const OTP = '847219 is your OTP for login. Do not share this OTP with anyone.';
 
-  it('saves the message but never hands it to the AI', async () => {
-    const h = createHarness({}, { text: OTP });
+  it.each([
+    ['a bank OTP', OTP],
+    ['a GST invoice', 'Please share the GST invoice for last month'],
+    ['a promo blast', 'Buy 2 formal pants and save an extra 10%'],
+    ['a bare link', 'https://example.com/offer'],
+    ['a bare greeting', 'Hi'],
+  ])('persists %s and hands it to the automation layer', async (_label, text) => {
+    const h = createHarness({}, { text });
 
     const result = await h.run();
 
-    // Saved and visible: the owner must still be able to see what arrived.
+    // Saved and visible, as always.
     expect(result).toMatchObject({ persisted: true, conversationId: 'conv-1' });
-    expect(h.createInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ body: OTP }));
-    expect(h.updateConversationPreview).toHaveBeenCalled();
-
-    expect(h.handleAutomation).not.toHaveBeenCalled();
-  });
-
-  it('pauses automation through the existing mechanism, with a readable reason', async () => {
-    const h = createHarness({}, { text: OTP });
-
-    await h.run();
-
-    // updateAutomationState, not a new field and not a new notification system.
-    expect(h.updateAutomationState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        organizationId: 'org-1',
-        aiAutomationEnabled: false,
-        aiAutomationPausedReason: expect.stringContaining('bank or OTP'),
-      }),
-    );
-  });
-
-  it('does not ping the owner for every OTP and promo', async () => {
-    // A notification per bank message would train the owner to ignore the alerts that matter.
-    // The paused conversation in the inbox IS the notification.
-    const h = createHarness({ lastInboundAt: new Date('2026-08-24T03:00:00.000Z') }, { text: OTP });
-
-    await h.run();
-
-    expect(h.sendOptOutAlert).not.toHaveBeenCalled();
-    expect(h.sendNewLeadAlert).not.toHaveBeenCalled();
-  });
-
-  it('still suppresses the AI when the pause cannot be written', async () => {
-    const h = createHarness({}, { text: OTP });
-    h.updateAutomationState.mockRejectedValue(new Error('mongo is down'));
-
-    const result = await h.run();
-
-    expect(result).toMatchObject({ persisted: true });
-    expect(h.handleAutomation).not.toHaveBeenCalled();
-    expect(h.logger.error).toHaveBeenCalled();
+    expect(h.createInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ body: text }));
+    // And passed on. The gate downstream is what stays silent - the decision is not made here.
+    expect(h.handleAutomation).toHaveBeenCalled();
   });
 
   it.each([
-    ['a GST invoice', 'Please share the GST invoice for last month'],
-    ['a promo blast', 'Thanks for being a valued customer! Type STOP to Unsubscribe'],
-    ['a bare link', 'https://example.com/promo/abc'],
-  ])('also blocks %s', async (_label, text) => {
+    ['a bank OTP', OTP],
+    ['a promo blast', 'Buy 2 formal pants and save an extra 10%'],
+    ['a bare greeting', 'Hi'],
+  ])('never pauses automation for %s', async (_label, text) => {
     const h = createHarness({}, { text });
 
     await h.run();
 
-    expect(h.handleAutomation).not.toHaveBeenCalled();
-  });
-
-  it('leaves a real enquiry completely untouched', async () => {
-    const h = createHarness({}, { text: 'wedding shoot price, I will transfer payment today' });
-
-    await h.run();
-
-    // The message mentions payment and transfer; the positive override has to win.
-    expect(h.handleAutomation).toHaveBeenCalled();
+    // THE REGRESSION THAT MATTERS. A pause here is what stopped the next real enquiry landing.
     expect(h.updateAutomationState).not.toHaveBeenCalled();
   });
 
-  it('never blocks a pasted lead form, whatever words it contains', async () => {
-    // A Meta form body carries "Full name", "Phone number" and often a package/price line. Its
-    // facts have already been merged onto the conversation by the time this gate runs, and the
-    // AI has to receive it with all of them.
-    const mergeConversationAiContext = vi.fn().mockResolvedValue({ _id: 'conv-1' });
-    const h = createHarness(
-      { lastInboundAt: null },
-      {
-        text: [
-          'Hello! I filled out your form',
-          'What is the event: House warming',
-          'Event date: 12 September 2026',
-          'Venue: Whitefield, Bangalore',
-          'Budget: 1.2 lakh',
-          'Invoice required: yes, with GST number',
-        ].join('\n'),
+  it('does not ping the owner about any of it', async () => {
+    const h = createHarness({}, { text: OTP });
+
+    await h.run();
+
+    expect(h.sendOptOutAlert).not.toHaveBeenCalled();
+  });
+});
+
+// --------------------------------------------------------------------------
+// Rapid messages, through real ingestion and a real burst window.
+//
+// inbound-burst.test.ts proves the window groups things. This proves ingestion is wired to it:
+// five messages arriving in six seconds must produce ONE call into the AI carrying everything
+// the customer said, not five calls with a fragment each.
+// --------------------------------------------------------------------------
+describe('ingestInboundMessage - rapid message bursts', () => {
+  const createBurstHarness = () => {
+    let pending: (() => void)[] = [];
+    const collector = createInboundBurstCollector({
+      debounceMs: 3000,
+      setTimer: ((fn: () => void) => {
+        pending.push(fn);
+        return pending.length as unknown as ReturnType<typeof setTimeout>;
+      }) as never,
+      clearTimer: ((handle: number) => {
+        pending = pending.filter((_fn, index) => index + 1 !== handle);
+      }) as never,
+    });
+
+    const h = createHarness({}, {}, {}, collector);
+
+    return {
+      ...h,
+      settle: async () => {
+        const due = pending;
+        pending = [];
+        due.forEach((fn) => fn());
+        await collector.flushAll();
       },
-      { mergeConversationAiContext },
-    );
+    };
+  };
 
-    await h.run();
+  it('answers a five-message burst once, with everything that was said', async () => {
+    const h = createBurstHarness();
 
-    expect(mergeConversationAiContext).toHaveBeenCalled();
-    expect(h.handleAutomation).toHaveBeenCalled();
-    expect(h.updateAutomationState).not.toHaveBeenCalled();
-  });
+    for (const text of [
+      'Hi',
+      'I need a photographer',
+      'For my wedding',
+      'December 15',
+      'Are you available?',
+    ]) {
+      await h.run({ text });
+    }
 
-  it('leaves opt-out handling exactly as it was', async () => {
-    // "stop" is an opt-out, not a non-lead: it must keep its own reason and its own owner alert.
-    const h = createHarness({}, { text: 'stop' });
-
-    await h.run();
-
-    expect(h.markOptedOut).toHaveBeenCalled();
-    expect(h.sendOptOutAlert).toHaveBeenCalled();
-    expect(h.updateAutomationState).not.toHaveBeenCalled();
+    // Nothing yet: as far as the system is concerned the customer is mid-sentence.
     expect(h.handleAutomation).not.toHaveBeenCalled();
+
+    await h.settle();
+
+    expect(h.handleAutomation).toHaveBeenCalledTimes(1);
+    expect(h.handleAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inboundText: 'Hi I need a photographer For my wedding December 15 Are you available?',
+        inboundMessageCount: 5,
+      }),
+    );
   });
 
-  it('does not swallow uncaptioned media, which escalates downstream instead', async () => {
-    const h = createHarness({}, { text: '' });
+  it('persists every message in the burst even though only one turn is judged', async () => {
+    const h = createBurstHarness();
 
-    await h.run();
+    await h.run({ text: 'Hi' });
+    await h.run({ text: 'I need a photographer' });
+    await h.settle();
 
-    // An empty body must still reach handleAutomation, where ai-brain.service escalates it to
-    // the owner. Filtering it here would lose that.
-    expect(h.handleAutomation).toHaveBeenCalled();
-    expect(h.updateAutomationState).not.toHaveBeenCalled();
+    // Batching is about the AI's turn-taking, never about dropping what someone wrote.
+    expect(h.createInboundMessage).toHaveBeenCalledTimes(2);
+    expect(h.handleAutomation).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a message sent after the window closed as its own turn', async () => {
+    const h = createBurstHarness();
+
+    await h.run({ text: 'I need a photographer' });
+    await h.settle();
+
+    await h.run({ text: 'Actually make it December' });
+    await h.settle();
+
+    expect(h.handleAutomation).toHaveBeenCalledTimes(2);
+  });
+
+  it('carries the LAST message id, so one burst can only key one reply', async () => {
+    const h = createBurstHarness();
+
+    await h.run({ text: 'Hi' });
+    await h.run({ text: 'I need a photographer' });
+    await h.settle();
+
+    // The AI reply is enqueued with `ai-brain-asked:<inboundMessageId>`, so a single id for the
+    // whole burst is what makes a duplicate reply impossible even if the turn were retried.
+    expect(h.handleAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({ inboundMessageId: 'msg-1' }),
+    );
   });
 });
