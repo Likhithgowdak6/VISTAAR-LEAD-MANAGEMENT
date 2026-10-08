@@ -15,6 +15,13 @@ export type StageKey = BuiltinStageKey | (string & {});
 /** How warm a lead is, from the backend's conversations/lead-score.ts. */
 export type LeadScoreBand = 'hot' | 'warm' | 'cold' | 'low_intent';
 
+/**
+ * What the intent gate decided this conversation is. Distinct from `aiCategory`, which answers
+ * the later question of WHICH kind of shoot. `unknown` means the gate has not run - a trusted
+ * lead origin skips it entirely, so plenty of healthy conversations stay `unknown`.
+ */
+export type AiIntent = 'unknown' | 'sales_lead' | 'non_lead' | 'unclear';
+
 export type TagStatus = 'active' | 'archived' | 'deleted';
 export type StageStatus = 'active' | 'archived';
 
@@ -168,6 +175,7 @@ export interface Conversation {
    *  anchored at UTC midnight, so it must be read back in UTC. */
   eventDate: string | null;
   aiCategory: string;
+  aiIntent: AiIntent;
   aiFacts: Record<string, unknown>;
   /** 0-100, built from what this lead has told us and done. 0 until they tell us something. */
   leadScore: number;

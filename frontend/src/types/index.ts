@@ -23,6 +23,7 @@ export type {
   AiBrainRenderedProposal,
   AiDraft,
   AiDraftOutcome,
+  AiIntent,
   AiKnowledge,
   AiKnowledgeCategory,
   AiKnowledgeStatus,

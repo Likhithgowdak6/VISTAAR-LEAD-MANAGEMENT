@@ -1,5 +1,6 @@
 import { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
+import { type AiIntent } from '../../constants/ai-intents.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import { type ConversationStatus } from '../../constants/conversation-statuses.js';
 import { type DatabaseSession } from '../../config/database.js';
@@ -734,6 +735,40 @@ export const updateLeadScore = ({
         leadScoreSignals: [...signals],
       },
     } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface SetAiIntentParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  intent: AiIntent;
+  session?: DatabaseSession;
+}
+
+/**
+ * Records what the intent gate decided, so it is decided once rather than per message.
+ *
+ * Last-writer-wins, unlike the first-write-wins merge `aiCategory` uses. That is deliberate: a
+ * verdict is a judgement that can legitimately be revised - the owner re-enables automation on
+ * a thread we called a non-lead, it turns into a real enquiry, and the next classification
+ * should stick. A category, by contrast, swaps the whole playbook and must not wobble.
+ */
+export const setAiIntent = ({
+  conversationId,
+  organizationId,
+  intent,
+  session,
+}: SetAiIntentParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    { $set: { aiIntent: intent } } as UpdateQuery<ConversationDocument>,
     {
       returnDocument: 'after',
       runValidators: true,

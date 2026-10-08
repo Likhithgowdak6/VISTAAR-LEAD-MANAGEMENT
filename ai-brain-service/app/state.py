@@ -36,6 +36,13 @@ class ConversationState(TypedDict, total=False):
 
     escalation_reason: str
 
+    # How many times in a row we have asked one specific qualifying question without the lead
+    # giving us anything usable back: {normalised question text -> attempts}. Lives on the graph
+    # state (so it rides the existing checkpoint) rather than in wam-crm-ai's database, because
+    # nothing outside the qualifying loop has any use for it. Cleared the moment the lead teaches
+    # us a fact, or a human steps in with an instruction. See nodes.MAX_SAME_QUESTION_ATTEMPTS.
+    repeated_question_attempts: dict[str, int]
+
     # Business context wam-crm-ai supplies on every call - this service has
     # no database of its own to look these up in.
     required_fields: list[str]

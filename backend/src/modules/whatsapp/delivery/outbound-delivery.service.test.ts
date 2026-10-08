@@ -242,6 +242,61 @@ describe('deliverNext quiet hours', () => {
     expect(result).toMatchObject({ delivered: false, rescheduled: true, reason: 'quiet_hours' });
   });
 
+  it('asks the window about the configured hours and timezone, not hard-coded ones', async () => {
+    // The window itself is proven in automation/quiet-hours.test.ts. What this pins is the
+    // wiring: a deployment that sets 21/9 must have 21/9 reach the check. With the values
+    // mocked to a constant everywhere else, nothing else would notice them being dropped.
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    const { service, messageRepository } = createHarness({
+      config: {
+        WHATSAPP_OUTBOUND_MAX_ATTEMPTS: 3,
+        WHATSAPP_OUTBOUND_LEASE_MS: 120000,
+        WHATSAPP_MAX_OUTBOUND_PER_MINUTE: 5,
+        WHATSAPP_SEND_TEXT_POC_ENABLED: true,
+        WHATSAPP_TEST_ALLOWED_NUMBERS: '',
+        WHATSAPP_QUIET_HOURS_START: 21,
+        WHATSAPP_QUIET_HOURS_END: 9,
+        WHATSAPP_BUSINESS_TIMEZONE: 'Asia/Kolkata',
+        NURTURE_STALE_AFTER_MS: 1_800_000,
+      },
+    });
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'ai' }));
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(quietHours.isWithinQuietHours).toHaveBeenCalledWith(
+      new Date('2026-08-25T10:00:00.000Z'),
+      21,
+      9,
+      'Asia/Kolkata',
+    );
+    // The reschedule target is the END of the window, never the start - aiming at the start
+    // would land back inside it and re-queue forever.
+    expect(quietHours.nextAllowedSendTime).toHaveBeenCalledWith(
+      new Date('2026-08-25T10:00:00.000Z'),
+      9,
+      'Asia/Kolkata',
+    );
+  });
+
+  it('holds the message for the exact time the window says, without touching attempts', async () => {
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    vi.mocked(quietHours.nextAllowedSendTime).mockReturnValue(
+      new Date('2026-08-26T03:30:00.000Z'), // 09:00 IST
+    );
+    const { service, messageRepository } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'ai' }));
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(messageRepository.rescheduleOutboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledAt: new Date('2026-08-26T03:30:00.000Z') }),
+    );
+    // Held, not failed: the reply survives the night and nothing counts against its retries.
+    expect(messageRepository.markOutboundMessageFailed).not.toHaveBeenCalled();
+    expect(messageRepository.markOutboundMessageSent).not.toHaveBeenCalled();
+  });
+
   it('does not apply quiet hours to a human-authored message', async () => {
     vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
     const { service, messageRepository, sessionService } = createHarness();

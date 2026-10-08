@@ -1,5 +1,6 @@
 import mongoose, { type Model, type Types } from 'mongoose';
 
+import { type AiIntent, DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
   CONVERSATION_STATUSES,
@@ -91,6 +92,11 @@ export interface ConversationDocument {
   manualOriginNote: string | null;
   /** Lead category (e.g. "event_photography") - which rate card / required fields apply. */
   aiCategory: string;
+  /**
+   * Whether this is a prospective customer at all - a different and prior question to
+   * `aiCategory`. Set once by the intent gate so the classifier is not re-run on every message.
+   */
+  aiIntent: AiIntent;
   /** Facts the AI has learned about this lead so far - sent back to ai-brain-service every call. */
   aiFacts: Record<string, unknown>;
   /** How many nurture follow-ups (day-2/5/9/15 style) have already fired for this conversation. */
@@ -361,6 +367,18 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       lowercase: true,
       maxlength: 60,
       default: 'unknown',
+    },
+
+    // Not a Mongoose enum, for the same reason `leadScoreBand` and `stage` are not: every
+    // conversation written before this field existed must still load, and the gate owns what
+    // counts as a valid verdict. See constants/ai-intents.ts for why this is not `aiCategory`.
+    aiIntent: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+      maxlength: 30,
+      default: DEFAULT_AI_INTENT,
     },
 
     aiFacts: {

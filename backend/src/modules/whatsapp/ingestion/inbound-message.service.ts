@@ -21,6 +21,7 @@ import { type ContactDocument } from '../../contacts/contact.model.js';
 import {
   markOptedOut as defaultMarkOptedOut,
   type mergeConversationAiContext as defaultMergeConversationAiContext,
+  updateAutomationState as defaultUpdateAutomationState,
   updateConversationPreview as defaultUpdateConversationPreview,
   upsertConversationForContact as defaultUpsertConversationForContact,
 } from '../../conversations/conversation.repository.js';
@@ -47,6 +48,7 @@ import {
   isOptOutRequest as defaultIsOptOutRequest,
   OPT_OUT_PAUSED_REASON,
 } from '../automation/opt-out.js';
+import { classifyNonLead as defaultClassifyNonLead } from '../automation/non-lead.js';
 import { type NormalizedInboundMessage } from '../providers/whatsapp-provider.interface.js';
 import { WhatsAppProviderError } from '../whatsapp.errors.js';
 
@@ -125,6 +127,9 @@ export interface ConversationRepositoryLike {
   /** Optional for the same reason. Absent means an opt-out is still detected and still stops the
    *  AI replying to this message, it just cannot be written down. */
   markOptedOut?: typeof defaultMarkOptedOut;
+  /** Optional for the same reason again. Absent means a non-lead message still gets no AI reply,
+   *  the pause just cannot be recorded on the conversation. */
+  updateAutomationState?: typeof defaultUpdateAutomationState;
 }
 
 export interface MessageRepositoryLike {
@@ -180,6 +185,8 @@ export interface CreateInboundMessageIngestionServiceOptions {
   sendNewLeadAlert?: typeof defaultSendNewLeadAlert;
   /** "Did this lead just ask us to stop messaging them?" Pure; injected for tests. */
   isOptOutRequest?: (text: unknown) => boolean;
+  /** "Is this obviously not a sales enquiry at all?" Pure; injected for tests. */
+  classifyNonLead?: typeof defaultClassifyNonLead;
   /**
    * Tells the owner on WhatsApp that a lead opted out. Same contract as `sendNewLeadAlert`:
    * internally failure-isolated, never throws, and guarded again below regardless.
@@ -227,6 +234,7 @@ export const createInboundMessageIngestionService = ({
     upsertConversationForContact: defaultUpsertConversationForContact,
     updateConversationPreview: defaultUpdateConversationPreview,
     markOptedOut: defaultMarkOptedOut,
+    updateAutomationState: defaultUpdateAutomationState,
   },
   messageRepository = {
     createInboundMessage:
@@ -242,6 +250,7 @@ export const createInboundMessageIngestionService = ({
   handleAutomation = defaultHandleAutomation,
   sendNewLeadAlert = defaultSendNewLeadAlert,
   isOptOutRequest = defaultIsOptOutRequest,
+  classifyNonLead = defaultClassifyNonLead,
   sendOptOutAlert = defaultSendOptOutAlert,
   recomputeLeadScore = defaultRecomputeLeadScore,
   looksLikeForm = defaultLooksLikeForm,
@@ -596,12 +605,54 @@ export const createInboundMessageIngestionService = ({
       }
     }
 
+    // A bank OTP, a vendor's GST invoice, a marketing blast. Same shape as the opt-out above and
+    // for the same reason: the message is already persisted and visible, only the AI reply is
+    // suppressed. Placed AFTER opt-out so an opt-out keeps its own, more important reason, and
+    // after the scoring block so nothing that feeds the lead panel is skipped.
+    //
+    // A PASTED FORM IS EXEMPT. `looksLikeForm` ran above and its facts are already merged onto
+    // the conversation; a Meta form body carries "Full name", "Phone number", sometimes a
+    // package line, and must reach the AI with all of it. Checking the same predicate here
+    // rather than trusting the phrase lists keeps that guarantee explicit instead of accidental.
+    const nonLead =
+      !optedOut && !looksLikeForm(body) ? classifyNonLead(body) : { isNonLead: false, reason: null };
+
+    if (nonLead.isNonLead) {
+      // The existing automation-state mechanism, not a new one: same field, same reason string
+      // the dashboard already renders for an escalation, same switch the owner flips to override
+      // us. Failure-isolated like every other best-effort write here - if it cannot be recorded
+      // the AI still must not answer, which the branch below guarantees regardless.
+      try {
+        await conversationRepository.updateAutomationState?.({
+          conversationId: conversation._id,
+          organizationId,
+          aiAutomationEnabled: false,
+          aiAutomationPausedReason: nonLead.reason,
+        });
+      } catch (error: unknown) {
+        const err = error as { code?: unknown; name?: unknown };
+        logger?.error?.(
+          { code: err?.code, name: err?.name, conversationId: conversation._id.toString() },
+          'Non-lead pause could not be recorded; the message is saved and the AI is suppressed for it anyway.',
+        );
+      }
+    }
+
     if (optedOut) {
       // Decided here rather than in ai-brain.service, so this is where it has to be said: the
       // message IS saved and visible in the dashboard, but no AI reply will ever follow it.
       trace.stop(
         PIPELINE_STAGE.AI_ELIGIBILITY,
         'this lead has opted out, so the message is saved but the AI will not reply to it',
+        () => ({ conversation: conversation._id.toString() }),
+      );
+    } else if (nonLead.isNonLead) {
+      // Deliberately no owner ping. These arrive constantly - every OTP, every promo - and a
+      // notification per bank message would train the owner to ignore the alerts that matter.
+      // The conversation carries the reason and sits in the inbox; that is the notification.
+      trace.stop(
+        PIPELINE_STAGE.AI_ELIGIBILITY,
+        `this does not look like a sales enquiry, so the message is saved but the AI will not reply to it: ${nonLead.reason}`,
         () => ({ conversation: conversation._id.toString() }),
       );
     } else {

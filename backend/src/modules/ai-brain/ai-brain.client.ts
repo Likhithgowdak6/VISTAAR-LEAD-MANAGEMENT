@@ -33,9 +33,18 @@ const baseUrl = (): string => {
   return env.AI_BRAIN_SERVICE_URL.replace(/\/+$/, '');
 };
 
-const request = async <T>(path: string, body: unknown): Promise<T> => {
+/**
+ * `timeoutMs` is an override, not a new default. Every existing caller shares
+ * AI_BRAIN_REQUEST_TIMEOUT_MS, which is sized for the slowest thing this service does; only the
+ * intent gate passes its own, because it runs before a lead has been answered at all and must
+ * give up in seconds rather than hold a real enquiry while a classifier thinks.
+ */
+const request = async <T>(path: string, body: unknown, timeoutMs?: number): Promise<T> => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), env.AI_BRAIN_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMs ?? env.AI_BRAIN_REQUEST_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(`${baseUrl()}${path}`, {
@@ -161,6 +170,48 @@ export const sendLeadMessage = (
     owner_instruction: params.ownerInstruction ?? '',
     category_options: params.categoryOptions ?? [],
   });
+
+/**
+ * One turn of context for the intent gate. Bounded by the caller, and again by the service.
+ *
+ * `role` is a plain string rather than a union so this accepts `buildTranscript`'s output
+ * directly: the service normalises anything it does not recognise to "us", which is the safe
+ * reading - a turn wrongly attributed to the studio cannot make a non-lead look like a lead.
+ */
+export interface AiBrainIntentTurn {
+  role: string;
+  text: string;
+}
+
+export interface AiBrainIntentResult {
+  intent: 'sales_lead' | 'non_lead' | 'unclear';
+  confidence: number;
+  reason: string;
+}
+
+/**
+ * Is this inbound a prospective customer at all?
+ *
+ * Classification only - this endpoint cannot produce anything that reaches the lead, and is
+ * deliberately not under /v1/conversations/{id}: no graph thread, no checkpoint, nothing
+ * created for a message we may be about to ignore.
+ *
+ * Its own short timeout, because it runs before a lead has been answered.
+ */
+export const classifyIntent = (params: {
+  conversationId: string;
+  message: string;
+  transcript?: AiBrainIntentTurn[];
+}): Promise<AiBrainIntentResult> =>
+  request(
+    '/v1/intent',
+    {
+      message: params.message,
+      transcript: params.transcript ?? [],
+      conversation_id: params.conversationId,
+    },
+    env.AI_BRAIN_INTENT_TIMEOUT_MS,
+  );
 
 export const sendOwnerDecision = (
   conversationId: string,

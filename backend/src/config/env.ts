@@ -260,6 +260,14 @@ const envSchema = z.object({
   // Only a proposal call ever approaches it; a qualifying reply on Haiku returns in seconds.
   AI_BRAIN_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(90_000),
 
+  // The intent gate gets its OWN, far shorter budget, and deliberately does not reuse the 90s
+  // above. That one is sized for a proposal; this one sits on the inbound hot path and runs
+  // before a lead has been answered at all, so a slow classifier must give up quickly rather
+  // than hold a real enquiry for a minute and a half. It asks for one short verdict from a
+  // small model - seconds, not tens of seconds - and the gate fails CLOSED on timeout, which
+  // means a generous value here buys nothing except a longer wait before the owner is told.
+  AI_BRAIN_INTENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30_000).default(8_000),
+
   // Nurture sweep: the day-2/5/9/15 "still there?" cadence, cold-at-20. Off by default - tests
   // and the plain API server never run it, same gating style as WHATSAPP_OUTBOUND_DELIVERY_ENABLED.
   NURTURE_ENABLED: booleanString.default(false),

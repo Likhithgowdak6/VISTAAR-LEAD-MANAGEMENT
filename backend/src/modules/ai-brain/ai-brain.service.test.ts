@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AI_BRAIN_APPROVAL_RESOLUTIONS, AI_BRAIN_RESULT_STATUSES } from '../../constants/ai-brain-statuses.js';
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
+import { MESSAGE_AUTHORS } from '../../constants/message-authors.js';
 import { deriveTraceId } from '../../observability/pipeline-trace.js';
 import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 
@@ -24,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   createActivity: vi.fn(),
   enqueueConversationChanged: vi.fn(),
   sendLeadMessage: vi.fn(),
+  classifyIntent: vi.fn(),
+  setAiIntent: vi.fn(),
   sendOwnerDecision: vi.fn(),
   getOutcome: vi.fn(),
   generateProposal: vi.fn(),
@@ -66,6 +69,7 @@ vi.mock('../conversations/conversation.repository.js', () => ({
   mergeConversationAiContext: mocks.mergeConversationAiContext,
   findConversationById: mocks.findConversationById,
   updateAutomationState: mocks.updateAutomationState,
+  setAiIntent: mocks.setAiIntent,
   updateStage: mocks.updateStage,
 }));
 
@@ -91,6 +95,7 @@ vi.mock('../realtime/realtime-outbox.repository.js', () => ({
 
 vi.mock('./ai-brain.client.js', () => ({
   sendLeadMessage: mocks.sendLeadMessage,
+  classifyIntent: mocks.classifyIntent,
   sendOwnerDecision: mocks.sendOwnerDecision,
   getOutcome: mocks.getOutcome,
   generateProposal: mocks.generateProposal,
@@ -154,6 +159,12 @@ beforeEach(() => {
   // Re-set every call: mockClear keeps implementations, so a test that makes one of these
   // reject would otherwise leak into the next.
   mocks.mergeConversationAiContext.mockResolvedValue(null);
+  // The intent gate sits in front of every inbound now. Defaulted to "yes, a customer" so the
+  // tests written before it exists still describe what they were written to describe; the gate's
+  // own behaviour is exercised in its own block at the bottom of this file.
+  mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.9, reason: 'asked a price' });
+  mocks.setAiIntent.mockResolvedValue(null);
+  mocks.findMessagesByConversationCursor.mockResolvedValue([]);
   mocks.buildAiBrainContext.mockResolvedValue({
     requiredFields: [],
     catalogText: '(none)',
@@ -211,6 +222,12 @@ describe('handleInboundMessageForAutomation', () => {
         body: 'What city are you in?',
         idempotencyKey: 'ai-brain-asked:msg-1',
         actor: { _id: 'ai-system-user' },
+        // Not cosmetic bookkeeping: `authoredBy` is the ONLY thing that puts this message
+        // behind the send-time guard stack in outbound-delivery.service.ts - the opt-out
+        // re-check, the automation re-check, the staleness drop and quiet hours all live
+        // inside `if (message.authoredBy === MESSAGE_AUTHORS.AI)`. Enqueue a qualifying
+        // question as HUMAN and it goes out at 3 AM with none of them applied.
+        authoredBy: MESSAGE_AUTHORS.AI,
       }),
     );
     expect(mocks.updateStage).toHaveBeenCalledWith(
@@ -518,7 +535,13 @@ describe('resolveApprovalForActor', () => {
     });
 
     expect(mocks.enqueueOutboundMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ body: 'Approved reply text', idempotencyKey: 'ai-brain-approved:approval-1' }),
+      expect.objectContaining({
+        body: 'Approved reply text',
+        idempotencyKey: 'ai-brain-approved:approval-1',
+        // An owner-approved draft is still AI-authored, so it still waits for the quiet-hours
+        // window to close rather than going out the moment the owner taps approve at 2 AM.
+        authoredBy: MESSAGE_AUTHORS.AI,
+      }),
     );
     expect(result.sent).toBe(true);
   });
@@ -756,5 +779,273 @@ describe('handleInboundMessageForAutomation - the pipeline trace (stages 10-12)'
     await run({ aiAutomationEnabled: false });
 
     expect(lines).toHaveLength(0);
+  });
+});
+
+describe('handleInboundMessageForAutomation - the intent gate', () => {
+  const coldInbound = (overrides: Record<string, unknown> = {}) => ({
+    organizationId,
+    conversation: {
+      ...baseConversation(),
+      aiAutomationEnabled: true,
+      aiIntent: 'unknown',
+      ...overrides,
+    } as never,
+    inboundMessageId: 'msg-1',
+    inboundText: 'Abe kuch nai hai audio visual set up tha',
+  });
+
+  const expectPausedAndAlerted = (reasonPattern: RegExp) => {
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.updateAutomationState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: expect.stringMatching(reasonPattern),
+      }),
+    );
+    expect(mocks.createActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: ACTIVITY_EVENTS.AI_BRAIN_ESCALATED }),
+    );
+    expect(mocks.sendEscalationAlert).toHaveBeenCalled();
+  };
+
+  it('runs the sales AI when the classifier says sales_lead', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.9, reason: 'price' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'What date?',
+      facts: {},
+      escalation_reason: '',
+    });
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+    expect(mocks.updateAutomationState).not.toHaveBeenCalled();
+  });
+
+  it('remembers a sales_lead verdict so the classifier never runs again', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.9, reason: '' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'x',
+      facts: {},
+      escalation_reason: '',
+    });
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expect(mocks.setAiIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: 'sales_lead' }),
+    );
+  });
+
+  it('does not call the sales AI on non_lead', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.95, reason: 'vendor' });
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('pauses automation and alerts the owner on non_lead', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.95, reason: 'vendor' });
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expectPausedAndAlerted(/does not look like a sales enquiry/i);
+    expect(mocks.setAiIntent).toHaveBeenCalledWith(expect.objectContaining({ intent: 'non_lead' }));
+  });
+
+  it('does not call the sales AI on unclear', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.2, reason: 'greeting' });
+
+    await handleInboundMessageForAutomation({ ...coldInbound(), inboundText: 'Hi' });
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('pauses automation and alerts the owner on unclear', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.2, reason: 'greeting' });
+
+    await handleInboundMessageForAutomation({ ...coldInbound(), inboundText: 'Hi' });
+
+    // Worded differently from non_lead: "we could not tell" is not an accusation, and the
+    // owner reading the card should know which one happened.
+    expectPausedAndAlerted(/could not tell whether/i);
+    expect(mocks.setAiIntent).toHaveBeenCalledWith(expect.objectContaining({ intent: 'unclear' }));
+  });
+});
+
+describe('handleInboundMessageForAutomation - the intent gate fails closed', () => {
+  const coldInbound = () => ({
+    organizationId,
+    conversation: { ...baseConversation(), aiAutomationEnabled: true, aiIntent: 'unknown' } as never,
+    inboundMessageId: 'msg-1',
+    inboundText: 'Wedding shoot price?',
+  });
+
+  const expectFailedClosed = () => {
+    // The whole point: a classifier that cannot answer must not let the sales agent through,
+    // and must not leave the lead in silence with nobody told either.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.updateAutomationState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: expect.stringMatching(/could not check/i),
+      }),
+    );
+    expect(mocks.sendEscalationAlert).toHaveBeenCalled();
+    // A failure is NOT a verdict: leaving it unknown means the next message tries again
+    // instead of the thread being branded forever by one bad minute.
+    expect(mocks.setAiIntent).not.toHaveBeenCalled();
+  };
+
+  it('fails closed when the request times out', async () => {
+    const abort = new Error('The operation was aborted');
+    abort.name = 'AbortError';
+    mocks.classifyIntent.mockRejectedValue(abort);
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expectFailedClosed();
+  });
+
+  it('fails closed when the service returns 500', async () => {
+    mocks.classifyIntent.mockRejectedValue(new Error('ai-brain-service returned 500 for /v1/intent.'));
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expectFailedClosed();
+  });
+
+  it('fails closed on a verdict the classifier invented', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'maybe_lead', confidence: 0.9, reason: 'x' });
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expectFailedClosed();
+  });
+
+  it('fails closed on a response with no verdict at all', async () => {
+    mocks.classifyIntent.mockResolvedValue({ confidence: 0.9 } as never);
+
+    await handleInboundMessageForAutomation(coldInbound());
+
+    expectFailedClosed();
+  });
+
+  it('never throws, so inbound ingestion is never broken by a gate failure', async () => {
+    mocks.classifyIntent.mockRejectedValue(new Error('boom'));
+
+    await expect(handleInboundMessageForAutomation(coldInbound())).resolves.toBeUndefined();
+  });
+});
+
+describe('handleInboundMessageForAutomation - when the intent gate is skipped', () => {
+  const inbound = (
+    conversationOverrides: Record<string, unknown>,
+    rest: Record<string, unknown> = {},
+  ) => ({
+    organizationId,
+    conversation: {
+      ...baseConversation(),
+      aiAutomationEnabled: true,
+      ...conversationOverrides,
+    } as never,
+    inboundMessageId: 'msg-1',
+    inboundText: 'ok',
+    ...rest,
+  });
+
+  beforeEach(() => {
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'x',
+      facts: {},
+      escalation_reason: '',
+    });
+  });
+
+  it('never re-classifies a conversation already known to be a sales lead', async () => {
+    await handleInboundMessageForAutomation(inbound({ aiIntent: 'sales_lead' }));
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it.each(['non_lead', 'unclear'])(
+    'never re-classifies a conversation already marked %s',
+    async (intent) => {
+      // These threads normally have automation paused, so they never reach here at all. If a
+      // human switched it back on, that decision stands - we do not re-litigate it.
+      await handleInboundMessageForAutomation(inbound({ aiIntent: intent }));
+
+      expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('skips the gate for a conversation imported from a lead source', async () => {
+    // Someone filled in our Meta form. That outranks whatever one terse WhatsApp line looks
+    // like, and it must never cost an LLM call either.
+    await handleInboundMessageForAutomation(inbound({ aiIntent: 'unknown', leadSourceId: 'ls-1' }));
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it('skips the gate for a human-added lead', async () => {
+    await handleInboundMessageForAutomation(
+      inbound({ aiIntent: 'unknown', manualOutreachApprovedAt: new Date() }),
+    );
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it('skips the gate when the owner gave an instruction', async () => {
+    // resumeEscalatedConversationWithInstruction re-enters with an EMPTY body right after a
+    // human un-paused the thread. Classifying that would re-pause what they just resumed.
+    await handleInboundMessageForAutomation(
+      inbound({ aiIntent: 'unknown' }, { inboundText: '', ownerInstruction: 'tell him 40k' }),
+    );
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    expect(mocks.updateAutomationState).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it('does not classify an empty body', async () => {
+    await handleInboundMessageForAutomation(inbound({ aiIntent: 'unknown' }, { inboundText: '' }));
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('runs before the brain, never after it', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.9, reason: 'bank' });
+
+    await handleInboundMessageForAutomation(
+      inbound({ aiIntent: 'unknown' }, { inboundText: 'OTP 123' }),
+    );
+
+    // A gate that ran after the sales agent would be no gate at all.
+    expect(mocks.buildAiBrainContext).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('stays behind the existing guards - automation off still short-circuits first', async () => {
+    await handleInboundMessageForAutomation(
+      inbound({ aiIntent: 'unknown', aiAutomationEnabled: false }),
+    );
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('stays behind the pending-approval guard', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue({ _id: 'approval-1' });
+
+    await handleInboundMessageForAutomation(inbound({ aiIntent: 'unknown' }));
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
   });
 });

@@ -73,6 +73,37 @@ DISCOUNT_PRESSURE_MARKERS = (
 # Escalate once this many lead turns have pushed on price. 2 = hold once, then hand over.
 DISCOUNT_PUSHES_BEFORE_ESCALATION = 2
 
+# Repeated-question backstop. MAX_QUALIFYING_QUESTIONS caps how many questions a conversation
+# gets in total; it says nothing about asking the SAME one over and over, which is the failure
+# seen in production: "Kaunsa occasion hai?" -> "???" -> "Kaunsa occasion hai?" -> "Abe kuch nai"
+# -> and the model would have asked it a third time. To the lead that reads as a bot that cannot
+# hear them, and every repeat burns one of the six.
+#
+# So: ask it, ask it once more, then stop and fetch a human. This is deliberately NARROW - it
+# only fires on the same question with nothing learned in between, and it does not touch the
+# normal occasion -> date -> location -> guests -> package progression, where every question is
+# a different one and the counter never gets past 1.
+MAX_SAME_QUESTION_ATTEMPTS = 2
+
+# Internal only. It reaches the owner's alert and the pause reason; it must never be sent to the
+# lead, and it is not - escalation returns no draft, so wam-crm-ai has nothing to send.
+REPEATED_QUESTION_ESCALATION_REASON = (
+    "Customer did not provide a usable answer after two attempts at the same qualification "
+    "question."
+)
+
+# Stripped before two questions are compared, so "Kaunsa occasion hai?", "kaunsa occasion hai?"
+# and "Kaunsa occasion hai ?" are one question. Nothing semantic: a genuinely reworded question
+# is treated as new, which errs towards asking rather than towards escalating.
+INSIGNIFICANT_PUNCTUATION = "?!.,;:…-–—\"'“”‘’()[]"
+
+
+def normalize_question(text) -> str:
+    """Lowercased, depunctuated, whitespace-collapsed - the key two questions are matched on."""
+    lowered = str(text or "").lower()
+    stripped = "".join(" " if ch in INSIGNIFICANT_PUNCTUATION else ch for ch in lowered)
+    return " ".join(stripped.split())
+
 
 def is_discount_pressure(text) -> bool:
     """True when a lead's message is pushing on price rather than asking about it."""
@@ -161,6 +192,36 @@ def qualify(state: ConversationState) -> dict:
 
     escalation_reason = result.get("escalation_reason", "")
 
+    # Same-question backstop. See MAX_SAME_QUESTION_ATTEMPTS.
+    #
+    # "Did the lead answer?" is NOT a second classifier - it reuses the signal the qualifier
+    # already produced. `learned` is non-empty exactly when the model pulled a fact out of this
+    # turn, which is the same judgement that drives `missing` and `decision`. So "???" and "Abe
+    # kuch nai" teach it nothing and the counter stands; "Wedding", "15 December", "Bangalore"
+    # and "around 200 guests" all land in `learned` and wipe it. The mere existence of an inbound
+    # message never counts as an answer.
+    attempts = dict(state.get("repeated_question_attempts") or {})
+    if learned or state.get("owner_instruction"):
+        # Progress, or a human has stepped in and told the AI what to do (the resume path for an
+        # already-escalated conversation). Either way nothing is stuck any more, so no question
+        # carries its history forward - including one that was legitimately asked once before.
+        attempts = {}
+
+    if decision == "ask":
+        question_key = normalize_question(result.get("message", ""))
+        # A turn with no new lead message is wam-crm-ai re-running the graph on current facts,
+        # not the lead ignoring us - so it may be blocked by the count, but never adds to it.
+        new_lead_turn = not transcript or transcript[-1].get("role") == "lead"
+        if question_key and attempts.get(question_key, 0) >= MAX_SAME_QUESTION_ATTEMPTS:
+            log.info(
+                "conversation %s: same question asked %s times with nothing learned - escalating",
+                state.get("conversation_id"), attempts[question_key],
+            )
+            decision = "escalate"
+            escalation_reason = escalation_reason or REPEATED_QUESTION_ESCALATION_REASON
+        elif question_key and new_lead_turn:
+            attempts[question_key] = attempts.get(question_key, 0) + 1
+
     # Price pressure backstop. Holding once is right; holding twice is arguing with someone about
     # money we have no authority to move, so hand it to the owner whatever the model chose.
     pushes = count_discount_pushes(transcript)
@@ -196,6 +257,7 @@ def qualify(state: ConversationState) -> dict:
         "decision": decision,
         "draft": result.get("message", "") if decision == "ask" else "",
         "escalation_reason": escalation_reason,
+        "repeated_question_attempts": attempts,
         "category": category,
         # One-turn-only: consumed above, so it must not silently keep steering every later
         # message in this conversation as if the owner were still standing over the AI's shoulder.

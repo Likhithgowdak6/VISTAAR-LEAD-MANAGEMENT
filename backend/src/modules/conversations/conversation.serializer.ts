@@ -1,3 +1,4 @@
+import { DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import {
   serializeDate,
   serializeId,
@@ -32,6 +33,7 @@ export interface SerializedConversation {
    *  to it, and the nurture cadence stops at it. */
   eventDate: string | null;
   aiCategory: unknown;
+  aiIntent: unknown;
   aiFacts: unknown;
   /** 0-100, from conversations/lead-score.ts. */
   leadScore: number;
@@ -129,6 +131,9 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     optedOutAt: serializeDate(value.optedOutAt),
     eventDate: serializeDate(value.eventDate),
     aiCategory: value.aiCategory ?? 'unknown',
+    // Defaulted like aiCategory above: a conversation written before the intent gate existed
+    // has no verdict, and 'unknown' is exactly what that means.
+    aiIntent: value.aiIntent ?? DEFAULT_AI_INTENT,
     aiFacts: value.aiFacts ?? {},
     // Defaulted rather than trusted: a conversation written before scoring existed has none of
     // these fields, and the dashboard must render it as "nothing known yet", not as a blank.

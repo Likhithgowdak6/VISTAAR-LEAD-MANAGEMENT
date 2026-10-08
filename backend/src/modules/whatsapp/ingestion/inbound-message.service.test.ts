@@ -51,6 +51,7 @@ const createHarness = (
   const sendOptOutAlert = vi.fn().mockResolvedValue(undefined);
   const handleAutomation = vi.fn().mockResolvedValue(undefined);
   const markOptedOut = vi.fn().mockResolvedValue(conversation);
+  const updateAutomationState = vi.fn().mockResolvedValue(conversation);
   const updateConversationPreview = vi.fn().mockResolvedValue(conversation);
   const createInboundMessage = vi.fn().mockResolvedValue({
     _id: 'msg-1',
@@ -74,6 +75,7 @@ const createHarness = (
       upsertConversationForContact: vi.fn().mockResolvedValue(conversation),
       updateConversationPreview,
       markOptedOut,
+      updateAutomationState,
       ...conversationRepositoryOverrides,
     } as never,
     messageRepository: {
@@ -102,6 +104,7 @@ const createHarness = (
     recomputeLeadScore,
     handleAutomation,
     markOptedOut,
+    updateAutomationState,
     updateConversationPreview,
     createInboundMessage,
     logger,
@@ -654,5 +657,132 @@ describe('ingestInboundMessage - a @lid reply must not fork the contact', () => 
         alternateProviderContactKeys: [null],
       }),
     );
+  });
+});
+
+describe('ingestInboundMessage - the non-lead filter', () => {
+  const OTP = '847219 is your OTP for login. Do not share this OTP with anyone.';
+
+  it('saves the message but never hands it to the AI', async () => {
+    const h = createHarness({}, { text: OTP });
+
+    const result = await h.run();
+
+    // Saved and visible: the owner must still be able to see what arrived.
+    expect(result).toMatchObject({ persisted: true, conversationId: 'conv-1' });
+    expect(h.createInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ body: OTP }));
+    expect(h.updateConversationPreview).toHaveBeenCalled();
+
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+  });
+
+  it('pauses automation through the existing mechanism, with a readable reason', async () => {
+    const h = createHarness({}, { text: OTP });
+
+    await h.run();
+
+    // updateAutomationState, not a new field and not a new notification system.
+    expect(h.updateAutomationState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        organizationId: 'org-1',
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: expect.stringContaining('bank or OTP'),
+      }),
+    );
+  });
+
+  it('does not ping the owner for every OTP and promo', async () => {
+    // A notification per bank message would train the owner to ignore the alerts that matter.
+    // The paused conversation in the inbox IS the notification.
+    const h = createHarness({ lastInboundAt: new Date('2026-08-24T03:00:00.000Z') }, { text: OTP });
+
+    await h.run();
+
+    expect(h.sendOptOutAlert).not.toHaveBeenCalled();
+    expect(h.sendNewLeadAlert).not.toHaveBeenCalled();
+  });
+
+  it('still suppresses the AI when the pause cannot be written', async () => {
+    const h = createHarness({}, { text: OTP });
+    h.updateAutomationState.mockRejectedValue(new Error('mongo is down'));
+
+    const result = await h.run();
+
+    expect(result).toMatchObject({ persisted: true });
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+    expect(h.logger.error).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a GST invoice', 'Please share the GST invoice for last month'],
+    ['a promo blast', 'Thanks for being a valued customer! Type STOP to Unsubscribe'],
+    ['a bare link', 'https://example.com/promo/abc'],
+  ])('also blocks %s', async (_label, text) => {
+    const h = createHarness({}, { text });
+
+    await h.run();
+
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+  });
+
+  it('leaves a real enquiry completely untouched', async () => {
+    const h = createHarness({}, { text: 'wedding shoot price, I will transfer payment today' });
+
+    await h.run();
+
+    // The message mentions payment and transfer; the positive override has to win.
+    expect(h.handleAutomation).toHaveBeenCalled();
+    expect(h.updateAutomationState).not.toHaveBeenCalled();
+  });
+
+  it('never blocks a pasted lead form, whatever words it contains', async () => {
+    // A Meta form body carries "Full name", "Phone number" and often a package/price line. Its
+    // facts have already been merged onto the conversation by the time this gate runs, and the
+    // AI has to receive it with all of them.
+    const mergeConversationAiContext = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+    const h = createHarness(
+      { lastInboundAt: null },
+      {
+        text: [
+          'Hello! I filled out your form',
+          'What is the event: House warming',
+          'Event date: 12 September 2026',
+          'Venue: Whitefield, Bangalore',
+          'Budget: 1.2 lakh',
+          'Invoice required: yes, with GST number',
+        ].join('\n'),
+      },
+      { mergeConversationAiContext },
+    );
+
+    await h.run();
+
+    expect(mergeConversationAiContext).toHaveBeenCalled();
+    expect(h.handleAutomation).toHaveBeenCalled();
+    expect(h.updateAutomationState).not.toHaveBeenCalled();
+  });
+
+  it('leaves opt-out handling exactly as it was', async () => {
+    // "stop" is an opt-out, not a non-lead: it must keep its own reason and its own owner alert.
+    const h = createHarness({}, { text: 'stop' });
+
+    await h.run();
+
+    expect(h.markOptedOut).toHaveBeenCalled();
+    expect(h.sendOptOutAlert).toHaveBeenCalled();
+    expect(h.updateAutomationState).not.toHaveBeenCalled();
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+  });
+
+  it('does not swallow uncaptioned media, which escalates downstream instead', async () => {
+    const h = createHarness({}, { text: '' });
+
+    await h.run();
+
+    // An empty body must still reach handleAutomation, where ai-brain.service escalates it to
+    // the owner. Filtering it here would lose that.
+    expect(h.handleAutomation).toHaveBeenCalled();
+    expect(h.updateAutomationState).not.toHaveBeenCalled();
   });
 });

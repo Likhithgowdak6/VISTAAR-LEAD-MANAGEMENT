@@ -13,6 +13,7 @@ Endpoints:
   POST /v1/conversations/{id}/outcome        - AI opinion on won/lost/needs-attention
   POST /v1/conversations/{id}/followup       - draft a day-2/5/9/15 "still there?" nudge
   POST /v1/conversations/{id}/summary        - the owner's catch-up read of the whole thread
+  POST /v1/intent                            - is this inbound a prospective customer at all?
   POST /v1/assistant/plan                    - owner's WhatsApp message -> what to look up
   POST /v1/assistant/answer                  - looked-up data -> the reply he gets
   POST /v1/knowledge/optimize                - owner's rough note -> a clear instruction
@@ -31,7 +32,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import assistant, followup, knowledge, llm, outcome, proposals, summary, templates
+from app import assistant, followup, intent, knowledge, llm, outcome, proposals, summary, templates
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -282,6 +283,52 @@ def conversation_summary(conversation_id: str, body: SummaryIn) -> SummaryOut:
             knowledge_text=body.knowledge_text,
         )
     )
+
+
+# --------------------------------------------------------------------------
+# The intent gate. Runs before the graph, never inside it: a message that is
+# not from a customer must not reach a node that knows how to sell.
+# --------------------------------------------------------------------------
+class IntentTurn(BaseModel):
+    role: str = Field("", description='"lead"/"them" for them; anything else reads as us.')
+    text: str = ""
+
+
+class IntentIn(BaseModel):
+    message: str = Field(description="The inbound message to classify.")
+    transcript: list[IntentTurn] = Field(
+        default_factory=list,
+        description="Bounded recent context, oldest first. The last few turns only.",
+    )
+    conversation_id: str = Field("", description="Log correlation only; nothing is read from it.")
+
+
+class IntentOut(BaseModel):
+    intent: Literal["sales_lead", "non_lead", "unclear"]
+    confidence: float
+    reason: str
+
+
+@app.post("/v1/intent", dependencies=[Depends(require_service_key)])
+def intent_gate(body: IntentIn) -> IntentOut:
+    """
+    Whether this conversation is a prospective customer. Classification only -
+    nothing this endpoint returns can reach the lead.
+
+    Deliberately not under /v1/conversations/{id}: there is no graph thread and
+    no checkpoint involved, and creating one for a message we may be about to
+    ignore is exactly the cost this gate exists to avoid.
+    """
+    try:
+        with llm.llm_context("intent", conversation_id=body.conversation_id or None):
+            return IntentOut(
+                **intent.classify(
+                    message=body.message,
+                    transcript=[turn.model_dump() for turn in body.transcript],
+                )
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 # --------------------------------------------------------------------------

@@ -6,6 +6,7 @@
 import { type HydratedDocument } from 'mongoose';
 
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
+import { AI_INTENT_VALUES, AI_INTENTS, type AiIntent } from '../../constants/ai-intents.js';
 import {
   AI_BRAIN_APPROVAL_RESOLUTIONS,
   AI_BRAIN_RESULT_STATUSES,
@@ -33,6 +34,7 @@ import {
   AI_FACTS_PRECEDENCE,
   findConversationById,
   mergeConversationAiContext,
+  setAiIntent,
   updateAutomationState,
   updateStage as updateConversationStage,
 } from '../conversations/conversation.repository.js';
@@ -117,6 +119,149 @@ export const buildUnreadableMediaReason = ({
   const label = describeMediaMessage({ type: messageType, isVoiceNote }) ?? 'An attachment';
 
   return `They sent ${label} with nothing written with it, and the AI can't open it.`;
+};
+
+/** How many earlier messages travel with an intent call. Enough to read a terse follow-up. */
+const INTENT_TRANSCRIPT_MESSAGE_LIMIT = 8;
+
+interface IntentVerdict {
+  intent: AiIntent;
+  confidence: number;
+  reason: string;
+  /**
+   * False when the classifier never produced an answer - a timeout, a 500, a malformed body.
+   * The distinction matters: a verdict is remembered, a failure is not, so a transient fault
+   * cannot permanently brand a conversation.
+   */
+  decided: boolean;
+}
+
+/**
+ * Did this conversation arrive through a door we already trust?
+ *
+ * `leadSourceId` is stamped by the importer for a Meta lead form or a Google Sheet;
+ * `manualOutreachApprovedAt` is set when a human added the lead by hand. Either means a person
+ * or a form already vouched for this thread, and the gate has nothing to add - it would only
+ * risk muting a real lead whose opening line happens to be terse.
+ *
+ * Existing metadata only; no new origin system. NOTE the known hole: `leadSourceId` is written
+ * with `$setOnInsert`, so a lead who cold-messages first and is imported later keeps a null
+ * one. Those fall through to the gate and are judged on their words, which is the safe
+ * direction to be wrong in.
+ */
+const hasTrustedLeadOrigin = (conversation: ConversationDocument): boolean => {
+  const doc = conversation as unknown as {
+    leadSourceId?: unknown;
+    manualOutreachApprovedAt?: unknown;
+  };
+
+  return Boolean(doc.leadSourceId) || Boolean(doc.manualOutreachApprovedAt);
+};
+
+/**
+ * Whether this message is worth an LLM call.
+ *
+ * Four reasons to skip, all of them cases where the answer is already known:
+ *
+ *  1. The owner gave an instruction. `resumeEscalatedConversationWithInstruction` re-enters
+ *     this function with an EMPTY body immediately after a human deliberately un-paused the
+ *     thread. Classifying that empty string would re-pause what they just resumed, forever.
+ *     A human decision always outranks the gate.
+ *  2. There is nothing to classify.
+ *  3. Trusted origin - a lead form or a human added it.
+ *  4. Already classified. Decided once, never re-litigated: a thread known to be a sales lead
+ *     skips straight through, and one known not to be never reaches here at all because
+ *     automation is paused.
+ */
+const shouldRunIntentGate = ({
+  conversation,
+  inboundText,
+  ownerInstruction,
+}: {
+  conversation: ConversationDocument;
+  inboundText?: string | null;
+  ownerInstruction?: string | null;
+}): boolean => {
+  if ((ownerInstruction ?? '').trim() !== '') {
+    return false;
+  }
+
+  if ((inboundText ?? '').trim() === '') {
+    return false;
+  }
+
+  if (hasTrustedLeadOrigin(conversation)) {
+    return false;
+  }
+
+  return (conversation.aiIntent ?? AI_INTENTS.UNKNOWN) === AI_INTENTS.UNKNOWN;
+};
+
+/** Shown in the dashboard, and read by the owner in the escalation card. */
+const intentPauseReason = (verdict: IntentVerdict): string => {
+  if (!verdict.decided) {
+    return 'The AI could not check whether this is a sales enquiry, so it did not reply. Have a look.';
+  }
+
+  return verdict.intent === AI_INTENTS.NON_LEAD
+    ? 'This does not look like a sales enquiry, so the AI did not reply. Have a look.'
+    : 'The AI could not tell whether this is a sales enquiry, so it did not reply. Have a look.';
+};
+
+/**
+ * Asks ai-brain-service whether this is a customer. FAILS CLOSED, always.
+ *
+ * Its own try/catch, deliberately, rather than relying on the one wrapping the caller: that one
+ * swallows everything and leaves the conversation un-automated with NOBODY told - the lead gets
+ * silence and the owner never finds out. A gate that cannot reach its classifier must still
+ * produce a decision someone acts on, so every failure becomes `unclear` with `decided: false`,
+ * which the caller turns into a pause the owner is alerted to.
+ */
+const classifyConversationIntent = async ({
+  organizationId,
+  conversation,
+  inboundText,
+}: {
+  organizationId: ObjectIdLike;
+  conversation: ConversationDocument;
+  inboundText?: string | null;
+}): Promise<IntentVerdict> => {
+  try {
+    const recentMessages = await findMessagesByConversationCursor({
+      organizationId,
+      conversationId: conversation._id,
+      limit: INTENT_TRANSCRIPT_MESSAGE_LIMIT,
+    });
+
+    const result = await aiBrainClient.classifyIntent({
+      conversationId: conversation._id.toString(),
+      message: inboundText ?? '',
+      transcript: buildTranscript(recentMessages),
+    });
+
+    const returned = result?.intent as AiIntent | undefined;
+    const known = returned !== undefined && AI_INTENT_VALUES.includes(returned);
+
+    return {
+      intent: known ? returned : AI_INTENTS.UNCLEAR,
+      confidence: typeof result?.confidence === 'number' ? result.confidence : 0,
+      reason: typeof result?.reason === 'string' ? result.reason : '',
+      // A verdict the service could not express is not a verdict; not remembered.
+      decided: known,
+    };
+  } catch (error: unknown) {
+    logger.error(
+      { err: error, conversationId: conversation._id.toString() },
+      'Intent gate could not classify this message; failing closed and alerting the owner.',
+    );
+
+    return {
+      intent: AI_INTENTS.UNCLEAR,
+      confidence: 0,
+      reason: 'the classifier could not be reached',
+      decided: false,
+    };
+  }
 };
 
 export const handleInboundMessageForAutomation = async ({
@@ -236,6 +381,118 @@ export const handleInboundMessageForAutomation = async ({
       });
 
       return;
+    }
+
+    // ---- The intent gate -------------------------------------------------
+    //
+    // Everything above asks whether we MAY answer. This asks whether we SHOULD: is the person
+    // on the other end a prospective customer at all? The studio's number takes bank OTPs,
+    // vendors chasing invoices and marketing blasts on the same line leads use, and the agent
+    // used to answer all of them.
+    //
+    // A phrase list already removed the obvious ones before this function was even called
+    // (whatsapp/automation/non-lead.ts, run during ingestion). What reaches here is what
+    // keywords cannot settle - "Abe kuch nai hai audio visual set up tha" is a vendor talking
+    // about a job, and no word in it says so.
+    if (shouldRunIntentGate({ conversation, inboundText, ownerInstruction })) {
+      const verdict = await classifyConversationIntent({
+        organizationId,
+        conversation,
+        inboundText,
+      });
+
+      if (verdict.intent !== AI_INTENTS.SALES_LEAD) {
+        const reason = intentPauseReason(verdict);
+
+        trace.stop(PIPELINE_STAGE.AI_ELIGIBILITY, reason, () => ({
+          conversation: conversation._id.toString(),
+          intent: verdict.intent,
+          confidence: verdict.confidence,
+          escalated: 'owner alerted, automation paused',
+        }));
+
+        const doc = conversationDoc(conversation);
+
+        await runInTransaction(async (session) => {
+          await updateAutomationState({
+            conversationId: doc._id,
+            organizationId,
+            aiAutomationEnabled: false,
+            aiAutomationPausedReason: reason,
+            session,
+          });
+
+          // Only a real verdict is remembered. A classifier FAILURE leaves the conversation
+          // `unknown` on purpose, so the next message gets a fresh attempt instead of the
+          // thread being permanently branded by one timeout.
+          if (verdict.decided) {
+            await setAiIntent({
+              conversationId: doc._id,
+              organizationId,
+              intent: verdict.intent,
+              session,
+            });
+          }
+
+          await createActivity({
+            organizationId,
+            whatsappAccountId: conversation.whatsappAccountId,
+            conversationId: conversation._id,
+            eventType: ACTIVITY_EVENTS.AI_BRAIN_ESCALATED,
+            summary: `AI paused automation for this conversation: ${reason}`,
+            metadata: {
+              escalationReason: reason,
+              intent: verdict.intent,
+              confidence: verdict.confidence,
+              intentReason: verdict.reason,
+              decided: verdict.decided,
+            },
+            session,
+          });
+
+          await enqueueConversationChanged({
+            organizationId,
+            conversationId: conversation._id,
+            assignedTo: conversation.assignedTo,
+            reason: REALTIME_REASONS.AI_PENDING,
+            session,
+          });
+        });
+
+        // Unlike the silent phrase filter upstream, this one DOES tell the owner. The cheap
+        // filter removes high-volume noise nobody wants a notification about; by the time a
+        // message reaches the model it is ambiguous enough that a person should look.
+        await sendEscalationAlert({
+          organizationId,
+          accountId: conversation.whatsappAccountId,
+          conversationId: conversation._id,
+          leadDisplayName: conversation.displayName,
+          reason,
+          lastLeadMessage: inboundText ?? null,
+        });
+
+        return;
+      }
+
+      // Remembered so the classifier never runs on this thread again.
+      await setAiIntent({
+        conversationId: conversationDoc(conversation)._id,
+        organizationId,
+        intent: AI_INTENTS.SALES_LEAD,
+      }).catch((error: unknown) => {
+        // Not fatal: failing to write the verdict costs one extra classification next time,
+        // which is far cheaper than refusing to answer a lead we just confirmed is real.
+        logger.error(
+          { err: error, conversationId: conversation._id.toString() },
+          'Intent gate could not record a sales_lead verdict; the reply continues regardless.',
+        );
+      });
+
+      trace.pass(PIPELINE_STAGE.AI_ELIGIBILITY, () => ({
+        conversation: conversation._id.toString(),
+        intent: verdict.intent,
+        confidence: verdict.confidence,
+      }));
     }
 
     trace.pass(PIPELINE_STAGE.AI_ELIGIBILITY, () => ({
