@@ -9,6 +9,7 @@ export type {
 
 export type {
   AccountAccessMode,
+  AccountPurgeCounts,
   AccountQrPayload,
   AccountRemoval,
   AccountRemovalOutcome,

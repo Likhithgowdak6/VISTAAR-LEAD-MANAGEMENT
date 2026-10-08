@@ -643,11 +643,20 @@ export const disconnectAccount = ({
  * Remove is not always a delete: the API deletes a number that has no history and soft-removes
  * (and hides) one that still owns conversations, messages or a lead source, and says which.
  */
+export interface RemoveAccountParams extends AccountIdParams {
+  /** Opt-in only. Deletes the number's conversations, messages and lead sources with it. */
+  purgeHistory?: boolean;
+}
+
 export const removeAccount = ({
   token,
   accountId,
-}: AccountIdParams): Promise<ApiSuccessResponse<AccountRemoval>> =>
-  apiFetch(`/whatsapp-accounts/${accountId}`, { method: 'DELETE', token });
+  purgeHistory = false,
+}: RemoveAccountParams): Promise<ApiSuccessResponse<AccountRemoval>> =>
+  apiFetch(
+    `/whatsapp-accounts/${accountId}${purgeHistory ? '?purgeHistory=true' : ''}`,
+    { method: 'DELETE', token },
+  );
 
 // --- Team / users (Phase 15) ---
 

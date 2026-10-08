@@ -31,3 +31,18 @@ export const createAccountBodySchema = z.object({
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'brandKey must be lowercase-with-hyphens'),
   description: z.string().trim().max(500).optional(),
 });
+
+/**
+ * The one opt-in that makes Remove destructive.
+ *
+ * A literal 'true' string and nothing else: `z.coerce.boolean()` would turn 'false', '0' and
+ * any other stray value into `true`, and the whole point of this flag is that it can only ever
+ * be set deliberately. Default false, so an old client or a hand-written curl removes the way
+ * it always did.
+ */
+export const removeAccountQuerySchema = z.object({
+  purgeHistory: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+});

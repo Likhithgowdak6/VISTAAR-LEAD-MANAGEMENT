@@ -33,5 +33,12 @@ export const describeAccountRemoval = (removal: AccountRemoval): string => {
     return `${name} was deleted permanently. It had no conversations, messages or lead sources, so its stored WhatsApp login was cleared with it.`;
   }
 
+  if (removal.outcome === 'purged') {
+    // Names what was destroyed rather than just saying "done". This is the only acknowledgement
+    // an admin gets that the history is actually gone, and the brand key is the practical
+    // consequence they are most likely to act on next.
+    return `${name} and all of its history were deleted permanently — ${describeAccountReferences(removal.references)} are gone, along with its stored WhatsApp login. The brand key "${removal.account?.brandKey ?? ''}" is free to use again.`;
+  }
+
   return `${name} was disconnected and hidden from this list, because it still has ${describeAccountReferences(removal.references)}. That history stays in the inbox, so nothing is orphaned.`;
 };

@@ -19,6 +19,7 @@ import {
   findAccountById,
   findAccountsByOrganization,
   hardDeleteAccount,
+  purgeAccountData,
   softRemoveAccount,
   updateAccountStatus,
 } from './whatsapp-account.repository.js';
@@ -71,6 +72,12 @@ export interface RemoveAccountForActorOptions {
   organizationId?: ObjectIdLike;
   accountId?: ObjectIdLike;
   actor: ActorUser;
+  /**
+   * "Delete the history too." Opt-in, never the default: without it a number with threads is
+   * soft-removed exactly as before. With it, everything the number owns is deleted first so the
+   * account itself can go, leaving no trace and freeing its brand key. Irreversible.
+   */
+  purgeHistory?: boolean;
 }
 
 const withRuntime = (account: WhatsAppAccountDocument) => {
@@ -253,6 +260,7 @@ export interface CreateAccountRemovalServiceDeps {
   findAccount?: typeof findAccountById;
   countReferences?: typeof countAccountReferences;
   hardDelete?: typeof hardDeleteAccount;
+  purgeData?: typeof purgeAccountData;
   softRemove?: typeof softRemoveAccount;
   recordAudit?: typeof createAuditLog;
   sessionManager?: typeof getSessionManager;
@@ -275,6 +283,7 @@ export const createAccountRemovalService = ({
   findAccount = findAccountById,
   countReferences = countAccountReferences,
   hardDelete = hardDeleteAccount,
+  purgeData = purgeAccountData,
   softRemove = softRemoveAccount,
   recordAudit = createAuditLog,
   sessionManager = getSessionManager,
@@ -283,6 +292,7 @@ export const createAccountRemovalService = ({
     organizationId,
     accountId,
     actor,
+    purgeHistory = false,
   }: RemoveAccountForActorOptions): Promise<SerializedAccountRemoval> => {
     const account = await findAccount({ accountId, organizationId });
 
@@ -300,7 +310,14 @@ export const createAccountRemovalService = ({
 
     const references = await countReferences({ accountId, organizationId });
 
-    if (references.total > 0) {
+    // "No trace" was asked for explicitly, so the history goes first and the account follows it
+    // down the hard-delete path below - the same path a number with no history already takes.
+    const purged =
+      purgeHistory && references.total > 0
+        ? await purgeData({ accountId, organizationId })
+        : null;
+
+    if (!purged && references.total > 0) {
       const softRemoved = await softRemove({ accountId, organizationId, actorId: actor._id });
 
       return serializeAccountRemoval({
@@ -324,13 +341,17 @@ export const createAccountRemovalService = ({
         name: account.name,
         brandKey: account.brandKey,
         deletedAuthStates: deletion.deletedAuthStates,
+        // The counts are the only surviving record of what the purge destroyed - every document
+        // that could have told the story is exactly what was deleted.
+        purged: purged ?? undefined,
       },
     });
 
     return serializeAccountRemoval({
-      outcome: ACCOUNT_REMOVAL_OUTCOMES.DELETED,
+      outcome: purged ? ACCOUNT_REMOVAL_OUTCOMES.PURGED : ACCOUNT_REMOVAL_OUTCOMES.DELETED,
       account,
       references,
+      purged,
     });
   };
 

@@ -11,6 +11,7 @@ import {
   connectAccountBodySchema,
   createAccountBodySchema,
   listAccountsQuerySchema,
+  removeAccountQuerySchema,
 } from './whatsapp-account.validation.js';
 import {
   connectAccountForActor,
@@ -202,4 +203,33 @@ export const pauseAccount = runAction(pauseAccountForActor);
 export const resumeAccount = runAction(resumeAccountForActor);
 export const resetAccount = runAction(resetAccountForActor);
 export const disconnectAccount = runAction(disconnectAccountForActor);
-export const removeAccount = runAction(removeAccountForActor);
+
+// Not `runAction` like its neighbours: this is the only account action that takes input, and
+// what that input does - destroy every conversation the number owns - is worth parsing
+// explicitly rather than reading a raw query string.
+export const removeAccount = asyncHandler(async (req, res) => {
+  const params = parseWithSchema({
+    schema: accountIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+  const query = parseWithSchema({
+    schema: removeAccountQuerySchema,
+    value: req.query ?? {},
+    source: 'Query',
+  });
+  const auth = requireAuth(req);
+
+  try {
+    const data = await removeAccountForActor({
+      organizationId: auth.organization._id,
+      accountId: params.accountId,
+      actor: auth.user,
+      purgeHistory: query.purgeHistory,
+    });
+
+    res.status(200).json({ data });
+  } catch (error: unknown) {
+    mapAccountError(error);
+  }
+});

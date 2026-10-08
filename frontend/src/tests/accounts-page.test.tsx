@@ -177,3 +177,107 @@ describe('AccountsPage', () => {
     expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
   });
 });
+
+// --------------------------------------------------------------------------
+// "Delete its history too" - the opt-in that makes Remove destructive.
+//
+// The property that matters is not that the checkbox works; it is that nothing reaches the
+// server with purgeHistory set unless a human ticked it on this dialog, for this number, just
+// now. There is no undo behind it.
+// --------------------------------------------------------------------------
+describe('deleting a number together with its history', () => {
+  const openRemoveDialog = async () => {
+    renderAuthed(<AccountsPage />);
+    await screen.findByText('Sales Line');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
+    return screen.findByRole('dialog', { name: 'Remove Sales Line' });
+  };
+
+  it('starts unticked, so the default removal is the safe one', async () => {
+    asManager();
+    endpoints.removeAccount.mockResolvedValue({
+      data: {
+        outcome: 'hidden',
+        account: { id: 'a1', name: 'Sales Line' },
+        references: { conversations: 3, messages: 9, leadSources: 0, total: 12 },
+        purged: null,
+      },
+    });
+
+    await openRemoveDialog();
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove number' }));
+
+    await waitFor(() =>
+      expect(endpoints.removeAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'a1', purgeHistory: false }),
+      ),
+    );
+  });
+
+  it('sends the purge only once the box is ticked', async () => {
+    asManager();
+    endpoints.removeAccount.mockResolvedValue({
+      data: {
+        outcome: 'purged',
+        account: { id: 'a1', name: 'Sales Line', brandKey: 'sales-line' },
+        references: { conversations: 134, messages: 818, leadSources: 1, total: 953 },
+        purged: { conversations: 134, messages: 818, total: 953 },
+      },
+    });
+
+    await openRemoveDialog();
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    // The button restates the choice, so the last thing read before clicking is which one it is.
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete everything' }));
+
+    await waitFor(() =>
+      expect(endpoints.removeAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'a1', purgeHistory: true }),
+      ),
+    );
+  });
+
+  it('reports what was destroyed and that the brand key is free again', async () => {
+    asManager();
+    endpoints.removeAccount.mockResolvedValue({
+      data: {
+        outcome: 'purged',
+        account: { id: 'a1', name: 'Sales Line', brandKey: 'sales-line' },
+        references: { conversations: 134, messages: 818, leadSources: 1, total: 953 },
+        purged: { conversations: 134, messages: 818, total: 953 },
+      },
+    });
+
+    await openRemoveDialog();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete everything' }));
+
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent('134 conversations, 818 messages and 1 lead source are gone');
+    expect(notice).toHaveTextContent('"sales-line" is free to use again');
+  });
+
+  it('forgets the tick between removals', async () => {
+    asManager();
+    endpoints.removeAccount.mockResolvedValue({
+      data: {
+        outcome: 'purged',
+        account: { id: 'a1', name: 'Sales Line', brandKey: 'sales-line' },
+        references: { conversations: 1, messages: 1, leadSources: 0, total: 2 },
+        purged: { conversations: 1, messages: 1, total: 2 },
+      },
+    });
+
+    await openRemoveDialog();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Reopening must not carry the previous answer forward - deleting 800 messages is a
+    // decision taken for one number, not a preference that persists.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
+    expect(await screen.findByRole('checkbox')).not.toBeChecked();
+  });
+});

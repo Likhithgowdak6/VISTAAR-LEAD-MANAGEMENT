@@ -66,11 +66,29 @@ const createHarness = ({
     return { ...account, status: 'removed', removedAt: new Date('2026-09-02T00:00:00.000Z') };
   });
   const recordAudit = vi.fn(async () => ({}));
+  const purgeData = vi.fn(async () => {
+    calls.push('purge');
+    return {
+      conversations: 134,
+      messages: 818,
+      leadSources: 1,
+      leadSubmissions: 12,
+      activityLogs: 402,
+      followUpTasks: 3,
+      notes: 5,
+      tags: 2,
+      aiApprovals: 7,
+      aiDrafts: 9,
+      realtimeOutbox: 0,
+      total: 1393,
+    };
+  });
 
   const service = createAccountRemovalService({
     findAccount: findAccount as never,
     countReferences: countReferences as never,
     hardDelete: hardDelete as never,
+    purgeData: purgeData as never,
     softRemove: softRemove as never,
     recordAudit: recordAudit as never,
     sessionManager: (() => ({ disconnectAccount })) as never,
@@ -83,6 +101,7 @@ const createHarness = ({
     findAccount,
     countReferences,
     hardDelete,
+    purgeData,
     softRemove,
     recordAudit,
   };
@@ -90,6 +109,14 @@ const createHarness = ({
 
 const remove = (harness: ReturnType<typeof createHarness>) =>
   harness.service.removeAccountForActor({ organizationId, accountId, actor });
+
+const purge = (harness: ReturnType<typeof createHarness>) =>
+  harness.service.removeAccountForActor({
+    organizationId,
+    accountId,
+    actor,
+    purgeHistory: true,
+  });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -205,5 +232,94 @@ describe('removing an account that is not there', () => {
     expect(harness.disconnectAccount).not.toHaveBeenCalled();
     expect(harness.hardDelete).not.toHaveBeenCalled();
     expect(harness.softRemove).not.toHaveBeenCalled();
+  });
+});
+
+// --------------------------------------------------------------------------
+// "If I remove it there should be no trace of it." The admin's explicit opt-in, and the reason
+// the default is not this: once these run, 818 real customer messages are gone and there is no
+// backup to put them back from.
+// --------------------------------------------------------------------------
+describe('removing an account AND its history', () => {
+  it('purges the history, then hard deletes the account', async () => {
+    const harness = createHarness({ conversations: 134, messages: 818, leadSources: 1 });
+
+    const result = await harness.service.removeAccountForActor({
+      organizationId,
+      accountId,
+      actor,
+      purgeHistory: true,
+    });
+
+    expect(harness.purgeData).toHaveBeenCalledWith({ accountId, organizationId });
+    expect(harness.hardDelete).toHaveBeenCalledWith({ accountId, organizationId });
+    expect(harness.softRemove).not.toHaveBeenCalled();
+    expect(result.outcome).toBe('purged');
+  });
+
+  it('closes the socket before deleting anything', async () => {
+    const harness = createHarness({ conversations: 134, messages: 818 });
+
+    await purge(harness);
+
+    // Deleting a number out from under a live session leaves a socket nothing can reach.
+    expect(harness.calls).toEqual(['disconnect', 'purge', 'hardDelete']);
+  });
+
+  it('reports exactly what was destroyed', async () => {
+    const harness = createHarness({ conversations: 134, messages: 818, leadSources: 1 });
+
+    const result = await purge(harness);
+
+    expect(result.purged).toMatchObject({ conversations: 134, messages: 818, total: 1393 });
+    expect(result.references).toMatchObject({ conversations: 134, messages: 818 });
+  });
+
+  it('keeps the counts in the audit trail, which is the only record left', async () => {
+    const harness = createHarness({ conversations: 134, messages: 818 });
+
+    await purge(harness);
+
+    expect(harness.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          brandKey: 'likhith-gowda-k',
+          purged: expect.objectContaining({ conversations: 134, messages: 818 }),
+        }),
+      }),
+    );
+  });
+
+  it('does not purge when the flag is absent, even for a number full of history', async () => {
+    const harness = createHarness({ conversations: 134, messages: 818 });
+
+    const result = await remove(harness);
+
+    // The whole safety property: destructive only on explicit request.
+    expect(harness.purgeData).not.toHaveBeenCalled();
+    expect(harness.hardDelete).not.toHaveBeenCalled();
+    expect(harness.softRemove).toHaveBeenCalled();
+    expect(result.outcome).toBe('hidden');
+  });
+
+  it('skips the purge entirely when there is nothing to purge', async () => {
+    const harness = createHarness();
+
+    const result = await purge(harness);
+
+    // No history means the plain hard-delete path already does the job; running a purge that
+    // would delete nothing just adds eleven pointless deleteMany calls.
+    expect(harness.purgeData).not.toHaveBeenCalled();
+    expect(harness.hardDelete).toHaveBeenCalled();
+    expect(result.outcome).toBe('deleted');
+    expect(result.purged).toBeNull();
+  });
+
+  it('leaves `purged` null on a soft remove', async () => {
+    const harness = createHarness({ conversations: 1 });
+
+    const result = await remove(harness);
+
+    expect(result.purged).toBeNull();
   });
 });

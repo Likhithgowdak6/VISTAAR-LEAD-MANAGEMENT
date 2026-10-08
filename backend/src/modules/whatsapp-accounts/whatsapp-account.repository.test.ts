@@ -20,6 +20,19 @@ const mocks = vi.hoisted(() => ({
   messageCount: vi.fn(),
   leadSourceCount: vi.fn(),
   deleteAuthStateForAccount: vi.fn(),
+  conversationDistinct: vi.fn(),
+  leadSourceDistinct: vi.fn(),
+  conversationDeleteMany: vi.fn(),
+  messageDeleteMany: vi.fn(),
+  leadSourceDeleteMany: vi.fn(),
+  leadSubmissionDeleteMany: vi.fn(),
+  activityDeleteMany: vi.fn(),
+  followUpDeleteMany: vi.fn(),
+  noteDeleteMany: vi.fn(),
+  tagDeleteMany: vi.fn(),
+  approvalDeleteMany: vi.fn(),
+  draftDeleteMany: vi.fn(),
+  outboxDeleteMany: vi.fn(),
 }));
 
 vi.mock('./whatsapp-account.model.js', () => ({
@@ -30,24 +43,67 @@ vi.mock('./whatsapp-account.model.js', () => ({
 }));
 
 vi.mock('../conversations/conversation.model.js', () => ({
-  Conversation: { countDocuments: mocks.conversationCount },
+  Conversation: {
+    countDocuments: mocks.conversationCount,
+    find: mocks.conversationDistinct,
+    deleteMany: mocks.conversationDeleteMany,
+  },
 }));
 
 vi.mock('../messages/message.model.js', () => ({
-  Message: { countDocuments: mocks.messageCount },
+  Message: { countDocuments: mocks.messageCount, deleteMany: mocks.messageDeleteMany },
 }));
 
 vi.mock('../lead-sources/lead-source.model.js', () => ({
-  LeadSource: { countDocuments: mocks.leadSourceCount },
+  LeadSource: {
+    countDocuments: mocks.leadSourceCount,
+    find: mocks.leadSourceDistinct,
+    deleteMany: mocks.leadSourceDeleteMany,
+  },
+}));
+
+vi.mock('../lead-sources/lead-submission.model.js', () => ({
+  LeadSubmission: { deleteMany: mocks.leadSubmissionDeleteMany },
+}));
+
+vi.mock('../activity/activity-log.model.js', () => ({
+  ActivityLog: { deleteMany: mocks.activityDeleteMany },
+}));
+
+vi.mock('../followups/followup-task.model.js', () => ({
+  FollowUpTask: { deleteMany: mocks.followUpDeleteMany },
+}));
+
+vi.mock('../notes/note.model.js', () => ({
+  Note: { deleteMany: mocks.noteDeleteMany },
+}));
+
+vi.mock('../tags/tag.model.js', () => ({
+  Tag: { deleteMany: mocks.tagDeleteMany },
+}));
+
+vi.mock('../ai-brain/ai-brain-approval.model.js', () => ({
+  AiBrainApproval: { deleteMany: mocks.approvalDeleteMany },
+}));
+
+vi.mock('../ai/ai-draft.model.js', () => ({
+  AiDraft: { deleteMany: mocks.draftDeleteMany },
+}));
+
+vi.mock('../realtime/realtime-outbox.model.js', () => ({
+  RealtimeOutboxEvent: { deleteMany: mocks.outboxDeleteMany },
 }));
 
 vi.mock('../whatsapp-auth-states/whatsapp-auth-state.repository.js', () => ({
   deleteAuthStateForAccount: mocks.deleteAuthStateForAccount,
 }));
 
-const { countAccountReferences, findAccountsByOrganization, hardDeleteAccount } = await import(
-  './whatsapp-account.repository.js'
-);
+const {
+  countAccountReferences,
+  findAccountsByOrganization,
+  hardDeleteAccount,
+  purgeAccountData,
+} = await import('./whatsapp-account.repository.js');
 
 const organizationId = 'org-1';
 const accountId = 'account-1';
@@ -172,5 +228,144 @@ describe('hardDeleteAccount', () => {
       deletedAccounts: 0,
       deletedAuthStates: 0,
     });
+  });
+});
+
+// --------------------------------------------------------------------------
+// The cascade behind "delete its history too".
+//
+// A PARTIAL cascade is worse than no cascade: it is precisely the orphaned-inbox failure the
+// soft remove exists to avoid, except now the account is gone too and nothing is left that can
+// find the leftovers. So these tests are mostly an inventory - every collection holding a
+// whatsappAccountId or a conversationId has to appear here, and the ones that must NOT be
+// touched have to stay untouched.
+// --------------------------------------------------------------------------
+const deletedCount = (count: number) => ({
+  exec: vi.fn().mockResolvedValue({ deletedCount: count }),
+});
+
+const distinctOf = (ids: string[]) => ({
+  distinct: vi.fn().mockReturnValue({ exec: vi.fn().mockResolvedValue(ids) }),
+});
+
+describe('purgeAccountData', () => {
+  const everyDeleteMock = () => [
+    mocks.conversationDeleteMany,
+    mocks.messageDeleteMany,
+    mocks.leadSourceDeleteMany,
+    mocks.leadSubmissionDeleteMany,
+    mocks.activityDeleteMany,
+    mocks.followUpDeleteMany,
+    mocks.noteDeleteMany,
+    mocks.tagDeleteMany,
+    mocks.approvalDeleteMany,
+    mocks.draftDeleteMany,
+    mocks.outboxDeleteMany,
+  ];
+
+  beforeEach(() => {
+    mocks.conversationDistinct.mockReturnValue(distinctOf(['conv-1', 'conv-2']));
+    mocks.leadSourceDistinct.mockReturnValue(distinctOf(['src-1']));
+    everyDeleteMock().forEach((mock) => mock.mockReturnValue(deletedCount(1)));
+  });
+
+  it('empties every collection that references the account', async () => {
+    await purgeAccountData({ accountId, organizationId });
+
+    everyDeleteMock().forEach((mock) => expect(mock).toHaveBeenCalledTimes(1));
+  });
+
+  it('scopes the account-owned collections by organization AND account', async () => {
+    await purgeAccountData({ accountId, organizationId });
+
+    const byAccount = { organizationId, whatsappAccountId: accountId };
+    [
+      mocks.conversationDeleteMany,
+      mocks.messageDeleteMany,
+      mocks.leadSourceDeleteMany,
+      mocks.activityDeleteMany,
+      mocks.followUpDeleteMany,
+      mocks.noteDeleteMany,
+      mocks.tagDeleteMany,
+    ].forEach((mock) => expect(mock).toHaveBeenCalledWith(byAccount));
+  });
+
+  it('reaches approvals, drafts and queued events through the conversation ids', async () => {
+    await purgeAccountData({ accountId, organizationId });
+
+    // None of these three carries a whatsappAccountId, so the conversation ids have to be read
+    // before the conversations go - which is what the ordering test below pins.
+    const byConversation = { organizationId, conversationId: { $in: ['conv-1', 'conv-2'] } };
+    expect(mocks.approvalDeleteMany).toHaveBeenCalledWith(byConversation);
+    expect(mocks.draftDeleteMany).toHaveBeenCalledWith(byConversation);
+    expect(mocks.outboxDeleteMany).toHaveBeenCalledWith(byConversation);
+  });
+
+  it('reaches lead submissions through the lead source ids', async () => {
+    await purgeAccountData({ accountId, organizationId });
+
+    expect(mocks.leadSubmissionDeleteMany).toHaveBeenCalledWith({
+      organizationId,
+      leadSourceId: { $in: ['src-1'] },
+    });
+  });
+
+  it('collects the ids before deleting the documents they came from', async () => {
+    const order: string[] = [];
+    mocks.conversationDistinct.mockReturnValue({
+      distinct: vi.fn().mockReturnValue({
+        exec: vi.fn().mockImplementation(async () => {
+          order.push('read-conversations');
+          return ['conv-1'];
+        }),
+      }),
+    });
+    mocks.approvalDeleteMany.mockReturnValue({
+      exec: vi.fn().mockImplementation(async () => {
+        order.push('delete-approvals');
+        return { deletedCount: 1 };
+      }),
+    });
+    mocks.conversationDeleteMany.mockReturnValue({
+      exec: vi.fn().mockImplementation(async () => {
+        order.push('delete-conversations');
+        return { deletedCount: 1 };
+      }),
+    });
+
+    await purgeAccountData({ accountId, organizationId });
+
+    expect(order).toEqual(['read-conversations', 'delete-approvals', 'delete-conversations']);
+  });
+
+  it('totals what it deleted', async () => {
+    mocks.conversationDeleteMany.mockReturnValue(deletedCount(134));
+    mocks.messageDeleteMany.mockReturnValue(deletedCount(818));
+
+    const result = await purgeAccountData({ accountId, organizationId });
+
+    expect(result.conversations).toBe(134);
+    expect(result.messages).toBe(818);
+    // 134 + 818 + the nine other collections returning 1 each.
+    expect(result.total).toBe(961);
+  });
+
+  it('survives a driver response with no deletedCount', async () => {
+    everyDeleteMock().forEach((mock) =>
+      mock.mockReturnValue({ exec: vi.fn().mockResolvedValue(null) }),
+    );
+
+    const result = await purgeAccountData({ accountId, organizationId });
+
+    expect(result.total).toBe(0);
+  });
+
+  it('never deletes the account document or its credentials itself', async () => {
+    await purgeAccountData({ accountId, organizationId });
+
+    // hardDeleteAccount's job, and it has to run AFTER this: a failure mid-purge must leave the
+    // account present so pressing Remove again finishes what was started.
+    expect(mocks.accountDeleteOne).not.toHaveBeenCalled();
+    expect(mocks.deleteAuthStateForAccount).not.toHaveBeenCalled();
   });
 });

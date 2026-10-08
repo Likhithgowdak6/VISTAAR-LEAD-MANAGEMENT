@@ -2,9 +2,17 @@ import { type QueryFilter, type UpdateQuery } from 'mongoose';
 
 import { ACCOUNT_STATUSES, type AccountStatus } from '../../constants/account-statuses.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import { ActivityLog } from '../activity/activity-log.model.js';
+import { AiBrainApproval } from '../ai-brain/ai-brain-approval.model.js';
+import { AiDraft } from '../ai/ai-draft.model.js';
 import { Conversation } from '../conversations/conversation.model.js';
+import { FollowUpTask } from '../followups/followup-task.model.js';
 import { LeadSource } from '../lead-sources/lead-source.model.js';
+import { LeadSubmission } from '../lead-sources/lead-submission.model.js';
 import { Message } from '../messages/message.model.js';
+import { Note } from '../notes/note.model.js';
+import { RealtimeOutboxEvent } from '../realtime/realtime-outbox.model.js';
+import { Tag } from '../tags/tag.model.js';
 import {
   decryptAccountJidFromStorage,
   decryptAccountPhoneFromStorage,
@@ -58,6 +66,27 @@ export interface HardDeleteAccountOptions {
 export interface HardDeleteAccountResult {
   deletedAccounts: number;
   deletedAuthStates: number;
+}
+
+export interface PurgeAccountDataOptions {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+}
+
+/** One entry per collection the purge empties, so the caller can report what actually went. */
+export interface PurgeAccountDataResult {
+  conversations: number;
+  messages: number;
+  leadSources: number;
+  leadSubmissions: number;
+  activityLogs: number;
+  followUpTasks: number;
+  notes: number;
+  tags: number;
+  aiApprovals: number;
+  aiDrafts: number;
+  realtimeOutbox: number;
+  total: number;
 }
 
 export interface FindAccountsByStatusesOptions {
@@ -302,6 +331,88 @@ export const countAccountReferences = async ({
     messages,
     leadSources,
     total: conversations + messages + leadSources,
+  };
+};
+
+/**
+ * Deletes everything an account owns, so the account itself can then be hard-deleted.
+ *
+ * This is the opposite trade-off to a soft remove, and it is only ever reached when an admin
+ * explicitly asked for it: the soft remove keeps the threads because an orphaned inbox is worse
+ * than a hidden row, whereas this says "I want no trace" and accepts that 800 real customer
+ * messages go with it. Irreversible - there is no restore.
+ *
+ * ORDER MATTERS, and it is dependents-first for the same reason `hardDeleteAccount` deletes
+ * auth states before the account: every step is individually re-runnable, so if one throws
+ * halfway the account row is still present and still owns whatever is left, and pressing Remove
+ * again finishes the job. Deleting the account first would strand the remainder with nothing
+ * left to find it by.
+ *
+ * What is deliberately NOT deleted:
+ *  - contacts, which are organization-level and shared across every number;
+ *  - organization-wide tags (`whatsappAccountId: null`), which other numbers still use;
+ *  - the Meta connection, which is one-per-organization and survives any single number;
+ *  - audit logs, which are the record that this deletion happened.
+ */
+export const purgeAccountData = async ({
+  accountId,
+  organizationId,
+}: PurgeAccountDataOptions = {}): Promise<PurgeAccountDataResult> => {
+  const byAccount = { organizationId, whatsappAccountId: accountId };
+
+  // Approvals, drafts and queued realtime events are reachable only through a conversation, so
+  // their ids have to be collected before the conversations go.
+  const [conversationIds, leadSourceIds] = await Promise.all([
+    Conversation.find(byAccount).distinct('_id').exec(),
+    LeadSource.find(byAccount).distinct('_id').exec(),
+  ]);
+
+  const byConversation = { organizationId, conversationId: { $in: conversationIds } };
+
+  const counted = async (deletion: Promise<{ deletedCount?: number } | null>): Promise<number> =>
+    (await deletion)?.deletedCount ?? 0;
+
+  const aiApprovals = await counted(AiBrainApproval.deleteMany(byConversation).exec());
+  const aiDrafts = await counted(AiDraft.deleteMany(byConversation).exec());
+  const realtimeOutbox = await counted(RealtimeOutboxEvent.deleteMany(byConversation).exec());
+  const leadSubmissions = await counted(
+    LeadSubmission.deleteMany({ organizationId, leadSourceId: { $in: leadSourceIds } }).exec(),
+  );
+
+  const notes = await counted(Note.deleteMany(byAccount).exec());
+  const followUpTasks = await counted(FollowUpTask.deleteMany(byAccount).exec());
+  const activityLogs = await counted(ActivityLog.deleteMany(byAccount).exec());
+  // Only this number's own tags. An organization-wide tag has a null accountId and is shared.
+  const tags = await counted(Tag.deleteMany(byAccount).exec());
+
+  const messages = await counted(Message.deleteMany(byAccount).exec());
+  const leadSources = await counted(LeadSource.deleteMany(byAccount).exec());
+  const conversations = await counted(Conversation.deleteMany(byAccount).exec());
+
+  return {
+    conversations,
+    messages,
+    leadSources,
+    leadSubmissions,
+    activityLogs,
+    followUpTasks,
+    notes,
+    tags,
+    aiApprovals,
+    aiDrafts,
+    realtimeOutbox,
+    total:
+      conversations +
+      messages +
+      leadSources +
+      leadSubmissions +
+      activityLogs +
+      followUpTasks +
+      notes +
+      tags +
+      aiApprovals +
+      aiDrafts +
+      realtimeOutbox,
   };
 };
 

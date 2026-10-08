@@ -73,11 +73,11 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
 
   // Not folded into `run`: this is the one action whose response says something the list cannot
   // show afterwards - the row is gone either way, deleted or merely hidden.
-  const confirmRemove = async () => {
+  const confirmRemove = async (purgeHistory: boolean) => {
     setBusy(true);
     try {
       const payload = await authedRequest((token) =>
-        removeAccount({ token, accountId: account.id }),
+        removeAccount({ token, accountId: account.id, purgeHistory }),
       );
       setConfirmingRemove(false);
       if (payload?.data) {

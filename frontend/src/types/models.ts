@@ -334,7 +334,11 @@ export interface WhatsAppAccount {
  * credentials are gone for good; `hidden` means it still owns history, so it was disconnected
  * and dropped out of the list instead, and `references` says what that history is.
  */
-export type AccountRemovalOutcome = 'deleted' | 'hidden';
+/**
+ * `purged` is `deleted` with the history destroyed on purpose - the admin ticked the box that
+ * says delete the conversations too, rather than the number simply having none.
+ */
+export type AccountRemovalOutcome = 'deleted' | 'hidden' | 'purged';
 
 export interface AccountRemovalReferences {
   conversations: number;
@@ -347,6 +351,24 @@ export interface AccountRemoval {
   outcome: AccountRemovalOutcome;
   account: WhatsAppAccount | null;
   references: AccountRemovalReferences;
+  /** Per-collection counts of what a `purged` removal destroyed. Null on any other outcome. */
+  purged: AccountPurgeCounts | null;
+}
+
+/** What the purge deleted. The only record of it left, since the documents themselves are gone. */
+export interface AccountPurgeCounts {
+  conversations: number;
+  messages: number;
+  leadSources: number;
+  leadSubmissions: number;
+  activityLogs: number;
+  followUpTasks: number;
+  notes: number;
+  tags: number;
+  aiApprovals: number;
+  aiDrafts: number;
+  realtimeOutbox: number;
+  total: number;
 }
 
 export interface AccountQrPayload {

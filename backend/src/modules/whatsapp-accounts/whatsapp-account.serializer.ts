@@ -1,6 +1,9 @@
 import { type AccountRemovalOutcome } from '../../constants/account-removal-outcomes.js';
 import { serializeDate, serializeId, toPlainObject } from '../../utils/serialization.js';
-import { type AccountReferenceCounts } from './whatsapp-account.repository.js';
+import {
+  type AccountReferenceCounts,
+  type PurgeAccountDataResult,
+} from './whatsapp-account.repository.js';
 import { type WhatsAppAccountDocument } from './whatsapp-account.model.js';
 
 export interface SerializedWhatsAppAccount {
@@ -73,18 +76,22 @@ export interface SerializedAccountRemoval {
   outcome: AccountRemovalOutcome;
   account: SerializedWhatsAppAccount | null;
   references: AccountReferenceCounts;
+  /** What a `purged` removal destroyed, per collection. Null on every other outcome. */
+  purged: PurgeAccountDataResult | null;
 }
 
 export interface SerializeAccountRemovalOptions {
   outcome: AccountRemovalOutcome;
   account: WhatsAppAccountDocument | Record<string, unknown> | null | undefined;
   references: AccountReferenceCounts;
+  purged?: PurgeAccountDataResult | null;
 }
 
 export const serializeAccountRemoval = ({
   outcome,
   account,
   references,
+  purged = null,
 }: SerializeAccountRemovalOptions): SerializedAccountRemoval => ({
   outcome,
   account: serializeWhatsAppAccount(account),
@@ -94,4 +101,5 @@ export const serializeAccountRemoval = ({
     leadSources: references.leadSources,
     total: references.total,
   },
+  purged,
 });
