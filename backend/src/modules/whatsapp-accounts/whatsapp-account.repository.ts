@@ -375,8 +375,16 @@ export const purgeAccountData = async ({
   const aiApprovals = await counted(AiBrainApproval.deleteMany(byConversation).exec());
   const aiDrafts = await counted(AiDraft.deleteMany(byConversation).exec());
   const realtimeOutbox = await counted(RealtimeOutboxEvent.deleteMany(byConversation).exec());
+  // Either hop, not just the lead source. A submission records both where the lead came FROM
+  // (`leadSourceId`) and what it turned INTO (`conversationId`), and the two can outlive each
+  // other: delete a lead source on its own and its submissions keep pointing at live
+  // conversations. Matching only the source left those behind - 8 of them, in the first real
+  // run of this - so the conversation is checked too.
   const leadSubmissions = await counted(
-    LeadSubmission.deleteMany({ organizationId, leadSourceId: { $in: leadSourceIds } }).exec(),
+    LeadSubmission.deleteMany({
+      organizationId,
+      $or: [{ leadSourceId: { $in: leadSourceIds } }, { conversationId: { $in: conversationIds } }],
+    }).exec(),
   );
 
   const notes = await counted(Note.deleteMany(byAccount).exec());

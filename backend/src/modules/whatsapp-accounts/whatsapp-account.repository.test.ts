@@ -301,13 +301,31 @@ describe('purgeAccountData', () => {
     expect(mocks.outboxDeleteMany).toHaveBeenCalledWith(byConversation);
   });
 
-  it('reaches lead submissions through the lead source ids', async () => {
+  it('reaches lead submissions through EITHER the lead source or the conversation', async () => {
     await purgeAccountData({ accountId, organizationId });
 
     expect(mocks.leadSubmissionDeleteMany).toHaveBeenCalledWith({
       organizationId,
-      leadSourceId: { $in: ['src-1'] },
+      $or: [
+        { leadSourceId: { $in: ['src-1'] } },
+        { conversationId: { $in: ['conv-1', 'conv-2'] } },
+      ],
     });
+  });
+
+  it('still finds submissions when the lead source was deleted earlier', async () => {
+    // The real leak this caught: a lead source removed on its own leaves submissions behind, so
+    // by the time the account is purged there are no source ids to match and the submissions
+    // survive pointing at conversations that no longer exist.
+    mocks.leadSourceDistinct.mockReturnValue(distinctOf([]));
+
+    await purgeAccountData({ accountId, organizationId });
+
+    expect(mocks.leadSubmissionDeleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: expect.arrayContaining([{ conversationId: { $in: ['conv-1', 'conv-2'] } }]),
+      }),
+    );
   });
 
   it('collects the ids before deleting the documents they came from', async () => {
