@@ -72,7 +72,9 @@ export const createFollowUpTask = ({
         source,
         sourceMessageId,
         sourceQuote,
-        idempotencyKey,
+        // Spread, so a reminder with no key has no FIELD rather than a null one. Writing null
+        // here puts it in the sparse unique index and the next keyless reminder collides.
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       },
     ],
     { session },

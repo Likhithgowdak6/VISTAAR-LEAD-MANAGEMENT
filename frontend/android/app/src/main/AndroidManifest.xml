@@ -1,5 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        SCHEDULE_EXACT_ALARM is REMOVED on purpose.
+
+        @capacitor/local-notifications declares it in its own manifest, and manifest-merge pulls
+        it into this app whether or not anything uses it. Nothing here does: the plugin only
+        reaches for an exact alarm when a notification is scheduled with `exact: true`
+        (LocalNotificationManager.kt, setExactIfPossible), and the reminder scheduler never sets
+        it - it uses `allowWhileIdle`, which maps to setAndAllowWhileIdle and fires during Doze
+        without the permission.
+
+        Leaving the declaration in place would be asking Google for a permission restricted to
+        alarm-clock and calendar apps, which needs a justification at submission and can get a
+        release rejected. Reminders are not an alarm clock: they may be deferred by a few
+        minutes under battery management, and that is an accepted trade.
+    -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        tools:node="remove" />
 
     <application
         android:allowBackup="true"

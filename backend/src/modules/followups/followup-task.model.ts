@@ -229,11 +229,19 @@ const followUpTaskSchema = new mongoose.Schema<FollowUpTaskDocument>(
      * two reminders for one sentence. Sparse+unique: most rows (manual ones) have no key, and a
      * plain unique index would collide on the second null.
      */
+    /**
+     * NO `default: null`, and that absence is load-bearing.
+     *
+     * The unique index below is sparse, and sparse skips documents where the field is ABSENT -
+     * not those where it is null. Defaulting to null therefore put every manually-created
+     * reminder into the index under the same key, and the second one in an organisation failed
+     * with E11000. Leaving it undefined keeps them out of the index entirely, which is what
+     * sparse was chosen for.
+     */
     idempotencyKey: {
       type: String,
       trim: true,
       maxlength: 255,
-      default: null,
     },
 
     // ---- Delivery ---------------------------------------------------------
