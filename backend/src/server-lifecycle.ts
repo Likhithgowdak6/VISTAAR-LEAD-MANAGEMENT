@@ -15,6 +15,7 @@ import {
 import { createEventReminderRunner } from './modules/ai-brain/event-reminder-runner.js';
 import { createPaymentFollowUpRunner } from './modules/ai-brain/payment-followup-runner.js';
 import { createNurtureRunner } from './modules/ai-brain/nurture-runner.js';
+import { createReminderRunner } from './modules/followups/reminder-runner.js';
 import { createOwnerCallEscalationRunner } from './modules/ai-brain/owner-call-escalation-runner.js';
 import { createLeadImportRunner } from './modules/lead-sources/lead-import.runner.js';
 import {
@@ -34,6 +35,7 @@ let deliveryRunner: BackgroundRunnerHandle | null = null;
 let realtimeOutboxRunner: BackgroundRunnerHandle | null = null;
 let leadImportRunner: BackgroundRunnerHandle | null = null;
 let nurtureRunner: BackgroundRunnerHandle | null = null;
+let reminderRunner: BackgroundRunnerHandle | null = null;
 let morningReadRunner: BackgroundRunnerHandle | null = null;
 let digestRunner: BackgroundRunnerHandle | null = null;
 let bookingCountdownRunner: BackgroundRunnerHandle | null = null;
@@ -109,6 +111,7 @@ export interface StartServerParams {
   createDeliveryRunnerFn?: () => BackgroundRunnerHandle;
   createLeadImportRunnerFn?: () => BackgroundRunnerHandle;
   createNurtureRunnerFn?: () => BackgroundRunnerHandle;
+  createReminderRunnerFn?: () => BackgroundRunnerHandle;
   createMorningReadRunnerFn?: () => BackgroundRunnerHandle;
   createDigestRunnerFn?: () => BackgroundRunnerHandle;
   createBookingCountdownRunnerFn?: () => BackgroundRunnerHandle;
@@ -133,6 +136,7 @@ export const startServer = async ({
   createDeliveryRunnerFn = createDeliveryRunner,
   createLeadImportRunnerFn = createLeadImportRunner,
   createNurtureRunnerFn = createNurtureRunner,
+  createReminderRunnerFn = createReminderRunner,
   createMorningReadRunnerFn = createMorningReadRunner,
   createDigestRunnerFn = createDigestRunner,
   createBookingCountdownRunnerFn = createBookingCountdownRunner,
@@ -194,6 +198,16 @@ export const startServer = async ({
       }
     });
     startedNurtureRunner.start();
+
+    const startedReminderRunner = createReminderRunnerFn();
+    reminderRunner = startedReminderRunner;
+    rollbackSteps.push(() => {
+      startedReminderRunner.stop();
+      if (reminderRunner === startedReminderRunner) {
+        reminderRunner = null;
+      }
+    });
+    startedReminderRunner.start();
 
     const startedMorningReadRunner = createMorningReadRunnerFn();
     morningReadRunner = startedMorningReadRunner;
@@ -332,6 +346,8 @@ export const stopServer = async ({
     morningReadRunner = null;
     nurtureRunner?.stop();
     nurtureRunner = null;
+    reminderRunner?.stop();
+    reminderRunner = null;
     leadImportRunner?.stop();
     leadImportRunner = null;
     deliveryRunner?.stop();

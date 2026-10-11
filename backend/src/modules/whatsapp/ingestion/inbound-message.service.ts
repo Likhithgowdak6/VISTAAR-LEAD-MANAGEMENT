@@ -13,6 +13,10 @@ import {
 import { type ObjectIdLike } from '../../../types/common.js';
 import { handleInboundMessageForAutomation as defaultHandleAutomation } from '../../ai-brain/ai-brain.service.js';
 import {
+  createLeadCommitmentService,
+  type LeadCommitmentService,
+} from '../../followups/lead-commitment.service.js';
+import {
   createInboundBurstCollector,
   type InboundBurstCollector,
 } from './inbound-burst.js';
@@ -179,6 +183,8 @@ export interface CreateInboundMessageIngestionServiceOptions {
     inboundText: string;
     /** How many inbound messages this one logical turn was assembled from. */
     inboundMessageCount?: number;
+    /** Called by the gate when, and only when, the turn is judged a genuine service enquiry. */
+    onServiceEnquiry?: () => Promise<void>;
     messageType?: MessageType;
     isVoiceNote?: boolean;
     traceId?: string;
@@ -188,6 +194,11 @@ export interface CreateInboundMessageIngestionServiceOptions {
    * tests can close the window synchronously instead of waiting out the real debounce.
    */
   burstCollector?: InboundBurstCollector;
+  /**
+   * Reads an inbound turn for a follow-up commitment and creates the owner's reminder.
+   * Same contract as `handleAutomation`: internally failure-isolated, never throws.
+   */
+  extractLeadCommitment?: LeadCommitmentService['extractLeadCommitment'];
   /**
    * Pings the owner's WhatsApp self-chat about a brand-new lead's first message. Held to the
    * same contract as `handleAutomation`: internally failure-isolated, never throws, so a missing
@@ -237,6 +248,12 @@ export interface IngestInboundMessageOptions {
  * config. Shared on purpose: a burst is defined by a conversation, not by which request
  * happened to receive its third message.
  */
+let leadCommitmentSingleton: LeadCommitmentService | null = null;
+const getLeadCommitmentService = (): LeadCommitmentService => {
+  leadCommitmentSingleton ??= createLeadCommitmentService();
+  return leadCommitmentSingleton;
+};
+
 let sharedBurstCollector: InboundBurstCollector | null = null;
 
 const defaultBurstCollector: InboundBurstCollector = {
@@ -278,6 +295,7 @@ export const createInboundMessageIngestionService = ({
   publishEvent = defaultPublishConversationChanged as CreateInboundMessageIngestionServiceOptions['publishEvent'],
   handleAutomation = defaultHandleAutomation,
   burstCollector = defaultBurstCollector,
+  extractLeadCommitment = (params) => getLeadCommitmentService().extractLeadCommitment(params),
   sendNewLeadAlert = defaultSendNewLeadAlert,
   isOptOutRequest = defaultIsOptOutRequest,
   sendOptOutAlert = defaultSendOptOutAlert,
@@ -547,11 +565,26 @@ export const createInboundMessageIngestionService = ({
       }
     }
 
-    if (isFirstInboundMessage) {
-      // sendNewLeadAlert is already internally failure-isolated (it never throws), exactly like
-      // handleAutomation below. The outer guard is here anyway because this is the one call on
-      // this path whose entire purpose is a courtesy ping: nothing it could ever do - not even a
-      // programming error inside it - is worth losing a lead's first message over.
+    /**
+     * Tells the owner a real lead just arrived - handed to the AI gate rather than called here.
+     *
+     * IT USED TO FIRE ON THE FIRST INBOUND MESSAGE, FULL STOP, and that was wrong twice over.
+     * The owner was pinged `🔔 New lead: … "Hi"` for a message the AI itself then ignored as a
+     * non-lead. Worse, the alert is a once-ever claim (`newLeadAlertSentAt`), so that one ping
+     * was SPENT on the greeting - when the same person wrote "I need a photographer for
+     * December" a minute later, the claim was gone and the owner heard nothing at all. Noise
+     * first, silence when it mattered.
+     *
+     * So the trigger moves from "first message" to "first message that is actually an enquiry",
+     * which is a fact only the gate knows. Passed as a closure instead of imported over there
+     * because `phone` and `body` live in this scope: the conversation document has no phone
+     * field, and re-reading it in ai-brain.service would mean a second trip through the
+     * encryption keyring for something this already has in hand.
+     *
+     * Failure-isolated twice: `sendNewLeadAlert` never throws, and this catches anyway. Nothing
+     * a courtesy ping can do is worth losing a lead's message over.
+     */
+    const alertOwnerOfNewLead = async () => {
       try {
         await sendNewLeadAlert?.({
           organizationId,
@@ -568,7 +601,7 @@ export const createInboundMessageIngestionService = ({
           'New-lead owner alert threw unexpectedly; inbound ingestion continued.',
         );
       }
-    }
+    };
 
     // Everything that feeds the lead score has now happened: the form they pasted has been read
     // into the facts blob above, this message is on record, and we know whether it answers
@@ -667,8 +700,26 @@ export const createInboundMessageIngestionService = ({
         conversationId: conversation._id,
         messageId: message._id,
         text: body,
-        flush: (turn) =>
-          handleAutomation?.({
+        flush: async (turn) => {
+          // TWO CONSUMERS OF THE SAME TURN, and the order matters only in that neither may
+          // block the other.
+          //
+          // Reminder extraction runs FIRST and UNGATED. handleAutomation returns at its first
+          // check when automation is paused, which is exactly what manual takeover sets - so
+          // extraction placed inside it would stop working in the one case it matters most:
+          // the owner is typing to this lead by hand and "call me tomorrow at 5" is precisely
+          // what a busy person forgets. It cannot message the lead; the only thing it writes
+          // is a task on the owner's own list.
+          await extractLeadCommitment?.({
+            organizationId,
+            whatsappAccountId,
+            conversationId: conversation._id,
+            text: turn.text,
+            messageId: turn.lastMessageId,
+            optedOut,
+          });
+
+          await handleAutomation?.({
             organizationId,
             conversation: conversationForAutomation,
             // The turn's identity, not this message's: it is what the AI's reply is keyed on,
@@ -676,12 +727,15 @@ export const createInboundMessageIngestionService = ({
             inboundMessageId: turn.lastMessageId,
             inboundText: turn.text,
             inboundMessageCount: turn.messageCount,
+            // Fired by the gate, and only for a genuine enquiry. See alertOwnerOfNewLead.
+            onServiceEnquiry: alertOwnerOfNewLead,
             messageType,
             isVoiceNote: inboundMedia?.isVoiceNote ?? false,
             // Hands the AI stages this message's correlation id. They cannot derive it
             // themselves: by then only the Mongo message id is in scope, not the WhatsApp one.
             traceId: trace.id,
-          }) ?? Promise.resolve(),
+          });
+        },
       });
     }
 

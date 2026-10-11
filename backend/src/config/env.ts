@@ -277,6 +277,18 @@ const envSchema = z.object({
   // means a generous value here buys nothing except a longer wait before the owner is told.
   AI_BRAIN_INTENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30_000).default(8_000),
 
+  // ---- Reminders -------------------------------------------------------
+  //
+  // The sweep that fires due follow-ups and personal reminders (followups/reminder-sweep).
+  // Off by default like every other background sweep, so tests and a plain API process never
+  // start it. Turn it on in production or no reminder is ever delivered.
+  REMINDERS_ENABLED: booleanString.default(false),
+
+  // How often to look for due reminders. A minute means a reminder is at most a minute late,
+  // which is the right granularity for "5 PM" and cheap: the sweep is one indexed query that
+  // usually matches nothing.
+  REMINDER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).max(900_000).default(60_000),
+
   // Nurture sweep: the day-2/5/9/15 "still there?" cadence, cold-at-20. Off by default - tests
   // and the plain API server never run it, same gating style as WHATSAPP_OUTBOUND_DELIVERY_ENABLED.
   NURTURE_ENABLED: booleanString.default(false),

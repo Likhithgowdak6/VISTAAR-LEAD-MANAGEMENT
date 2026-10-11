@@ -435,3 +435,35 @@ export const renderProposal = (params: {
     template_base64: params.templateBase64,
     version: params.version ?? 1,
   });
+
+export interface AiBrainCommitmentResult {
+  action: 'contact_lead' | 'await_lead' | 'none';
+  /** A PHRASE - "tomorrow at 5 pm" - never a timestamp. The caller resolves it. */
+  when: string;
+  task: string;
+  quote: string;
+  confidence: number;
+}
+
+/**
+ * Does this lead message contain a follow-up commitment worth reminding the owner about?
+ *
+ * Extraction only, and it cannot produce anything the lead receives. Shares the intent gate's
+ * short timeout rather than the 90s proposal budget: this runs on the inbound hot path, and a
+ * slow classifier must not hold up a message's ingestion.
+ */
+export const classifyCommitment = (params: {
+  conversationId: string;
+  message: string;
+  transcript: AiBrainIntentTurn[];
+}): Promise<AiBrainCommitmentResult> =>
+  request<AiBrainCommitmentResult>(
+    '/v1/commitment',
+    {
+      message: params.message,
+      transcript: params.transcript,
+      conversation_id: params.conversationId,
+    },
+    env.AI_BRAIN_INTENT_TIMEOUT_MS,
+  );
+

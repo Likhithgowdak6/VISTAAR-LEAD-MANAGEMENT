@@ -3,8 +3,9 @@ import { type HydratedDocument } from 'mongoose';
 import { ACTIVITY_EVENTS, type ActivityEvent } from '../../constants/activity-events.js';
 import { type FollowupPriority } from '../../constants/followup-priorities.js';
 import { FOLLOWUP_STATUSES, type FollowupStatus } from '../../constants/followup-statuses.js';
-import { type FollowupType } from '../../constants/followup-types.js';
+import { FOLLOWUP_TYPES, type FollowupType } from '../../constants/followup-types.js';
 import { type Permission } from '../../constants/permissions.js';
+import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
 import { runInTransaction } from '../../config/database.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity } from '../activity/activity-log.repository.js';
@@ -15,6 +16,7 @@ import {
   findFollowUpTaskById,
   findFollowUpTasksByConversation,
   findPendingTasksByUser,
+  rescheduleReminder,
   updateTaskStatus,
 } from './followup-task.repository.js';
 import { serializeFollowUpTask } from './followup-task.serializer.js';
@@ -163,6 +165,18 @@ const transitionTask = async ({
     throw new Error('FOLLOWUP_NOT_FOUND');
   }
 
+  // A PERSONAL reminder belongs to one person, so only that person may close it.
+  //
+  // Lead follow-ups deliberately stay org-scoped: a manager completing a colleague's call-back
+  // is ordinary CRM behaviour and predates reminders. But a personal reminder ("call the bank
+  // about the overdraft") landed in this same collection when reminders reused the task model,
+  // and nothing else here distinguished the two - so a colleague who guessed an id could
+  // cancel it. They cannot LIST them (the sync query is assignee-scoped), which keeps this
+  // narrow, but narrow is not the same as closed.
+  if (!task.conversationId && String(task.assignedTo) !== String(actor._id)) {
+    throw new Error('FOLLOWUP_NOT_FOUND');
+  }
+
   if (task.status !== FOLLOWUP_STATUSES.PENDING) {
     throw new Error('FOLLOWUP_NOT_PENDING');
   }
@@ -175,16 +189,21 @@ const transitionTask = async ({
       session,
     });
 
-    await createActivity({
-      organizationId,
-      whatsappAccountId: task.whatsappAccountId,
-      conversationId: task.conversationId,
-      actorId: actor._id,
-      eventType,
-      summary,
-      metadata: {},
-      session,
-    });
+    // Only for a task that belongs to a conversation. An activity entry IS a line on a lead's
+    // timeline, and a personal reminder ("review the campaign at 5") has no lead and no
+    // timeline to write it to - the task's own completedAt/cancelledAt is its whole history.
+    if (task.conversationId && task.whatsappAccountId) {
+      await createActivity({
+        organizationId,
+        whatsappAccountId: task.whatsappAccountId,
+        conversationId: task.conversationId,
+        actorId: actor._id,
+        eventType,
+        summary,
+        metadata: {},
+        session,
+      });
+    }
 
     return updated;
   });
@@ -231,3 +250,84 @@ export const cancelFollowUpForActor = ({
     eventType: ACTIVITY_EVENTS.FOLLOWUP_CANCELLED,
     summary: 'Follow-up task cancelled.',
   });
+
+export interface CreatePersonalReminderParams {
+  organizationId: ObjectIdLike;
+  actor: HydratedDocument<UserDocument>;
+  title: string;
+  dueAt: Date;
+  timezone?: string | null;
+}
+
+/**
+ * A reminder about nothing in particular - "review the campaign at 5".
+ *
+ * Separate from `createFollowUpForActor` because that one starts by loading a conversation and
+ * checking the actor can see it, and a personal reminder has no conversation to check. Always
+ * assigned to the creator: there is no "assign a personal reminder to someone else", which
+ * would be a task, not a reminder, and the existing per-conversation endpoint already does that.
+ */
+export const createPersonalReminderForActor = async ({
+  organizationId,
+  actor,
+  title,
+  dueAt,
+  timezone = null,
+}: CreatePersonalReminderParams) => {
+  const task = await createFollowUpTask({
+    organizationId,
+    whatsappAccountId: null,
+    conversationId: null,
+    assignedTo: actor._id,
+    createdBy: actor._id,
+    type: FOLLOWUP_TYPES.CUSTOM,
+    title,
+    dueAt,
+    timezone,
+    source: REMINDER_SOURCES.MANUAL,
+  });
+
+  return serializeFollowUpTask(task);
+};
+
+export interface RescheduleFollowUpParams {
+  organizationId: ObjectIdLike;
+  taskId: ObjectIdLike;
+  actor: HydratedDocument<UserDocument>;
+  dueAt: Date;
+  /** The zone the new time was chosen in. Adopted so display matches what was entered. */
+  timezone?: string | null;
+}
+
+/**
+ * Moves a reminder to a new time.
+ *
+ * Goes through `rescheduleReminder` rather than a plain status update because three things
+ * have to happen together: the delivery stamp is cleared (or the sweep refuses to announce it
+ * again), the per-channel records reset, and `version` increments so the handset cancels the
+ * alarm it armed for the old time instead of keeping both.
+ *
+ * Scoped to the actor's own reminders - one owner must not be able to move another's.
+ */
+export const rescheduleFollowUpForActor = async ({
+  organizationId,
+  taskId,
+  actor,
+  dueAt,
+  timezone = null,
+}: RescheduleFollowUpParams) => {
+  const existing = await findFollowUpTaskById({ taskId, organizationId });
+
+  if (!existing) {
+    throw new Error('FOLLOWUP_NOT_FOUND');
+  }
+
+  if (String(existing.assignedTo) !== String(actor._id)) {
+    throw new Error('FOLLOWUP_NOT_FOUND');
+  }
+
+  const updated = await rescheduleReminder({ taskId, organizationId, dueAt, timezone });
+
+  return serializeFollowUpTask(updated);
+};
+

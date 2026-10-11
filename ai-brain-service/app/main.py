@@ -32,7 +32,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import assistant, followup, intent, knowledge, llm, outcome, proposals, summary, templates
+from app import assistant, commitment, followup, intent, knowledge, llm, outcome, proposals, summary, templates
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -323,6 +323,51 @@ def intent_gate(body: IntentIn) -> IntentOut:
         with llm.llm_context("intent", conversation_id=body.conversation_id or None):
             return IntentOut(
                 **intent.classify(
+                    message=body.message,
+                    transcript=[turn.model_dump() for turn in body.transcript],
+                )
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+# --------------------------------------------------------------------------
+# Reminder extraction. Runs on inbound lead messages independently of the sales
+# gate, so a conversation the owner has taken over by hand still produces
+# reminders. Nothing this endpoint returns can reach the lead.
+# --------------------------------------------------------------------------
+class CommitmentIn(BaseModel):
+    message: str = Field(description="The inbound lead message to read.")
+    transcript: list[IntentTurn] = Field(
+        default_factory=list,
+        description="Bounded recent context, oldest first.",
+    )
+    conversation_id: str = Field("", description="Log correlation only.")
+
+
+class CommitmentOut(BaseModel):
+    action: Literal["contact_lead", "await_lead", "none"]
+    # A PHRASE, never a timestamp: resolving it needs the business timezone and
+    # the real clock, which the caller has and the model does not.
+    when: str
+    task: str
+    quote: str
+    confidence: float
+
+
+@app.post("/v1/commitment", dependencies=[Depends(require_service_key)])
+def commitment_gate(body: CommitmentIn) -> CommitmentOut:
+    """
+    Whether this message is a follow-up commitment worth reminding the owner about.
+
+    Extraction only. The caller resolves `when` against its own clock and
+    timezone and validates the result before anything is stored, so a
+    hallucinated time cannot become a reminder.
+    """
+    try:
+        with llm.llm_context("commitment", conversation_id=body.conversation_id or None):
+            return CommitmentOut(
+                **commitment.classify(
                     message=body.message,
                     transcript=[turn.model_dump() for turn in body.transcript],
                 )

@@ -1042,3 +1042,143 @@ describe('handleInboundMessageForAutomation - ignored now, served later', () => 
     expect(mocks.sendLeadMessage).toHaveBeenCalledTimes(1);
   });
 });
+
+// --------------------------------------------------------------------------
+// The owner's "new lead" ping now hangs off the verdict, not off arrival.
+//
+// Before: it fired in ingestion on the first inbound message, so the owner was told about
+// `"Hi"` and - because the alert is a once-ever claim - heard nothing when the same person
+// asked for a photographer a minute later. The ping was spent on the greeting.
+//
+// The trap in the fix is `respond` vs `reason`. Auto-greet and owner-resume both arrive with
+// `respond: true` and reason OWNER_DIRECTED; alerting on `respond` would ping the owner about
+// their own instruction, quoting an empty message.
+// --------------------------------------------------------------------------
+describe('handleInboundMessageForAutomation - the new-lead owner alert', () => {
+  const runWith = (inboundText: string, extra: Record<string, unknown> = {}) => {
+    const onServiceEnquiry = vi.fn(async () => undefined);
+
+    return {
+      onServiceEnquiry,
+      run: () =>
+        handleInboundMessageForAutomation({
+          organizationId,
+          conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+          inboundMessageId: 'msg-alert',
+          inboundText,
+          onServiceEnquiry,
+          ...extra,
+        } as never),
+    };
+  };
+
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.getOrCreateAiSystemUser.mockResolvedValue({ _id: 'ai-system-user' });
+  });
+
+  it('alerts the owner when the turn is a genuine enquiry', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.95, reason: '' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'What date?',
+      facts: {},
+      escalation_reason: '',
+    });
+    const h = runWith('we need a website for our company');
+
+    await h.run();
+
+    expect(h.onServiceEnquiry).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a bare greeting', 'Hi', 'deterministic'],
+    ['an invoice', 'Your invoice is ready', 'non_lead'],
+    ['an ambiguous line', 'How much?', 'unclear'],
+  ])('stays quiet about %s', async (_label, text, kind) => {
+    if (kind !== 'deterministic') {
+      mocks.classifyIntent.mockResolvedValue({ intent: kind, confidence: 0.9, reason: '' });
+    }
+    const h = runWith(text);
+
+    await h.run();
+
+    // The exact complaint: no `🔔 New lead: … "Hi"` for something the AI itself ignored.
+    expect(h.onServiceEnquiry).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when there is no readable text at all', async () => {
+    const h = runWith('');
+
+    await h.run();
+
+    expect(h.onServiceEnquiry).not.toHaveBeenCalled();
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when the classifier is unreachable', async () => {
+    mocks.classifyIntent.mockRejectedValue(new Error('ETIMEDOUT'));
+    const h = runWith('we need a website');
+
+    await h.run();
+
+    expect(h.onServiceEnquiry).not.toHaveBeenCalled();
+  });
+
+  it('does NOT alert on an owner-directed turn, even though it responds', async () => {
+    // Auto-greet for an imported lead, and the owner resuming a paused conversation, both land
+    // here. respond is true and the intent reads sales_lead - but nobody new has arrived, and
+    // the message body is empty, so the owner would get `🔔 New lead: … "(no text)"`.
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'Hi! Thanks for enquiring.',
+      facts: {},
+      escalation_reason: '',
+    });
+    const h = runWith('', { ownerInstruction: 'Greet this imported lead from the wedding form.' });
+
+    await h.run();
+
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+    expect(h.onServiceEnquiry).not.toHaveBeenCalled();
+  });
+
+  it('survives a caller that did not supply a callback', async () => {
+    // Auto-greet and owner-resume call handleInboundMessageForAutomation directly.
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.95, reason: '' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'What date?',
+      facts: {},
+      escalation_reason: '',
+    });
+
+    await expect(
+      handleInboundMessageForAutomation({
+        organizationId,
+        conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+        inboundMessageId: 'msg-no-cb',
+        inboundText: 'we need a video for our brand',
+      } as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it('alerts once for a whole burst, not once per message', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.95, reason: '' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'What date?',
+      facts: {},
+      escalation_reason: '',
+    });
+    const h = runWith('hi we need a website for our company can you help?', {
+      inboundMessageCount: 4,
+    });
+
+    await h.run();
+
+    // The burst is one turn, so it is one gate call and therefore one ping.
+    expect(h.onServiceEnquiry).toHaveBeenCalledTimes(1);
+  });
+});

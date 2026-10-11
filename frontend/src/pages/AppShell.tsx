@@ -1,6 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
+import RemindersPage from './RemindersPage';
+import { useReminderAlarms } from '../hooks/useReminderAlarms';
 import ChangePasswordGate from '../components/ChangePasswordGate';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
@@ -20,6 +22,7 @@ import TemplatesPage from './TemplatesPage';
 
 type AppView =
   | 'inbox'
+  | 'reminders'
   | 'accounts'
   | 'team'
   | 'stages'
@@ -45,6 +48,10 @@ type AuthValue = {
   organization: AuthOrganization | null;
   logout: () => void | Promise<void>;
   permissions: string[];
+  // Needed by the reminder-alarm sync, which is mounted here. Same two values the rest of the
+  // app reads off the context; this local type just had not needed them before.
+  authedRequest: <T>(makeRequest: (token: string | null) => Promise<T>) => Promise<T>;
+  isAuthenticated: boolean;
 };
 
 type NavButtonProps = {
@@ -78,7 +85,8 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
 );
 
 const AppShell = () => {
-  const { user, organization, logout, permissions } = useAuth() as AuthValue;
+  const { user, organization, logout, permissions, authedRequest, isAuthenticated } =
+    useAuth() as AuthValue;
   // Facebook's callback redirects the browser to `/`, which reloads the whole app at the inbox.
   // Landing there after signing in would strand the person two clicks from what they were doing,
   // so the return trip opens on Lead sources, where the wizard is waiting.
@@ -89,6 +97,43 @@ const AppShell = () => {
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
+  /**
+   * Opens a lead. Used by the reminders list and by a tapped notification, so both land in the
+   * same place as clicking the thread in the inbox - no second navigation concept.
+   */
+  const openConversation = useCallback((conversationId: string) => {
+    setView('inbox');
+    setSelectedId(conversationId);
+  }, []);
+
+  /**
+   * MOUNTED ONCE, HERE. AppShell renders only when authenticated and only once per session, so
+   * this is the one place a device-wide concern belongs - putting it in the reminders page
+   * would stop syncing the moment the owner navigated away, and putting it in a list row would
+   * start a sync per row.
+   *
+   * `enabled` is tied to the auth state so a logout stops it and a different account starts
+   * clean: the effects tear down their listeners and nothing syncs for the previous user.
+   */
+  const { status: alarmStatus, requestPermission: requestNotificationPermission } =
+    useReminderAlarms({
+    authedRequest,
+    enabled: Boolean(isAuthenticated),
+    onOpenReminder: useCallback(
+      ({ conversationId }: { reminderId: string; conversationId: string | null }) => {
+        // A lead reminder opens its conversation; a personal one - or a lead whose thread has
+        // since been deleted - falls back to the list, which is always reachable.
+        if (conversationId) {
+          openConversation(conversationId);
+          return;
+        }
+
+        setView('reminders');
+      },
+      [openConversation],
+    ),
+    });
+
   const canReadAccounts = hasPermission(permissions, PERMISSIONS.ACCOUNTS_READ);
   const canReadUsers = hasPermission(permissions, PERMISSIONS.USERS_READ);
   const canManageStages = hasPermission(permissions, PERMISSIONS.CRM_STAGE_MANAGE);
@@ -122,6 +167,9 @@ const AppShell = () => {
           aria-label="Sections"
           className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
         >
+          <NavButton active={view === 'reminders'} onClick={() => setView('reminders')}>
+            Reminders
+          </NavButton>
           <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
             Inbox
           </NavButton>
@@ -229,6 +277,14 @@ const AppShell = () => {
       ) : view === 'lead-sources' && canManageLeadSources ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <LeadSourcesPage />
+        </div>
+      ) : view === 'reminders' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <RemindersPage
+            onOpenConversation={openConversation}
+            alarmStatus={alarmStatus}
+            onRequestNotificationPermission={requestNotificationPermission}
+          />
         </div>
       ) : view === 'settings' && canManageSettings ? (
         <div className="min-h-0 flex-1 overflow-y-auto">

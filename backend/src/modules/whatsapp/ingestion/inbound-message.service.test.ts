@@ -73,6 +73,8 @@ const createHarness = (
   const recomputeLeadScore = vi.fn().mockResolvedValue(null);
   const sendOptOutAlert = vi.fn().mockResolvedValue(undefined);
   const handleAutomation = vi.fn().mockResolvedValue(undefined);
+  // Stubbed, or the real service reaches for the AI brain over HTTP during ingestion tests.
+  const extractLeadCommitment = vi.fn().mockResolvedValue({ created: false, updated: false });
   const markOptedOut = vi.fn().mockResolvedValue(conversation);
   const updateAutomationState = vi.fn().mockResolvedValue(conversation);
   const updateConversationPreview = vi.fn().mockResolvedValue(conversation);
@@ -114,6 +116,7 @@ const createHarness = (
     normalizeProviderJid: (jid: unknown) => String(jid),
     publishEvent: vi.fn().mockResolvedValue(undefined),
     handleAutomation: handleAutomation as never,
+    extractLeadCommitment: extractLeadCommitment as never,
     sendNewLeadAlert: sendNewLeadAlert as never,
     sendOptOutAlert: sendOptOutAlert as never,
     recomputeLeadScore: recomputeLeadScore as never,
@@ -127,6 +130,7 @@ const createHarness = (
     sendOptOutAlert,
     recomputeLeadScore,
     handleAutomation,
+    extractLeadCommitment,
     markOptedOut,
     updateAutomationState,
     updateConversationPreview,
@@ -146,10 +150,41 @@ beforeEach(() => {
 });
 
 describe('ingestInboundMessage - new-lead alert', () => {
-  it('alerts the owner on a lead\'s first-ever inbound message', async () => {
+  // THE DEFECT THIS BLOCK NOW GUARDS. The alert used to fire here, on the first inbound message,
+  // whatever it said. The owner got `🔔 New lead: … "Hi"` for a greeting the AI itself then
+  // ignored - and because the alert is a once-ever claim, that single ping was SPENT, so the
+  // real enquiry a minute later announced nothing at all. Noise first, silence when it counted.
+  //
+  // Ingestion no longer decides. It hands the gate a closure and the gate fires it only for a
+  // genuine service enquiry. The closure lives here because `phone` and the message body are in
+  // this scope and nowhere else.
+  it('does not alert the owner directly, even on a first-ever inbound message', async () => {
     const h = createHarness({ lastInboundAt: null });
 
     await h.run();
+
+    expect(h.sendNewLeadAlert).not.toHaveBeenCalled();
+  });
+
+  it('hands the alert to the AI gate as a callback instead', async () => {
+    const h = createHarness({ lastInboundAt: null });
+
+    await h.run();
+
+    expect(h.handleAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({ onServiceEnquiry: expect.any(Function) }),
+    );
+  });
+
+  it('builds the callback with the lead\'s own details, not the conversation document\'s', async () => {
+    const h = createHarness({ lastInboundAt: null });
+
+    await h.run();
+
+    // Invoking it is what the gate does on a sales_lead verdict. The phone number is the reason
+    // this closure exists at all: ConversationDocument has no phone field.
+    const [[call]] = h.handleAutomation.mock.calls as [[{ onServiceEnquiry: () => Promise<void> }]];
+    await call.onServiceEnquiry();
 
     expect(h.sendNewLeadAlert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -162,23 +197,32 @@ describe('ingestInboundMessage - new-lead alert', () => {
     );
   });
 
-  it('does not alert again once the conversation has inbound history', async () => {
-    const h = createHarness({ lastInboundAt: new Date('2026-08-20T10:00:00.000Z') });
-
-    await h.run();
-
-    expect(h.sendNewLeadAlert).not.toHaveBeenCalled();
-  });
-
-  it('still persists the message and runs automation when the alert blows up', async () => {
-    const h = createHarness();
+  it('swallows an alert that blows up, without costing the lead their message', async () => {
+    const h = createHarness({ lastInboundAt: null });
     h.sendNewLeadAlert.mockRejectedValue(new Error('unexpected'));
 
     const result = await h.run();
 
     expect(result).toMatchObject({ persisted: true, conversationId: 'conv-1' });
     expect(h.handleAutomation).toHaveBeenCalled();
+
+    // The throw happens when the gate pulls the trigger, and is contained there.
+    const [[call]] = h.handleAutomation.mock.calls as [[{ onServiceEnquiry: () => Promise<void> }]];
+    await expect(call.onServiceEnquiry()).resolves.toBeUndefined();
     expect(h.logger.error).toHaveBeenCalled();
+  });
+
+  it('still hands over a callback for a conversation with inbound history', async () => {
+    // "First message" is no longer the trigger, so there is nothing to suppress here. Firing
+    // twice is prevented by the newLeadAlertSentAt claim inside sendNewLeadAlert, not by this.
+    const h = createHarness({ lastInboundAt: new Date('2026-08-20T10:00:00.000Z') });
+
+    await h.run();
+
+    expect(h.sendNewLeadAlert).not.toHaveBeenCalled();
+    expect(h.handleAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({ onServiceEnquiry: expect.any(Function) }),
+    );
   });
 });
 
@@ -487,6 +531,7 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
       normalizeProviderJid: (jid: unknown) => String(jid),
       publishEvent: vi.fn().mockResolvedValue(undefined),
       handleAutomation: handleAutomation as never,
+      extractLeadCommitment: vi.fn().mockResolvedValue({ created: false, updated: false }) as never,
       sendNewLeadAlert: vi.fn().mockResolvedValue(undefined) as never,
       sendOptOutAlert: vi.fn().mockResolvedValue(undefined) as never,
       recomputeLeadScore: vi.fn().mockResolvedValue(undefined) as never,

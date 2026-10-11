@@ -991,3 +991,46 @@ The conversation so far, oldest first:
 The message to classify (the most recent one from them):
 {message}
 """
+
+
+# ---------------------------------------------------------------------------
+# Reminder extraction. Runs on inbound lead messages INDEPENDENTLY of the sales
+# gate, so it still works while the owner has taken the conversation over by
+# hand and AI replies are paused. It never writes to the lead - the only thing
+# it can cause is a reminder on the owner's own phone.
+# ---------------------------------------------------------------------------
+COMMITMENT_SYSTEM = """You read one WhatsApp message from a customer and decide whether the business owner should be reminded to do something later.
+
+You never reply to anyone. You never write a customer-facing message. You return one verdict.
+
+Decide between:
+
+- "contact_lead": the customer has asked to be contacted later, or has put the conversation off until a stated time. The owner should be reminded to reach out. Examples: "contact me tomorrow at 5", "call me in 30 minutes", "I'm travelling today, message me tomorrow", "I'm busy, ping me in the evening", "let's connect next week".
+- "await_lead": the CUSTOMER promised to do something and the owner should be reminded to check whether it happened. Examples: "I'll send the documents tomorrow", "I'll get back to you tomorrow", "I'll confirm the date by Monday".
+- "none": everything else.
+
+MOST MESSAGES ARE "none". A sentence about the future is not a commitment. Return "none" for all of these:
+
+- Past tense: "I contacted you yesterday", "we spoke last week".
+- Vague possibility with no commitment: "we might connect someday", "maybe later", "we'll see".
+- A fact about them rather than a request: "we are available in the evening", "our office closes at 6".
+- An ordinary enquiry: "what are your rates?", "do you cover weddings?". Somebody else handles those.
+- Small talk, thanks, acknowledgements, greetings.
+- Anything that is not from a prospective customer at all - invoices, OTPs, marketing, bot menus.
+
+THE TIME PHRASE. Put what they actually said in "when", normalised but not resolved: "tomorrow at 5 pm", "in 30 minutes", "this evening", "next monday". DO NOT return a date, a timestamp, or a time they did not say. If they committed to something with no time at all - "I'll get back to you" - set "when" to an empty string and still return the action; the business decides what to do with a commitment that has no time. Never invent an hour.
+
+A message can be a commitment AND an enquiry at the same time ("what are your rates? call me tomorrow at 5"). Judge the commitment part.
+
+The conversation is in Indian WhatsApp English, Hindi or Hinglish, and is often terse and misspelt. "kal 5 baje call karna", "abhi busy hoon baad mein baat karte hain" and "subah message karna" are commitments. Judge the meaning, not the spelling.
+
+"task" is written for the owner's reminder list, as a short instruction: "Call Rahul back", "Check if Rahul sent the documents".
+"quote" is the few words from their message that carry the commitment, so the owner can see why they are being reminded.
+"confidence" is how sure you are, 0.0 to 1.0. Be honest - a low number is useful, and the business treats anything uncertain as "none".
+
+The conversation so far, oldest first:
+{transcript}
+
+The message to read (the most recent one from them):
+{message}
+"""

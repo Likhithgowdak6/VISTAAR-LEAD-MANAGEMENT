@@ -7,7 +7,11 @@ import { type HydratedDocument } from 'mongoose';
 
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { AI_INTENTS } from '../../constants/ai-intents.js';
-import { canAiRespondToInbound, type ClassifyIntentFn } from './ai-eligibility.js';
+import {
+  AI_ELIGIBILITY_REASONS,
+  canAiRespondToInbound,
+  type ClassifyIntentFn,
+} from './ai-eligibility.js';
 import {
   AI_BRAIN_APPROVAL_RESOLUTIONS,
   AI_BRAIN_RESULT_STATUSES,
@@ -85,6 +89,14 @@ export interface HandleInboundForAutomationParams {
   inboundText: string;
   /** How many WhatsApp messages this one logical turn was assembled from. Logged, not sent. */
   inboundMessageCount?: number;
+  /**
+   * Fires when this turn is judged a genuine service enquiry - the owner's "new lead" ping.
+   *
+   * Supplied by ingestion rather than called from here: the alert needs the lead's phone and
+   * the message body, and neither is on the conversation document. Optional, so the auto-greet
+   * and owner-resume callers simply do not pass one.
+   */
+  onServiceEnquiry?: () => Promise<void>;
   /** What kind of message arrived. Absent (or `text`) behaves exactly as it did before media. */
   messageType?: MessageType;
   /** True for a recorded voice note - the one media kind the AI cannot ever be given. */
@@ -134,6 +146,7 @@ export const handleInboundMessageForAutomation = async ({
   inboundMessageId,
   inboundText,
   inboundMessageCount = 1,
+  onServiceEnquiry,
   messageType,
   isVoiceNote,
   traceId,
@@ -309,6 +322,22 @@ export const handleInboundMessageForAutomation = async ({
           'Could not record the intent verdict; the decision itself still stands.',
         );
       });
+    }
+
+    // The owner's "new lead" ping, now that there is something worth pinging about.
+    //
+    // SERVICE_ENQUIRY specifically, NOT `eligibility.respond`. The two look interchangeable and
+    // are not: an auto-greet for an imported lead and an owner resuming a paused conversation
+    // both come through here with `respond: true` and reason OWNER_DIRECTED, and neither is a
+    // new lead announcing itself. Alerting on `respond` would ping the owner about their own
+    // instruction, quoting an empty message.
+    //
+    // Firing more than once is impossible regardless: `sendNewLeadAlert` claims
+    // `newLeadAlertSentAt` with a conditional update, so an imported lead that was already
+    // announced at import time loses the claim here, and a conversation that chats for weeks
+    // can only ever win it once.
+    if (eligibility.reason === AI_ELIGIBILITY_REASONS.SERVICE_ENQUIRY) {
+      await onServiceEnquiry?.();
     }
 
     if (!eligibility.respond) {

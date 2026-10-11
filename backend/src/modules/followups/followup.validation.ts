@@ -29,3 +29,38 @@ export const createFollowUpBodySchema = z.object({
   dueAt: z.coerce.date(),
   priority: z.enum(FOLLOWUP_PRIORITY_VALUES).default(FOLLOWUP_PRIORITIES.NORMAL),
 });
+
+/**
+ * The device's sync request.
+ *
+ * Note what is NOT here: no user id, no organisation id, no assignee. Those come from the auth
+ * context, so there is no field a device could set to read somebody else's reminders. The
+ * acknowledged ids are re-scoped server-side before anything is written.
+ */
+export const syncRemindersBodySchema = z.object({
+  /** The `syncedAt` from the device's previous sync. Omit for a full bounded refresh. */
+  since: z.coerce.date().optional(),
+  /** Reminder ids the device has armed locally, capped so one request cannot be unbounded. */
+  acknowledgedIds: z.array(objectIdSchema).max(500).default([]),
+});
+
+/** A personal reminder: a title and a moment, nothing else. */
+export const createPersonalReminderBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  dueAt: z.coerce.date(),
+  timezone: z.string().trim().max(64).optional(),
+});
+
+export const rescheduleFollowUpBodySchema = z.object({
+  dueAt: z.coerce.date(),
+  /**
+   * The zone the new time was CHOSEN in.
+   *
+   * Optional, and when it is sent the reminder adopts it - which keeps one invariant true for
+   * every path: a reminder is displayed in the zone whoever set it was standing in. Without
+   * this, rescheduling kept the original zone, so an owner in London moving an Asia/Kolkata
+   * reminder to "6 PM" stored the right instant and then listed it as 10:30 PM.
+   */
+  timezone: z.string().trim().max(64).optional(),
+});
+

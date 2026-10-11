@@ -45,7 +45,7 @@ const formatZonedParts = (date: Date, timeZone: string): ZonedDateParts => {
  * Standard guess-and-correct approach: no timezone database is bundled, but the ICU data behind
  * `Intl` already has it, so this reuses that instead of hand-rolling one.
  */
-const zonedTimeToUtc = (parts: ZonedDateParts, timeZone: string): Date => {
+export const zonedTimeToUtc = (parts: ZonedDateParts, timeZone: string): Date => {
   // The wall-clock time we are aiming for, read as if it were UTC. Every correction below is
   // measured against THIS fixed target, never against the moving guess: comparing the guess's
   // own local rendering back to the guess would subtract the zone's offset again on every

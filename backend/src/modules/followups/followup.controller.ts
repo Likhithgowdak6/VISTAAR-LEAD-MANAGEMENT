@@ -8,14 +8,26 @@ import {
   completeFollowUpForActor,
   createFollowUpForActor,
   listConversationFollowUpsForActor,
+  createPersonalReminderForActor,
   listMyFollowUps,
+  rescheduleFollowUpForActor,
 } from './followup.service.js';
+import { createReminderSyncService, type ReminderSyncService } from './reminder-sync.service.js';
 import {
   conversationIdParamsSchema,
   createFollowUpBodySchema,
+  createPersonalReminderBodySchema,
   listMyFollowUpsQuerySchema,
+  rescheduleFollowUpBodySchema,
+  syncRemindersBodySchema,
   taskIdParamsSchema,
 } from './followup.validation.js';
+
+let reminderSyncSingleton: ReminderSyncService | null = null;
+const getReminderSyncService = (): ReminderSyncService => {
+  reminderSyncSingleton ??= createReminderSyncService();
+  return reminderSyncSingleton;
+};
 
 const followUpErrorMap = {
   CONVERSATION_NOT_FOUND: { statusCode: 404, message: 'Conversation not found.' },
@@ -165,3 +177,82 @@ export const cancelFollowUp = asyncHandler(async (req, res) => {
     mapFollowUpError(error);
   }
 });
+
+/**
+ * POST /follow-ups/sync - what the Android app calls to arm its local alarms.
+ *
+ * POST rather than GET because the device sends up the ids it has already scheduled, and that
+ * list is a write (it stamps `androidDelivery.syncedAt`). Everything about WHOSE reminders
+ * these are comes from `requireAuthContext`, never from the body.
+ */
+export const syncReminders = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const body = parseWithSchema({
+    schema: syncRemindersBodySchema,
+    value: req.body ?? {},
+    source: 'Body',
+  });
+
+  const data = await getReminderSyncService().syncRemindersForDevice({
+    organizationId: auth.organization._id,
+    userId: auth.user._id,
+    since: body.since ?? null,
+    acknowledgedIds: body.acknowledgedIds,
+  });
+
+  res.status(200).json({ data });
+});
+
+/** POST /follow-ups - a personal reminder, belonging to nobody but the person creating it. */
+export const createPersonalReminder = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const body = parseWithSchema({
+    schema: createPersonalReminderBodySchema,
+    value: req.body ?? {},
+    source: 'Body',
+  });
+
+  try {
+    const task = await createPersonalReminderForActor({
+      organizationId: auth.organization._id,
+      actor: auth.user,
+      title: body.title,
+      dueAt: body.dueAt,
+      timezone: body.timezone ?? null,
+    });
+
+    res.status(201).json({ data: task });
+  } catch (error: unknown) {
+    mapFollowUpError(error);
+  }
+});
+
+/** PATCH /follow-ups/:taskId/reschedule - move it, and re-arm every channel. */
+export const rescheduleFollowUp = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: taskIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+  const body = parseWithSchema({
+    schema: rescheduleFollowUpBodySchema,
+    value: req.body ?? {},
+    source: 'Body',
+  });
+
+  try {
+    const task = await rescheduleFollowUpForActor({
+      organizationId: auth.organization._id,
+      taskId: params.taskId,
+      actor: auth.user,
+      dueAt: body.dueAt,
+      timezone: body.timezone ?? null,
+    });
+
+    res.status(200).json({ data: task });
+  } catch (error: unknown) {
+    mapFollowUpError(error);
+  }
+});
+

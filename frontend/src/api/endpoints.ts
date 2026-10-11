@@ -1289,3 +1289,84 @@ export const deleteTemplate = ({
   templateId,
 }: DeleteTemplateParams): Promise<ApiSuccessResponse<MessageTemplate>> =>
   apiFetch(`/templates/${templateId}`, { method: 'DELETE', token });
+
+export interface DeviceReminderPayload {
+  id: string;
+  version: number;
+  title: string;
+  dueAt: string;
+  timezone: string | null;
+  status: string;
+  conversationId: string | null;
+  schedulable: boolean;
+}
+
+export interface SyncRemindersResponse {
+  reminders: DeviceReminderPayload[];
+  syncedAt: string;
+}
+
+export interface SyncRemindersParams extends TokenParams {
+  /** The `syncedAt` from the previous sync, for an incremental pull. */
+  since?: string | null;
+  /** Reminder ids this device currently has armed locally. */
+  acknowledgedIds?: string[];
+}
+
+/**
+ * Pulls this owner's reminders so the device can arm local alarms.
+ *
+ * POST rather than GET because the acknowledged ids are a write - they stamp when the handset
+ * last took delivery. Nothing identifying the owner is sent; the server reads that from the
+ * session, so one device can never pull another owner's reminders.
+ */
+export const syncReminders = ({
+  token,
+  since = null,
+  acknowledgedIds = [],
+}: SyncRemindersParams = {}): Promise<ApiSuccessResponse<SyncRemindersResponse>> =>
+  apiFetch('/follow-ups/sync', {
+    method: 'POST',
+    token,
+    body: { since: since ?? undefined, acknowledgedIds },
+  });
+
+export interface CreatePersonalReminderParams extends TokenParams {
+  title: string;
+  dueAt: string;
+  timezone?: string;
+}
+
+/** A reminder about nothing in particular - no lead, no conversation. */
+export const createPersonalReminder = ({
+  token,
+  title,
+  dueAt,
+  timezone,
+}: CreatePersonalReminderParams): Promise<ApiSuccessResponse<FollowUpTask>> =>
+  apiFetch('/follow-ups', { method: 'POST', token, body: { title, dueAt, timezone } });
+
+export interface RescheduleFollowUpParams extends TokenParams {
+  taskId: string;
+  dueAt: string;
+  /** The zone the new time was chosen in, so the list shows what the owner actually typed. */
+  timezone?: string;
+}
+
+/**
+ * Moves a reminder. Goes through its own endpoint rather than a status patch because the
+ * server has to clear the delivery stamp and bump the version too - otherwise the reminder
+ * never fires again and the handset keeps the alarm it armed for the old time.
+ */
+export const rescheduleFollowUp = ({
+  token,
+  taskId,
+  dueAt,
+  timezone,
+}: RescheduleFollowUpParams): Promise<ApiSuccessResponse<FollowUpTask>> =>
+  apiFetch(`/follow-ups/${taskId}/reschedule`, {
+    method: 'PATCH',
+    token,
+    body: { dueAt, timezone },
+  });
+
