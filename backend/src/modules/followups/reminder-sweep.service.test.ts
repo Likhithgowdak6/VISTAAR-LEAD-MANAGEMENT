@@ -304,7 +304,11 @@ describe('AUDIT: the retry path', () => {
     // `lastNotificationAt` is what the next sweep checks to decide the reminder is done with,
     // so setting it here retires the reminder after one attempt and the retry never happens.
     expect(h.finishReminderDelivery).not.toHaveBeenCalled();
-    expect(h.releaseReminderClaim).toHaveBeenCalledWith({ taskId: 'task-1' });
+
+    // And the claim is HELD, not released. Releasing made the reminder instantly eligible
+    // again, so the same sweep re-claimed it and burned all three attempts in 27ms against a
+    // socket that was equally down each time. The lease expiring is the backoff.
+    expect(h.releaseReminderClaim).not.toHaveBeenCalled();
   });
 });
 
@@ -326,9 +330,10 @@ describe('AUDIT: retries actually happen across sweeps', () => {
 
       const result = await h.service.sweepOnce({});
 
+      // ONE attempt per sweep, not three in a row: the held claim is what spaces them out.
       expect(h.notifyOwner).toHaveBeenCalledTimes(1);
       expect(h.finishReminderDelivery).not.toHaveBeenCalled();
-      expect(h.releaseReminderClaim).toHaveBeenCalled();
+      expect(h.releaseReminderClaim).not.toHaveBeenCalled();
       expect(result.whatsappRetrying).toBe(1);
       attemptsSeen.push(`retry@${attempts}`);
     }
@@ -410,6 +415,24 @@ describe('AUDIT: a terminal failure keeps the cause', () => {
     await h.service.sweepOnce({});
 
     expect(deliveryFor(h, 'whatsapp')?.error).toContain('unknown');
+  });
+});
+
+describe('AUDIT: one attempt per sweep, never a storm', () => {
+  it('does not re-attempt the same reminder inside a single sweep', async () => {
+    // Reproduces production: the queue keeps handing back the same task because a released
+    // claim makes it instantly eligible again.
+    const task = baseTask();
+    const h = createHarness({ tasks: Array.from({ length: 10 }, () => ({ ...task })) });
+    h.notifyOwner.mockRejectedValue(
+      Object.assign(new Error('socket down'), { code: 'WHATSAPP_SESSION_NOT_RUNNING' }),
+    );
+
+    const result = await h.service.sweepOnce({});
+
+    // One send for one reminder, however many times the claim query returns it.
+    expect(h.notifyOwner).toHaveBeenCalledTimes(1);
+    expect(result.claimed).toBe(1);
   });
 });
 

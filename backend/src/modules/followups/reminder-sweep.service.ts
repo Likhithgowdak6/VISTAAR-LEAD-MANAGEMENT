@@ -186,6 +186,11 @@ export const createReminderSweepService = ({
       whatsappRetrying: 0,
     };
 
+    // Belt-and-braces against re-handling one reminder inside a single sweep. The claim/lease
+    // should already prevent it; this makes it impossible even if a future change to the
+    // release paths reopens that door.
+    const handled = new Set<string>();
+
     for (let processed = 0; processed < limit; processed += 1) {
       const task = await claimDueReminder({ now: now() });
 
@@ -193,6 +198,12 @@ export const createReminderSweepService = ({
         break;
       }
 
+      if (handled.has(String(task._id))) {
+        await releaseReminderClaim({ taskId: task._id });
+        break;
+      }
+
+      handled.add(String(task._id));
       result.claimed += 1;
 
       // Cancelled or completed between being claimed and being read. Nothing to send; drop the
@@ -223,7 +234,15 @@ export const createReminderSweepService = ({
       // never be reached. Hand the claim back instead and let the next sweep try again.
       if (outcome === 'retry') {
         result.whatsappRetrying += 1;
-        await releaseReminderClaim({ taskId: task._id });
+
+        // THE CLAIM IS DELIBERATELY NOT RELEASED. Releasing it here made the reminder
+        // immediately eligible again, so this same loop re-claimed it and spent the entire
+        // attempt budget in one tick - three "retries" 27 milliseconds apart, against a
+        // WhatsApp socket that was equally down for all of them.
+        //
+        // Leaving the claim in place makes the LEASE the backoff: nobody can touch this
+        // reminder until it expires, which is a couple of sweeps away. That is what "retried
+        // on the next sweep" was always supposed to mean.
         continue;
       }
 
