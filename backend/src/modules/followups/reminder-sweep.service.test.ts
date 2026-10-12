@@ -41,7 +41,10 @@ const baseTask = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const createHarness = ({ tasks = [baseTask()] }: { tasks?: Record<string, unknown>[] } = {}) => {
+const createHarness = ({
+  tasks = [baseTask()],
+  accounts = [{ _id: 'org-account-1' }] as { _id: string }[],
+}: { tasks?: Record<string, unknown>[]; accounts?: { _id: string }[] } = {}) => {
   const queue = [...tasks];
 
   // Argument types are spelled out so `.mock.calls` stays typed - vi.fn(async () => …) infers a
@@ -64,14 +67,20 @@ const createHarness = ({ tasks = [baseTask()] }: { tasks?: Record<string, unknow
     }),
   );
 
+  const findAccountsByOrganization = vi.fn(
+    async (_params?: { organizationId?: unknown; status?: string; limit?: number }) => accounts,
+  );
+  const logger = { info: vi.fn(), error: vi.fn() };
+
   const service = createReminderSweepService({
     claimDueReminder: claimDueReminder as never,
     releaseReminderClaim: releaseReminderClaim as never,
     recordReminderDelivery: recordReminderDelivery as never,
     finishReminderDelivery: finishReminderDelivery as never,
+    findAccountsByOrganization: findAccountsByOrganization as never,
     notifyOwner: notifyOwner as never,
     now: () => NOW,
-    logger: { info: vi.fn(), error: vi.fn() },
+    logger,
   });
 
   return {
@@ -80,7 +89,9 @@ const createHarness = ({ tasks = [baseTask()] }: { tasks?: Record<string, unknow
     releaseReminderClaim,
     recordReminderDelivery,
     finishReminderDelivery,
+    findAccountsByOrganization,
     notifyOwner,
+    logger,
   };
 };
 
@@ -436,3 +447,88 @@ describe('AUDIT: one attempt per sweep, never a storm', () => {
   });
 });
 
+
+describe('PRODUCTION DEFECT: a personal reminder has no account to send through', () => {
+  it('borrows the organization\'s active number when the reminder has none', async () => {
+    // The exact production document: created from the Reminders UI, so no conversation and no
+    // account. Passing that null on to the session manager is what made every personal reminder
+    // fail with WHATSAPP_SESSION_NOT_RUNNING while the socket was demonstrably connected - the
+    // account id IS the key into the live-socket map, and null is not a key.
+    const h = createHarness({
+      tasks: [baseTask({ whatsappAccountId: null, conversationId: null, source: 'manual' })],
+      accounts: [{ _id: 'org-account-1' }],
+    });
+
+    const result = await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'org-account-1' }),
+    );
+    expect(result.whatsappSent).toBe(1);
+  });
+
+  it('never borrows across organizations', async () => {
+    const h = createHarness({
+      tasks: [baseTask({ whatsappAccountId: null, organizationId: 'org-7' })],
+    });
+
+    await h.service.sweepOnce({});
+
+    // Scoped lookup, or one tenant's reminder goes out over another tenant's number.
+    expect(h.findAccountsByOrganization).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: 'org-7', status: 'active' }),
+    );
+  });
+
+  it('leaves a lead follow-up pointed at its own account', async () => {
+    const h = createHarness({ tasks: [baseTask({ whatsappAccountId: 'account-1' })] });
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'account-1' }),
+    );
+    expect(h.findAccountsByOrganization).not.toHaveBeenCalled();
+  });
+
+  it('skips rather than burning the retry budget when there is no active number', async () => {
+    const h = createHarness({
+      tasks: [baseTask({ whatsappAccountId: null })],
+      accounts: [],
+    });
+
+    const result = await h.service.sweepOnce({});
+
+    // Nothing transient about an organization with no connected number: retrying it three times
+    // changes nothing, and the handset alarm is unaffected either way.
+    expect(h.notifyOwner).not.toHaveBeenCalled();
+    expect(deliveryFor(h, 'whatsapp')?.status).toBe('skipped');
+    expect(result.whatsappRetrying).toBe(0);
+    expect(h.finishReminderDelivery).toHaveBeenCalled();
+  });
+
+  it('looks the organization up once per sweep, not once per reminder', async () => {
+    const h = createHarness({
+      tasks: Array.from({ length: 4 }, (_, i) =>
+        baseTask({ _id: `task-${i}`, whatsappAccountId: null }),
+      ),
+    });
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledTimes(4);
+    expect(h.findAccountsByOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips safely when the account lookup itself throws', async () => {
+    const h = createHarness({ tasks: [baseTask({ whatsappAccountId: null })] });
+    h.findAccountsByOrganization.mockRejectedValue(new Error('mongo down'));
+
+    const result = await h.service.sweepOnce({});
+
+    // A sweep must survive a failing lookup; it must not take the whole runner down.
+    expect(result.whatsappSent).toBe(0);
+    expect(deliveryFor(h, 'whatsapp')?.status).toBe('skipped');
+    expect(h.logger.error).toHaveBeenCalled();
+  });
+});

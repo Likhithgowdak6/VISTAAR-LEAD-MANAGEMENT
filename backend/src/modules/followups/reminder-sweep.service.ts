@@ -23,6 +23,7 @@
  */
 import { env, type Env } from '../../config/env.js';
 import { logger as defaultLogger } from '../../config/logger.js';
+import { ACCOUNT_STATUSES } from '../../constants/account-statuses.js';
 import { FOLLOWUP_STATUSES } from '../../constants/followup-statuses.js';
 import {
   REMINDER_CHANNELS,
@@ -33,6 +34,7 @@ import {
   createOwnerNotifyService,
   type OwnerNotifyServiceHandle,
 } from '../whatsapp/automation/owner-notify.service.js';
+import { findAccountsByOrganization as defaultFindAccountsByOrganization } from '../whatsapp-accounts/whatsapp-account.repository.js';
 import {
   claimDueReminder as defaultClaimDueReminder,
   finishReminderDelivery as defaultFinishReminderDelivery,
@@ -56,6 +58,7 @@ export interface CreateReminderSweepOptions {
   releaseReminderClaim?: typeof defaultReleaseReminderClaim;
   recordReminderDelivery?: typeof defaultRecordReminderDelivery;
   finishReminderDelivery?: typeof defaultFinishReminderDelivery;
+  findAccountsByOrganization?: typeof defaultFindAccountsByOrganization;
   notifyOwner?: OwnerNotifyServiceHandle['notifyOwner'];
   /** Injected so tests can drive the clock instead of waiting for one. */
   now?: () => Date;
@@ -79,6 +82,7 @@ export const createReminderSweepService = ({
   releaseReminderClaim = defaultReleaseReminderClaim,
   recordReminderDelivery = defaultRecordReminderDelivery,
   finishReminderDelivery = defaultFinishReminderDelivery,
+  findAccountsByOrganization = defaultFindAccountsByOrganization,
   // Built lazily and shared, the same way every other caller of this sink does it: constructing
   // it at import time would pull the WhatsApp session manager into any module that merely
   // imports this one.
@@ -86,6 +90,59 @@ export const createReminderSweepService = ({
   now = () => new Date(),
   logger = defaultLogger,
 }: CreateReminderSweepOptions = {}) => {
+  /**
+   * Builds a per-sweep resolver for "which WhatsApp number carries this reminder".
+   *
+   * A lead follow-up was born from a conversation and names its own account. A PERSONAL reminder
+   * has no conversation, so it stores `whatsappAccountId: null` - and that null used to be passed
+   * straight through to `sessionManager.sendTextMessage`, where the account id IS the key into
+   * the map of live sockets. No id means no key, which means no session: every personal reminder
+   * failed with WHATSAPP_SESSION_NOT_RUNNING no matter how healthy the connection actually was.
+   * The error even said "No running session for this account" about an account nobody had named.
+   *
+   * Scoped to the reminder's own organization, never a global lookup - one tenant's reminder must
+   * not go out over another tenant's number. Where an organization has several active numbers any
+   * of them reaches the same owner, so the most recently created one wins and the choice is
+   * deterministic. Memoised for the duration of one sweep: a backlog is usually one organization.
+   */
+  const createAccountResolver = () => {
+    const cache = new Map<string, FollowUpTaskDocument['whatsappAccountId']>();
+
+    return async (
+      organizationId: FollowUpTaskDocument['organizationId'],
+    ): Promise<FollowUpTaskDocument['whatsappAccountId']> => {
+      const key = String(organizationId);
+
+      if (cache.has(key)) {
+        return cache.get(key) ?? null;
+      }
+
+      let resolved: FollowUpTaskDocument['whatsappAccountId'] = null;
+
+      try {
+        const accounts = await findAccountsByOrganization({
+          organizationId,
+          status: ACCOUNT_STATUSES.ACTIVE,
+          limit: 1,
+        });
+
+        resolved = (accounts?.[0]?._id ?? null) as FollowUpTaskDocument['whatsappAccountId'];
+      } catch (error: unknown) {
+        const err = error as { code?: unknown; name?: unknown };
+        // Left as null, which the caller turns into SKIPPED rather than a retry - a lookup that
+        // is failing now will still be failing in sixty seconds, and the handset alarm stands.
+        logger?.error?.(
+          { code: err?.code, name: err?.name },
+          'Reminder account lookup failed safely.',
+        );
+      }
+
+      cache.set(key, resolved);
+
+      return resolved;
+    };
+  };
+
   /**
    * Delivers one reminder on WhatsApp.
    *
@@ -97,7 +154,10 @@ export const createReminderSweepService = ({
    * Never throws. A reminder that cannot be delivered must not take the sweep down with it,
    * because the next reminder in the queue probably can be.
    */
-  const deliverWhatsApp = async (task: FollowUpTaskDocument): Promise<DeliveryOutcome> => {
+  const deliverWhatsApp = async (
+    task: FollowUpTaskDocument,
+    resolveAccountId: ReturnType<typeof createAccountResolver>,
+  ): Promise<DeliveryOutcome> => {
     const attempts = task.whatsappDelivery?.attempts ?? 0;
 
     // Out of retries. Recorded as failed and left alone - visible in the task list and in the
@@ -119,10 +179,29 @@ export const createReminderSweepService = ({
       return 'failed';
     }
 
+    // A lead follow-up names its own account; a personal reminder has to borrow the
+    // organization's. Resolved before the send because the account id is what selects the live
+    // socket - without one there is nothing to send through.
+    const accountId = task.whatsappAccountId ?? (await resolveAccountId(task.organizationId));
+
+    if (!accountId) {
+      // The organization has no active number at all. Nothing is transiently broken, so this is
+      // not worth an attempt from the budget; the reminder closes out and the handset still rings.
+      await recordReminderDelivery({
+        taskId: task._id,
+        channel: REMINDER_CHANNELS.WHATSAPP,
+        status: REMINDER_DELIVERY_STATUSES.SKIPPED,
+        error: 'no active WhatsApp account for this organization',
+        now: now(),
+      });
+
+      return 'skipped';
+    }
+
     try {
       const result = await notifyOwner({
         organizationId: task.organizationId,
-        accountId: task.whatsappAccountId ?? undefined,
+        accountId,
         text: buildReminderMessage(task),
       });
 
@@ -190,6 +269,7 @@ export const createReminderSweepService = ({
     // should already prevent it; this makes it impossible even if a future change to the
     // release paths reopens that door.
     const handled = new Set<string>();
+    const resolveAccountId = createAccountResolver();
 
     for (let processed = 0; processed < limit; processed += 1) {
       const task = await claimDueReminder({ now: now() });
@@ -220,7 +300,7 @@ export const createReminderSweepService = ({
         continue;
       }
 
-      const outcome = await deliverWhatsApp(task);
+      const outcome = await deliverWhatsApp(task, resolveAccountId);
 
       if (outcome === 'sent') {
         result.whatsappSent += 1;
