@@ -16,10 +16,10 @@ vi.mock('../../config/env.js', () => ({
   env: { NODE_ENV: 'test', LOG_LEVEL: 'silent' },
 }));
 
-const mocks = vi.hoisted(() => ({ create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), findOneAndUpdate: vi.fn() }));
 
 vi.mock('./followup-task.model.js', () => ({
-  FollowUpTask: { create: mocks.create },
+  FollowUpTask: { create: mocks.create, findOneAndUpdate: mocks.findOneAndUpdate },
 }));
 
 const { createFollowUpTask } = await import('./followup-task.repository.js');
@@ -82,3 +82,20 @@ describe('idempotencyKey and the sparse unique index', () => {
     expect(written().conversationId).toBeNull();
   });
 });
+
+describe('claimDueReminder', () => {
+  it('never claims a reminder that has already been announced', async () => {
+    const { claimDueReminder } = await import('./followup-task.repository.js');
+    mocks.findOneAndUpdate.mockReturnValue({ exec: vi.fn().mockResolvedValue(null) });
+
+    await claimDueReminder({ now: new Date('2026-10-12T06:00:00.000Z') });
+
+    // THE LOOP THIS PREVENTS: a reminder stays `pending` until the owner completes it, so
+    // without this condition an announced one is claimed, released and re-claimed every single
+    // sweep - burning the per-tick budget and starving new reminders.
+    const [filter] = mocks.findOneAndUpdate.mock.calls[0]!;
+    expect(filter.lastNotificationAt).toBeNull();
+    expect(filter.status).toBe('pending');
+  });
+});
+

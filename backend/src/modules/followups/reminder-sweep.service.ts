@@ -107,7 +107,12 @@ export const createReminderSweepService = ({
         taskId: task._id,
         channel: REMINDER_CHANNELS.WHATSAPP,
         status: REMINDER_DELIVERY_STATUSES.FAILED,
-        error: `gave up after ${attempts} attempts`,
+        // KEEPS THE LAST REAL CAUSE. Writing only "gave up after N attempts" is true and
+        // useless: it overwrites the one field that says WHY, so the record that survives
+        // tells an operator nothing they can act on.
+        error: `gave up after ${attempts} attempts - last error: ${
+          task.whatsappDelivery?.error ?? 'unknown'
+        }`.slice(0, 500),
         now: now(),
       });
 

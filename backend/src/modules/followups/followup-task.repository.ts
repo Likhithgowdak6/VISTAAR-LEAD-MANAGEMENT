@@ -281,6 +281,12 @@ export const claimDueReminder = ({
     {
       status: FOLLOWUP_STATUSES.PENDING,
       dueAt: { $lte: now },
+      // NEVER RE-CLAIM SOMETHING ALREADY ANNOUNCED. A reminder stays `pending` until the owner
+      // completes it, so without this an announced-but-not-completed reminder matches the
+      // filter forever: claimed, found to have been announced, released, claimed again next
+      // minute. It burns the per-tick budget on work it immediately discards, and with enough
+      // of them a genuinely new reminder never gets claimed at all.
+      lastNotificationAt: null,
       $or: [{ deliveryClaimedAt: null }, { deliveryClaimedAt: { $lte: leaseExpiredBefore } }],
     },
     { $set: { deliveryClaimedAt: now } },

@@ -375,3 +375,41 @@ describe('AUDIT: retries actually happen across sweeps', () => {
   });
 });
 
+describe('AUDIT: a terminal failure keeps the cause', () => {
+  it('carries the last real error into the give-up message', async () => {
+    const h = createHarness({
+      tasks: [
+        baseTask({
+          whatsappDelivery: {
+            status: 'pending',
+            attempts: 3,
+            deliveredAt: null,
+            error: 'ECONNRESET',
+          },
+        }),
+      ],
+    });
+
+    await h.service.sweepOnce({});
+
+    // "gave up after 3 attempts" on its own overwrites the only field that says WHY, leaving
+    // an operator with a record they cannot act on.
+    expect(deliveryFor(h, 'whatsapp')?.error).toContain('ECONNRESET');
+    expect(deliveryFor(h, 'whatsapp')?.error).toContain('gave up after 3 attempts');
+  });
+
+  it('says so plainly when there was no recorded cause', async () => {
+    const h = createHarness({
+      tasks: [
+        baseTask({
+          whatsappDelivery: { status: 'pending', attempts: 3, deliveredAt: null, error: null },
+        }),
+      ],
+    });
+
+    await h.service.sweepOnce({});
+
+    expect(deliveryFor(h, 'whatsapp')?.error).toContain('unknown');
+  });
+});
+
