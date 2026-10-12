@@ -115,8 +115,12 @@ const AppShell = () => {
    * `enabled` is tied to the auth state so a logout stops it and a different account starts
    * clean: the effects tear down their listeners and nothing syncs for the previous user.
    */
-  const { status: alarmStatus, requestPermission: requestNotificationPermission } =
-    useReminderAlarms({
+  const {
+    status: alarmStatus,
+    requestPermission: requestNotificationPermission,
+    requestExactAlarm,
+    syncNow: syncAlarms,
+  } = useReminderAlarms({
     authedRequest,
     enabled: Boolean(isAuthenticated),
     onOpenReminder: useCallback(
@@ -284,6 +288,8 @@ const AppShell = () => {
             onOpenConversation={openConversation}
             alarmStatus={alarmStatus}
             onRequestNotificationPermission={requestNotificationPermission}
+            onRequestExactAlarm={requestExactAlarm}
+            onSyncAlarms={syncAlarms}
           />
         </div>
       ) : view === 'settings' && canManageSettings ? (

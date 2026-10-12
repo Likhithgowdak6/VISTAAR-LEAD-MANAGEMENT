@@ -224,3 +224,79 @@ describe('reschedule dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Reschedule Call Rahul' })).toBeInTheDocument();
   });
 });
+
+describe('the late-reminder warning', () => {
+  const noticeWith = (overrides: Record<string, unknown> = {}) => {
+    const onRequestExactAlarm = vi.fn(async () => 'granted' as const);
+
+    render(
+      <NotificationPermissionNotice
+        permission="granted"
+        exactAlarm="denied"
+        lastSkip={null}
+        lastSyncFailed={false}
+        armedCount={2}
+        onRequest={vi.fn(async () => 'granted' as const)}
+        onRequestExactAlarm={onRequestExactAlarm}
+        {...overrides}
+      />,
+    );
+
+    return { onRequestExactAlarm };
+  };
+
+  it('warns when alarms are on but may fire late', () => {
+    noticeWith();
+
+    // THE STATE THIS EXISTS FOR. Before this, the screen said "Phone alarms are on" and the
+    // reminders arrived minutes late with nothing anywhere admitting why.
+    expect(screen.getByText('Reminders may ring late.')).toBeInTheDocument();
+    expect(screen.queryByText(/Phone alarms are on/)).not.toBeInTheDocument();
+  });
+
+  it('offers the settings screen, because this one CAN be deep-linked', async () => {
+    const { onRequestExactAlarm } = noticeWith();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allow exact alarms' }));
+
+    await waitFor(() => expect(onRequestExactAlarm).toHaveBeenCalledTimes(1));
+  });
+
+  it('says the WhatsApp reminder is unaffected', () => {
+    noticeWith();
+
+    // The two channels are independent and the owner should not think reminders are broken.
+    expect(screen.getByText(/WhatsApp reminder is unaffected/)).toBeInTheDocument();
+  });
+
+  it('is silent about exactness once it is granted', () => {
+    noticeWith({ exactAlarm: 'granted' });
+
+    expect(screen.getByText(/will ring on the minute/)).toBeInTheDocument();
+    expect(screen.queryByText('Reminders may ring late.')).not.toBeInTheDocument();
+  });
+
+  it('says nothing about exact alarms where the setting does not exist', () => {
+    // Android < 12, iOS, and the browser. Warning here would be about a screen with no such
+    // option on it.
+    noticeWith({ exactAlarm: 'unsupported' });
+
+    expect(screen.queryByText('Reminders may ring late.')).not.toBeInTheDocument();
+    expect(screen.getByText(/Phone alarms are on/)).toBeInTheDocument();
+  });
+
+  it('does not claim exactness when the notice has no handler wired', () => {
+    render(
+      <NotificationPermissionNotice
+        permission="granted"
+        lastSkip={null}
+        lastSyncFailed={false}
+        armedCount={0}
+        onRequest={vi.fn(async () => 'granted' as const)}
+      />,
+    );
+
+    expect(screen.getByText(/Phone alarms are on/)).toBeInTheDocument();
+    expect(screen.queryByText(/will ring on the minute/)).not.toBeInTheDocument();
+  });
+});

@@ -23,9 +23,11 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { syncReminders } from '../api/endpoints';
 import {
+  checkExactAlarmSetting,
   checkReminderPermission,
   ensureReminderChannel,
   reconcileReminderAlarms,
+  requestExactAlarmSetting,
   requestReminderPermission,
   type DeviceReminder,
   type ReminderPermission,
@@ -65,6 +67,14 @@ export interface UseReminderAlarmsOptions {
 
 export interface ReminderAlarmStatus {
   permission: ReminderPermission;
+  /**
+   * Whether alarms may fire at the minute they were set for.
+   *
+   * Tracked separately from `permission` because the two fail differently and only one of them
+   * is visible to the owner. With notifications granted but this denied, every reminder is
+   * armed, nothing errors, and they all arrive late.
+   */
+  exactAlarm: ReminderPermission;
   /** How many alarms this device currently believes it has armed. */
   armedCount: number;
   /** Why the last pass armed nothing, when it armed nothing. */
@@ -81,9 +91,11 @@ export const useReminderAlarms = ({
   syncNow: () => Promise<void>;
   status: ReminderAlarmStatus;
   requestPermission: () => Promise<ReminderPermission>;
+  requestExactAlarm: () => Promise<ReminderPermission>;
 } => {
   const [status, setStatus] = useState<ReminderAlarmStatus>({
     permission: 'unsupported',
+    exactAlarm: 'unsupported',
     armedCount: 0,
     lastSkip: null,
     lastSyncFailed: false,
@@ -182,8 +194,10 @@ export const useReminderAlarms = ({
     }
 
     void ensureReminderChannel()
-      .then(() => checkReminderPermission())
-      .then((permission) => setStatus((previous) => ({ ...previous, permission })))
+      .then(() => Promise.all([checkReminderPermission(), checkExactAlarmSetting()]))
+      .then(([permission, exactAlarm]) =>
+        setStatus((previous) => ({ ...previous, permission, exactAlarm })),
+      )
       .then(() => syncNow());
   }, [enabled, syncNow]);
 
@@ -203,10 +217,13 @@ export const useReminderAlarms = ({
         return;
       }
 
-      // Re-read the permission as well as syncing: the owner may have just come back from
+      // Re-read BOTH permissions as well as syncing: the owner may have just come back from
       // Android's own settings screen, and that change is invisible to this app otherwise.
-      void checkReminderPermission().then((permission) =>
-        setStatus((previous) => ({ ...previous, permission })),
+      // The exact-alarm one especially - granting it is a round trip through settings, so this
+      // resume is the only moment the app finds out it succeeded.
+      void Promise.all([checkReminderPermission(), checkExactAlarmSetting()]).then(
+        ([permission, exactAlarm]) =>
+          setStatus((previous) => ({ ...previous, permission, exactAlarm })),
       );
       void syncNow();
     };
@@ -257,5 +274,20 @@ export const useReminderAlarms = ({
     return result;
   }, [syncNow]);
 
-  return { syncNow, status, requestPermission };
+  /**
+   * Opens Android's "Alarms & reminders" screen.
+   *
+   * Deliberately does NOT sync on the way back: granting leaves the app backgrounded, and the
+   * visibility listener above already re-reads the setting and re-syncs on return. Doing it here
+   * too would just be a second pass over the same reminders.
+   */
+  const requestExactAlarm = useCallback(async (): Promise<ReminderPermission> => {
+    const result = await requestExactAlarmSetting();
+
+    setStatus((previous) => ({ ...previous, exactAlarm: result }));
+
+    return result;
+  }, []);
+
+  return { syncNow, status, requestPermission, requestExactAlarm };
 };

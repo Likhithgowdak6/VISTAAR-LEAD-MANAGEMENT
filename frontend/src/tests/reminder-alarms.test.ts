@@ -14,9 +14,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  checkExactAlarmSetting,
   ensureReminderChannel,
   notificationIdFor,
   reconcileReminderAlarms,
+  requestExactAlarmSetting,
   requestReminderPermission,
   type DeviceReminder,
 } from '../lib/reminder-alarms';
@@ -37,10 +39,13 @@ const reminder = (overrides: Partial<DeviceReminder> = {}): DeviceReminder => ({
 
 const createPlugin = ({
   permission = 'granted',
+  exactAlarm = 'granted',
   pendingIds = [] as number[],
 } = {}) => ({
   checkPermissions: vi.fn(async () => ({ display: permission })),
   requestPermissions: vi.fn(async () => ({ display: permission })),
+  checkExactNotificationSetting: vi.fn(async () => ({ exact_alarm: exactAlarm })),
+  changeExactNotificationSetting: vi.fn(async () => ({ exact_alarm: exactAlarm })),
   getPending: vi.fn(async () => ({ notifications: pendingIds.map((id) => ({ id })) })),
   // Argument types spelled out so `.mock.calls` stays typed - vi.fn(async () => …) infers a
   // zero-argument signature and every later inspection of what was passed becomes `never`.
@@ -51,6 +56,7 @@ const createPlugin = ({
         title: string;
         body: string;
         channelId?: string;
+        isExactNotification?: boolean;
         schedule: { at: Date; allowWhileIdle?: boolean };
         extra: unknown;
       }[];
@@ -343,5 +349,76 @@ describe('a mixed batch', () => {
     expect(result.scheduled.sort()).toEqual(['moved', 'new']);
     expect(result.cancelled).toEqual(['gone']);
     expect(result.armed.sort()).toEqual(['keep', 'moved', 'new']);
+  });
+});
+
+describe('ringing on the minute, not whenever Doze allows', () => {
+  it('asks for an exact alarm on every reminder it arms', async () => {
+    const plugin = createPlugin();
+
+    await run([reminder()], plugin);
+
+    const [[payload]] = plugin.schedule.mock.calls;
+    // The plugin already defaults this to true, so the assertion is really about the pairing:
+    // exactness only happens when the flag AND the manifest permission agree, and a future edit
+    // that sets this to false would make reminders late again with nothing failing.
+    expect(payload!.notifications[0]!.isExactNotification).toBe(true);
+  });
+
+  it('still asks the OS to fire during Doze', async () => {
+    const plugin = createPlugin();
+
+    await run([reminder()], plugin);
+
+    const [[payload]] = plugin.schedule.mock.calls;
+    // Exactness decides WHICH minute; allowWhileIdle is what gets it past Doze at all. Dropping
+    // this while adding the exact flag would be a straight regression.
+    expect(payload!.notifications[0]!.schedule.allowWhileIdle).toBe(true);
+  });
+});
+
+describe('the exact-alarm setting', () => {
+  it('reports when the handset will fire on the minute', async () => {
+    const plugin = createPlugin({ exactAlarm: 'granted' });
+
+    expect(await checkExactAlarmSetting(plugin as never, () => 'android')).toBe('granted');
+  });
+
+  it('reports a refusal so the screen can warn that reminders will be late', async () => {
+    const plugin = createPlugin({ exactAlarm: 'denied' });
+
+    // The state this whole addition exists for: notifications granted, exact alarms not, and
+    // every reminder armed successfully but delivered late.
+    expect(await checkExactAlarmSetting(plugin as never, () => 'android')).toBe('denied');
+  });
+
+  it('is unsupported off Android, where there is no such setting to fix', async () => {
+    const plugin = createPlugin();
+
+    expect(await checkExactAlarmSetting(plugin as never, () => 'web')).toBe('unsupported');
+    expect(plugin.checkExactNotificationSetting).not.toHaveBeenCalled();
+  });
+
+  it('treats an older plugin without the method as unsupported, not denied', async () => {
+    const plugin = createPlugin();
+    plugin.checkExactNotificationSetting.mockRejectedValue(new Error('not implemented'));
+
+    // Denied would send the owner to a settings screen to fix something that is not broken.
+    expect(await checkExactAlarmSetting(plugin as never, () => 'android')).toBe('unsupported');
+  });
+
+  it('opens the settings screen when asked from a deliberate tap', async () => {
+    const plugin = createPlugin({ exactAlarm: 'denied' });
+
+    await requestExactAlarmSetting(plugin as never, () => 'android');
+
+    expect(plugin.changeExactNotificationSetting).toHaveBeenCalled();
+  });
+
+  it('never opens settings off Android', async () => {
+    const plugin = createPlugin();
+
+    expect(await requestExactAlarmSetting(plugin as never, () => 'web')).toBe('unsupported');
+    expect(plugin.changeExactNotificationSetting).not.toHaveBeenCalled();
   });
 });

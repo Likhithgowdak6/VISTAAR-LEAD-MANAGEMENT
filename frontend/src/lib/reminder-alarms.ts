@@ -163,9 +163,20 @@ export const reconcileReminderAlarms = async (
         title: '⏰ Vistaar Reminder',
         body: reminder.title,
         channelId: REMINDER_CHANNEL_ID,
+        // STATED RATHER THAN INHERITED. `isExactNotification` already defaults to true in the
+        // plugin, so this changes no behaviour - it is here because the default is the entire
+        // reason reminders were late and nothing in this file said so. The plugin computes
+        // `useExact = isExactNotification && canScheduleExactAlarms()`, and when the second half
+        // is false it downgrades to setAndAllowWhileIdle without throwing or warning. Pair this
+        // with SCHEDULE_EXACT_ALARM in AndroidManifest.xml and the grant check below; drop
+        // either one and reminders silently go back to arriving whenever Doze allows.
+        isExactNotification: true,
         // An absolute instant. The server resolved the owner's "5 PM" against the business
         // timezone already, so the device must not re-interpret it - `at` takes a Date and
         // fires at that moment wherever the handset happens to be.
+        //
+        // allowWhileIdle stays: it is what gets the alarm past Doze at all, and the exact flag
+        // only decides whether the moment it fires is the one that was asked for.
         schedule: { at: new Date(reminder.dueAt), allowWhileIdle: true },
         // Read back on tap to open the right lead. See registerReminderTapHandler.
         extra: { reminderId: reminder.id, conversationId: reminder.conversationId },
@@ -292,6 +303,69 @@ export const requestReminderPermission = async (
     const requested = await plugin.requestPermissions();
 
     return toReminderPermission(requested.display);
+  } catch {
+    return 'unsupported';
+  }
+};
+
+/**
+ * Whether this handset will let us schedule an alarm for the minute it was asked for.
+ *
+ * A SECOND, SEPARATE PERMISSION from the notification one above, and conflating them is the
+ * trap here. `checkPermissions().display` being 'granted' only means a notification may be
+ * SHOWN. On Android 12+ whether it is shown AT THE RIGHT TIME is governed by "Alarms &
+ * reminders", and an app with one and not the other schedules happily and fires late - the
+ * plugin downgrades to an inexact alarm rather than reporting a problem.
+ *
+ * That is why the Reminders screen tells the owner about both. "Phone alarms are on" while
+ * reminders quietly arrive ten minutes late is a worse state than being told what is wrong.
+ *
+ * Android < 12 has no such setting and the plugin answers 'granted'; iOS and the browser have
+ * no concept of it at all, hence 'unsupported'.
+ */
+export const checkExactAlarmSetting = async (
+  plugin: typeof LocalNotifications = LocalNotifications,
+  platform: () => string = () => Capacitor.getPlatform(),
+): Promise<ReminderPermission> => {
+  if (platform() !== 'android') {
+    return 'unsupported';
+  }
+
+  try {
+    const current = await plugin.checkExactNotificationSetting();
+
+    return toReminderPermission(current.exact_alarm);
+  } catch {
+    // Older plugin, or an unregistered one. Unsupported rather than denied: there is nothing
+    // for the owner to go and fix.
+    return 'unsupported';
+  }
+};
+
+/**
+ * Sends the owner to Android's "Alarms & reminders" screen for this app.
+ *
+ * NOT A DIALOG. Unlike the notification permission there is no in-app prompt for this one -
+ * `changeExactNotificationSetting()` opens system settings and the app goes to the background,
+ * so the result arrives when they come back and the resume sync re-reads it. The promise here
+ * resolves with whatever the setting was at the moment of leaving, which is usually still the
+ * old value; treat it as "we asked", not as "they granted".
+ *
+ * Only ever called from a deliberate tap. Throwing someone out to a settings screen they did
+ * not ask for is hostile, and on Android < 12 the plugin returns 'granted' without navigating.
+ */
+export const requestExactAlarmSetting = async (
+  plugin: typeof LocalNotifications = LocalNotifications,
+  platform: () => string = () => Capacitor.getPlatform(),
+): Promise<ReminderPermission> => {
+  if (platform() !== 'android') {
+    return 'unsupported';
+  }
+
+  try {
+    const result = await plugin.changeExactNotificationSetting();
+
+    return toReminderPermission(result.exact_alarm);
   } catch {
     return 'unsupported';
   }

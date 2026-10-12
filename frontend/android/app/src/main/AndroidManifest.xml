@@ -3,23 +3,32 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-        SCHEDULE_EXACT_ALARM is REMOVED on purpose.
+        SCHEDULE_EXACT_ALARM is DECLARED, having previously been stripped with tools:node="remove".
 
-        @capacitor/local-notifications declares it in its own manifest, and manifest-merge pulls
-        it into this app whether or not anything uses it. Nothing here does: the plugin only
-        reaches for an exact alarm when a notification is scheduled with `exact: true`
-        (LocalNotificationManager.kt, setExactIfPossible), and the reminder scheduler never sets
-        it - it uses `allowWhileIdle`, which maps to setAndAllowWhileIdle and fires during Doze
-        without the permission.
+        It was removed on the reasoning that a reminder may be a few minutes late under battery
+        management and that this was an accepted trade. On a real handset it was not: Android
+        batches an inexact alarm with whatever else it decides to wake for, so "remind me at 2:20"
+        arrives whenever Doze next relents. An owner who sets a reminder for a call at 2:20 needs
+        it at 2:20.
 
-        Leaving the declaration in place would be asking Google for a permission restricted to
-        alarm-clock and calendar apps, which needs a justification at submission and can get a
-        release rejected. Reminders are not an alarm clock: they may be deferred by a few
-        minutes under battery management, and that is an accepted trade.
+        WITHOUT THIS LINE THE DOWNGRADE IS SILENT, which is the part worth knowing. The plugin
+        defaults `isExactNotification` to true and then computes
+        `useExact = isExactNotification && canScheduleExactAlarms()`
+        (LocalNotificationManager.kt:357). On Android 12+ that second call is false unless this
+        permission is both declared and granted, so the schedule call still succeeds and quietly
+        becomes setAndAllowWhileIdle. Nothing throws and nothing warns.
+
+        SCHEDULE_EXACT_ALARM rather than USE_EXACT_ALARM deliberately: USE_EXACT_ALARM is granted
+        at install with no prompt, but Google Play restricts it to apps whose core purpose is an
+        alarm clock or calendar, and a CRM is neither. This one is user-granted instead - Android
+        shows it under "Alarms & reminders" in app settings, and the Reminders screen links
+        straight there. Declaring it costs a listing nothing.
+
+        If the owner later revokes it, Android restarts the app and drops every exact alarm it
+        had scheduled. That is survivable here: the reconciler reads getPending() before it does
+        anything, finds nothing armed, and re-arms on the next sync.
     -->
-    <uses-permission
-        android:name="android.permission.SCHEDULE_EXACT_ALARM"
-        tools:node="remove" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"

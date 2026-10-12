@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   ensureReminderChannel: vi.fn(),
   checkReminderPermission: vi.fn(),
   requestReminderPermission: vi.fn(),
+  checkExactAlarmSetting: vi.fn(),
+  requestExactAlarmSetting: vi.fn(),
   addListener: vi.fn(),
   removeListener: vi.fn(),
 }));
@@ -34,6 +36,11 @@ vi.mock('../lib/reminder-alarms', () => ({
   ensureReminderChannel: mocks.ensureReminderChannel,
   checkReminderPermission: mocks.checkReminderPermission,
   requestReminderPermission: mocks.requestReminderPermission,
+  // Exact alarms are a SECOND permission, read alongside the first on startup and on resume.
+  // Leaving these out of the mock makes the startup chain reject on an undefined call, which
+  // surfaces as every lifecycle test failing at once rather than as anything about alarms.
+  checkExactAlarmSetting: mocks.checkExactAlarmSetting,
+  requestExactAlarmSetting: mocks.requestExactAlarmSetting,
 }));
 
 vi.mock('@capacitor/local-notifications', () => ({
@@ -59,15 +66,20 @@ const reminder = (overrides: Record<string, unknown> = {}) => ({
 const Harness = ({
   enabled = true,
   onOpenReminder,
+  onReady,
 }: {
   enabled?: boolean;
   onOpenReminder?: (t: { reminderId: string; conversationId: string | null }) => void;
+  /** Hands the hook's own return value out, for tests that need to call into it. */
+  onReady?: (value: ReturnType<typeof useReminderAlarms>) => void;
 }) => {
-  useReminderAlarms({
+  const value = useReminderAlarms({
     authedRequest: (makeRequest) => makeRequest('token-1'),
     enabled,
     onOpenReminder,
   });
+
+  onReady?.(value);
 
   return null;
 };
@@ -97,6 +109,8 @@ beforeEach(() => {
   mocks.ensureReminderChannel.mockResolvedValue(true);
   mocks.checkReminderPermission.mockResolvedValue('granted');
   mocks.requestReminderPermission.mockResolvedValue('granted');
+  mocks.checkExactAlarmSetting.mockResolvedValue('granted');
+  mocks.requestExactAlarmSetting.mockResolvedValue('granted');
   mocks.addListener.mockResolvedValue({ remove: mocks.removeListener });
 });
 
@@ -316,5 +330,43 @@ describe('notification taps', () => {
       ([event]) => event === 'localNotificationActionPerformed',
     );
     expect(taps).toHaveLength(1);
+  });
+});
+
+describe('the exact-alarm setting', () => {
+  it('is read on startup alongside the notification permission', async () => {
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.checkExactAlarmSetting).toHaveBeenCalledTimes(1));
+  });
+
+  it('is re-read on resume, which is how granting it is ever noticed', async () => {
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.checkExactAlarmSetting).toHaveBeenCalledTimes(1));
+
+    // Granting happens in Android's settings, outside this app. Coming back is the only moment
+    // the app can learn it succeeded - without this re-read the screen warns forever.
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(mocks.checkExactAlarmSetting).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not sync a second time after opening settings', async () => {
+    const seen: { requestExactAlarm?: () => Promise<unknown> } = {};
+
+    render(<Harness onReady={(value) => Object.assign(seen, value)} />);
+
+    await waitFor(() => expect(mocks.syncReminders).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await seen.requestExactAlarm?.();
+    });
+
+    // The resume listener already re-syncs on the way back. Syncing here too would be a second
+    // pass over the same reminders for no gain.
+    expect(mocks.syncReminders).toHaveBeenCalledTimes(1);
   });
 });

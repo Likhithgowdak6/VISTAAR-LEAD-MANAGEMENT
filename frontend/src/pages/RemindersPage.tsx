@@ -46,17 +46,32 @@ interface Props {
    */
   alarmStatus?: {
     permission: ReminderPermission;
+    exactAlarm: ReminderPermission;
     armedCount: number;
     lastSkip: 'unsupported-platform' | 'permission-denied' | null;
     lastSyncFailed: boolean;
   };
   onRequestNotificationPermission?: () => Promise<ReminderPermission>;
+  /** Opens Android's "Alarms & reminders" screen, so reminders ring on the minute. */
+  onRequestExactAlarm?: () => Promise<ReminderPermission>;
+  /**
+   * Re-arms this handset's alarms. Called after EVERY mutation on this screen.
+   *
+   * Without it a reminder created here never rings. Alarms are armed by the sync pass, and the
+   * only two things that triggered a sync were app startup and returning to the foreground -
+   * neither of which happens when someone is already looking at this screen and types a new
+   * reminder into it. The list refreshed, the server knew, the WhatsApp message went out, and
+   * the one thing the owner was actually waiting for was never scheduled with the OS.
+   */
+  onSyncAlarms?: () => Promise<void>;
 }
 
 const RemindersPage = ({
   onOpenConversation,
   alarmStatus,
   onRequestNotificationPermission,
+  onRequestExactAlarm,
+  onSyncAlarms,
 }: Props) => {
   const { authedRequest } = useAuth() as AuthValue;
   const [reminders, setReminders] = useState<DeviceReminderPayload[] | null>(null);
@@ -118,6 +133,9 @@ const RemindersPage = ({
       await authedRequest(run);
       setNotice(done);
       await load();
+      // Completing or cancelling has to CANCEL the alarm, and rescheduling has to move it.
+      // Leaving this out is how a reminder you already dealt with still goes off.
+      await onSyncAlarms?.();
     } catch (actionError: unknown) {
       setError(actionError instanceof Error ? actionError.message : 'That did not work.');
     } finally {
@@ -157,6 +175,9 @@ const RemindersPage = ({
       setDueLocal('');
       setNotice('Reminder created.');
       await load();
+      // Arms the alarm for what was just created. The sync pass is the ONLY thing that talks to
+      // the OS scheduler, and nothing else on this screen triggers one.
+      await onSyncAlarms?.();
     } catch (createError: unknown) {
       setError(createError instanceof Error ? createError.message : 'Could not create it.');
     } finally {
@@ -179,6 +200,8 @@ const RemindersPage = ({
       {alarmStatus && onRequestNotificationPermission ? (
         <NotificationPermissionNotice
           permission={alarmStatus.permission}
+          exactAlarm={alarmStatus.exactAlarm}
+          onRequestExactAlarm={onRequestExactAlarm}
           lastSkip={alarmStatus.lastSkip}
           lastSyncFailed={alarmStatus.lastSyncFailed}
           armedCount={alarmStatus.armedCount}
