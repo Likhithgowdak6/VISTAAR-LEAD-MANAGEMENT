@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => ({
   sendLeadMessage: vi.fn(),
   classifyIntent: vi.fn(),
   setAiIntent: vi.fn(),
+  rejectLeadQualification: vi.fn(),
+  confirmLeadQualification: vi.fn(),
+  hasDeliveredAiReply: vi.fn(),
   sendOwnerDecision: vi.fn(),
   getOutcome: vi.fn(),
   generateProposal: vi.fn(),
@@ -70,6 +73,8 @@ vi.mock('../conversations/conversation.repository.js', () => ({
   findConversationById: mocks.findConversationById,
   updateAutomationState: mocks.updateAutomationState,
   setAiIntent: mocks.setAiIntent,
+  rejectLeadQualification: mocks.rejectLeadQualification,
+  confirmLeadQualification: mocks.confirmLeadQualification,
   updateStage: mocks.updateStage,
 }));
 
@@ -79,6 +84,7 @@ vi.mock('../conversations/lead-score.service.js', () => ({
 
 vi.mock('../messages/message.repository.js', () => ({
   findMessagesByConversationCursor: mocks.findMessagesByConversationCursor,
+  hasDeliveredAiReply: mocks.hasDeliveredAiReply,
 }));
 
 vi.mock('../messages/outbound-message.service.js', () => ({
@@ -164,6 +170,11 @@ beforeEach(() => {
   // own behaviour is exercised in its own block at the bottom of this file.
   mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.9, reason: 'asked a price' });
   mocks.setAiIntent.mockResolvedValue(null);
+  mocks.rejectLeadQualification.mockResolvedValue(null);
+  mocks.confirmLeadQualification.mockResolvedValue(null);
+  // Legacy adoption is off unless a test asks for it: the default world is conversations that
+  // already carry leadQualificationStatus.
+  mocks.hasDeliveredAiReply.mockResolvedValue(false);
   mocks.findMessagesByConversationCursor.mockResolvedValue([]);
   mocks.buildAiBrainContext.mockResolvedValue({
     requiredFields: [],
@@ -1180,5 +1191,527 @@ describe('handleInboundMessageForAutomation - the new-lead owner alert', () => {
 
     // The burst is one turn, so it is one gate call and therefore one ping.
     expect(h.onServiceEnquiry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('THE SCENARIO: a lead conversation is not re-interviewed on every message', () => {
+  /**
+   * The thread this is modelled on, from production:
+   *
+   *   1. lead  - "I'm looking for a wedding shoot, are you available on 15 and 16 Oct?"
+   *   2. AI    - "Yes, we do wedding shoots... photography, or videography as well?"
+   *   3. lead  - "Message be after 5 min so I can get back to you"   <- silence
+   *
+   * Message 3 is not a service enquiry when read on its own, so the classifier returned
+   * something other than sales_lead and the AI said nothing in the middle of its own
+   * qualification. The customer sees a business that asked a question and then stopped
+   * listening.
+   */
+  const confirmed = () => ({
+    ...baseConversation(),
+    aiAutomationEnabled: true,
+    leadQualificationStatus: 'confirmed',
+  });
+
+  // vi.clearAllMocks() resets call records but NOT implementations, so a resolved value set by
+  // an earlier test in this file leaks into this block. Pinned explicitly: an unresolved
+  // approval makes the service return before it reaches anything asserted here.
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+  });
+
+
+  it('answers a follow-up the classifier would have called unclear', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: 'asked',
+      message: 'No problem - I will wait to hear from you.',
+      facts: {},
+    });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-3',
+      inboundText: 'I will confirm the details tomorrow',
+    });
+
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it('does not spend an LLM call re-classifying a confirmed lead', async () => {
+    mocks.sendLeadMessage.mockResolvedValue({ status: 'asked', message: 'Sure.', facts: {} });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-4',
+      inboundText: 'can you recommend me the best package',
+    });
+
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('still classifies a conversation that has never been qualified', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'I will confirm the details tomorrow',
+    });
+
+    // A stranger saying this is still a stranger. The gate must not have loosened for them.
+    expect(mocks.classifyIntent).toHaveBeenCalledTimes(1);
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('treats a legacy conversation with no qualification field as unknown', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+
+    // Every conversation that predates this field loads without it. The safe reading is
+    // "not established" - gated exactly as it was before the field existed - rather than
+    // treating a long history of messages as proof of anything.
+    const legacy = { ...baseConversation(), aiAutomationEnabled: true };
+    expect('leadQualificationStatus' in legacy).toBe(false);
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hello again',
+    });
+
+    expect(mocks.classifyIntent).toHaveBeenCalledTimes(1);
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('confirmation does not override manual takeover', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...confirmed(),
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: 'owner took over',
+      } as never,
+      inboundMessageId: 'msg-5',
+      inboundText: 'can you recommend me the best package',
+    });
+
+    // "Confirmed" means this is a known lead, NOT that the AI must speak. The owner holding the
+    // conversation outranks it, and nothing here resets that.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('confirmation does not override a pending approval', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue({ _id: 'approval-1' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-6',
+      inboundText: 'any update',
+    });
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('confirmation does not make an empty message answerable', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-7',
+      inboundText: '',
+    });
+
+    // The incident guard. A template or list message in a confirmed thread still has no body,
+    // and handing the brain an empty string is what produced fifty cold introductions.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('recording a definite non-lead on the conversation', () => {
+  // vi.clearAllMocks() resets call records but NOT implementations, so a resolved value set by
+  // an earlier test in this file leaks into this block. Pinned explicitly: an unresolved
+  // approval makes the service return before it reaches anything asserted here.
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+  });
+
+  it('records a rejection when the classifier is sure', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.95, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+      inboundMessageId: 'msg-1',
+      // Plain text that reaches the MODEL. A bill or an OTP would be caught by the
+      // deterministic filter first, which returns before any classifier verdict exists - so
+      // there would be nothing to record, and this test would be asserting the wrong layer.
+      inboundText: 'is this the right number for raju',
+    });
+
+    expect(mocks.rejectLeadQualification).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId }),
+    );
+  });
+
+  it('does NOT record a rejection on an unclear verdict', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hmm',
+    });
+
+    // `unclear` is the answer the classifier is TOLD to prefer. One of them must never brand a
+    // conversation, or the safe answer becomes the permanent one.
+    expect(mocks.rejectLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('does not let a failed rejection write stop the silence standing', async () => {
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.95, reason: '' });
+    mocks.rejectLeadQualification.mockRejectedValue(new Error('mongo down'));
+
+    await expect(
+      handleInboundMessageForAutomation({
+        organizationId,
+        conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+        inboundMessageId: 'msg-1',
+        inboundText: 'Your OTP is 123456',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('conversations older than the qualification field', () => {
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.sendLeadMessage.mockResolvedValue({ status: 'asked', message: 'Sure.', facts: {} });
+  });
+
+  /** A thread from before `leadQualificationStatus` existed: no such field on the document. */
+  const legacy = (overrides: Record<string, unknown> = {}) => ({
+    ...baseConversation(),
+    aiAutomationEnabled: true,
+    aiIntent: 'sales_lead',
+    ...overrides,
+  });
+
+  it('adopts a legacy thread that already had an AI reply delivered', async () => {
+    mocks.hasDeliveredAiReply.mockResolvedValue(true);
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy() as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'yes',
+    });
+
+    expect(mocks.confirmLeadQualification).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'legacy_delivered_reply' }),
+    );
+    // And it is treated as established immediately, on this same message - otherwise the fix
+    // would always be one message late.
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    expect(mocks.sendLeadMessage).toHaveBeenCalled();
+  });
+
+  it('does NOT adopt a thread that only has messages', async () => {
+    mocks.hasDeliveredAiReply.mockResolvedValue(false);
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy() as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hello again',
+    });
+
+    // Having a history proves somebody talked. It does not prove the BUSINESS engaged them as a
+    // lead, which is the only thing that qualifies a conversation.
+    expect(mocks.confirmLeadQualification).not.toHaveBeenCalled();
+    expect(mocks.classifyIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not even look when the thread was never classified as a lead', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy({ aiIntent: 'unknown' }) as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hello',
+    });
+
+    // Keeps the query off the hot path. aiIntent is already in memory; the lookup is not.
+    expect(mocks.hasDeliveredAiReply).not.toHaveBeenCalled();
+  });
+
+  it('never revives a REJECTED conversation', async () => {
+    mocks.hasDeliveredAiReply.mockResolvedValue(true);
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.9, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy({ leadQualificationStatus: 'rejected' }) as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'ok',
+    });
+
+    // Adoption is for `unknown` only. A rejected thread adopting itself would be the one way an
+    // old non-lead could let itself back in through the side door.
+    expect(mocks.hasDeliveredAiReply).not.toHaveBeenCalled();
+    expect(mocks.confirmLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('is not consulted again once the thread is confirmed', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy({ leadQualificationStatus: 'confirmed' }) as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'yes',
+    });
+
+    expect(mocks.hasDeliveredAiReply).not.toHaveBeenCalled();
+  });
+
+  it('fails CLOSED when the lookup throws', async () => {
+    mocks.hasDeliveredAiReply.mockRejectedValue(new Error('mongo down'));
+    mocks.classifyIntent.mockResolvedValue({ intent: 'unclear', confidence: 0.3, reason: '' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: legacy() as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'I will confirm the details tomorrow',
+    });
+
+    // A query that did not run is not evidence. Costs one classifier call on one message; the
+    // next inbound tries again.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.classifyIntent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('THE SEVEN-MESSAGE SCENARIO, end to end', () => {
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: 'asked',
+      message: 'Happy to help - photography, or videography as well?',
+      facts: {},
+    });
+  });
+
+  it('qualifies once, then handles every later message in context', async () => {
+    // 1. The opening enquiry, on a conversation nobody has classified yet.
+    mocks.classifyIntent.mockResolvedValue({ intent: 'sales_lead', confidence: 0.9, reason: '' });
+
+    const fresh = { ...baseConversation(), aiAutomationEnabled: true };
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: fresh as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'Hi, I am looking for wedding shoots. Are you available?',
+    });
+
+    expect(mocks.classifyIntent).toHaveBeenCalledTimes(1);
+    expect(mocks.sendLeadMessage).toHaveBeenCalledTimes(1);
+
+    // 2. The reply is DELIVERED, and that is what confirms the conversation - proven in
+    //    outbound-delivery.service.test.ts, which owns that transition. From here the thread
+    //    carries the confirmed status.
+    //
+    // 3. The owner then answers by hand. Nothing about that changes the qualification.
+    const confirmed = {
+      ...baseConversation(),
+      aiAutomationEnabled: true,
+      leadQualificationStatus: 'confirmed',
+      stage: CONVERSATION_STAGES.CONTACTED,
+    };
+
+    // The classifier is now set to the WORST case: it would reject every one of the messages
+    // below if it were asked. The point of the rest of this test is that it never is.
+    mocks.classifyIntent.mockResolvedValue({ intent: 'non_lead', confidence: 0.9, reason: '' });
+    mocks.classifyIntent.mockClear();
+    mocks.sendLeadMessage.mockClear();
+
+    // 4-7. The follow-ups, including the two bare acknowledgements that used to end the thread.
+    const followUps = [
+      'I will confirm the details tomorrow',
+      'Can you recommend me the best?',
+      'Yes.',
+      'Okay, please do.',
+    ];
+
+    for (const [index, text] of followUps.entries()) {
+      await handleInboundMessageForAutomation({
+        organizationId,
+        conversation: confirmed as never,
+        inboundMessageId: `msg-${index + 4}`,
+        inboundText: text,
+      });
+    }
+
+    // Every one reached the AI pipeline, which has the transcript and can read them in context.
+    expect(mocks.sendLeadMessage).toHaveBeenCalledTimes(followUps.length);
+    // And not one of them cost a qualification call.
+    expect(mocks.classifyIntent).not.toHaveBeenCalled();
+    // The thread was never re-qualified or written off along the way.
+    expect(mocks.rejectLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('protects the same confirmed thread from a forwarded OTP', async () => {
+    const confirmed = {
+      ...baseConversation(),
+      aiAutomationEnabled: true,
+      leadQualificationStatus: 'confirmed',
+    };
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed as never,
+      inboundMessageId: 'msg-8',
+      inboundText: 'Your OTP is 445566. Do not share it with anyone.',
+    });
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('acknowledging a commitment takes the ordinary path, not a shortcut', () => {
+  /**
+   * The reply to "I'll confirm tomorrow" is written by the sales agent like any other reply.
+   * What these pin is that nothing about it is special-cased on the way out - because the
+   * tempting shortcut, sending a canned "sure, take your time" straight to WhatsApp, would
+   * bypass approval, quiet hours, the allowlist, the outbound queue and the retry logic in one
+   * go. The prompt change that produces the wording lives in ai-brain-service and is covered by
+   * tests/test_commitment_acknowledgement.py.
+   */
+  const confirmed = () => ({
+    ...baseConversation(),
+    aiAutomationEnabled: true,
+    leadQualificationStatus: 'confirmed',
+  });
+
+  const acknowledgement = 'Sure, take your time. We will look out for it tomorrow.';
+
+  beforeEach(() => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: 'asked',
+      message: acknowledgement,
+      facts: {},
+    });
+  });
+
+  it.each([
+    ['a timed confirmation', 'I will confirm the details tomorrow at 10 AM'],
+    ['a promise to send something', 'I will send you the details tonight'],
+    ['a family discussion', 'Let me discuss this with my family and get back to you'],
+    ['a partner check', 'I will check with my partner and let you know'],
+    ['a date confirmation', 'I will confirm the date tomorrow'],
+  ])('QUEUES the reply to %s rather than sending it', async (_label, text) => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-ack',
+      inboundText: text,
+    });
+
+    // Queued, with the AI recorded as its author. Everything downstream - quiet hours, the
+    // allowlist, retries, and the lead-qualification confirmation itself - keys off that.
+    expect(mocks.enqueueOutboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: acknowledgement, authoredBy: 'ai' }),
+    );
+  });
+
+  it('carries an idempotency key derived from the inbound message', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-ack-7',
+      inboundText: 'I will confirm the details tomorrow at 10 AM',
+    });
+
+    // Duplicate protection. A webhook replay of the same inbound message produces the same key,
+    // so the second one cannot become a second acknowledgement.
+    expect(mocks.enqueueOutboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'ai-brain-asked:msg-ack-7' }),
+    );
+  });
+
+  it('does not acknowledge while the owner has taken over', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...confirmed(),
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: 'owner took over',
+      } as never,
+      inboundMessageId: 'msg-ack',
+      inboundText: 'I will confirm the details tomorrow at 10 AM',
+    });
+
+    // The owner is already typing to this person. A cheerful "take your time" landing underneath
+    // their message is worse than silence.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.enqueueOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge a second time while a draft is awaiting approval', async () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue({ _id: 'approval-1' });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-ack-2',
+      inboundText: 'I will confirm the details tomorrow at 10 AM',
+    });
+
+    // An existing reply already addresses this thread and is waiting on a human. Drafting a
+    // second one underneath it is how a lead gets two answers to one message.
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+    expect(mocks.enqueueOutboundMessage).not.toHaveBeenCalled();
+  });
+
+  it('still answers an ordinary service question normally', async () => {
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: 'asked',
+      message: 'We do - which date is the wedding?',
+      facts: {},
+    });
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: confirmed() as never,
+      inboundMessageId: 'msg-q',
+      inboundText: 'Do you cover destination weddings?',
+    });
+
+    // The acknowledgement work must not have made every reply an acknowledgement.
+    expect(mocks.enqueueOutboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ body: 'We do - which date is the wedding?' }),
+    );
+  });
+
+  it('queueing is not delivery - nothing is confirmed by drafting alone', async () => {
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: { ...baseConversation(), aiAutomationEnabled: true } as never,
+      inboundMessageId: 'msg-ack-3',
+      inboundText: 'I will confirm the details tomorrow at 10 AM',
+    });
+
+    // The generation/queue/deliver distinction, asserted from this side too: the only thing that
+    // may mark a conversation confirmed is a successful send, which happens in
+    // outbound-delivery.service.ts and is tested there.
+    expect(mocks.confirmLeadQualification).not.toHaveBeenCalled();
   });
 });

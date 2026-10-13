@@ -1,6 +1,11 @@
 import { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
 import { AI_INTENTS, type AiIntent } from '../../constants/ai-intents.js';
+import {
+  LEAD_QUALIFICATION_SOURCES,
+  LEAD_QUALIFICATION_STATUSES,
+  type LeadQualificationSource,
+} from '../../constants/lead-qualification.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import { type ConversationStatus } from '../../constants/conversation-statuses.js';
 import { type DatabaseSession } from '../../config/database.js';
@@ -2102,3 +2107,100 @@ export const findWonBookingsBetween = ({
     .limit(limit)
     .exec();
 };
+
+// --------------------------------------------------------------------------
+// Lead qualification (see constants/lead-qualification.ts): whether a conversation has been
+// established as a genuine service lead, as distinct from what a classifier made of one message.
+
+export interface ConfirmLeadQualificationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  source?: LeadQualificationSource;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Promotes a conversation to `confirmed`, atomically and at most once.
+ *
+ * `leadQualificationStatus: { $ne: CONFIRMED }` is part of the FILTER, not something checked in
+ * JavaScript first - the same conditional-findOneAndUpdate claim as `claimNewLeadAlert` above.
+ * Two deliveries completing at the same moment, a retried send, or two processes racing can
+ * therefore never produce conflicting transitions or a second `leadQualifiedAt`: exactly one
+ * caller wins and the rest get `null` back.
+ *
+ * Promotes from `rejected` as well as from `unknown`. A thread the classifier once wrote off can
+ * later ask a real question and be answered, and when that reply lands it IS an established
+ * lead - refusing to record that would leave the gate re-interviewing a customer it is already
+ * talking to, which is the whole failure this field exists to end.
+ */
+export const confirmLeadQualification = ({
+  conversationId,
+  organizationId,
+  source = LEAD_QUALIFICATION_SOURCES.AI_REPLY_SENT,
+  now = new Date(),
+  session,
+}: ConfirmLeadQualificationParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      leadQualificationStatus: { $ne: LEAD_QUALIFICATION_STATUSES.CONFIRMED },
+    },
+    {
+      $set: {
+        leadQualificationStatus: LEAD_QUALIFICATION_STATUSES.CONFIRMED,
+        leadQualifiedAt: now,
+        leadQualificationSource: source,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface RejectLeadQualificationParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Records that a model said, definitely, that this is not a customer.
+ *
+ * NEVER DEMOTES A CONFIRMED LEAD - `leadQualificationStatus: UNKNOWN` is in the filter, so an
+ * established conversation cannot be written off because one later message looked like noise.
+ * An invoice forwarded into a live sale must not end the sale.
+ *
+ * And this does not mute anything. `rejected` is informational: the gate still classifies the
+ * next message exactly as it does today, because a number that sent an invoice this morning can
+ * ask about a shoot this afternoon.
+ */
+export const rejectLeadQualification = ({
+  conversationId,
+  organizationId,
+  now = new Date(),
+  session,
+}: RejectLeadQualificationParams = {}) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      leadQualificationStatus: LEAD_QUALIFICATION_STATUSES.UNKNOWN,
+    },
+    {
+      $set: {
+        leadQualificationStatus: LEAD_QUALIFICATION_STATUSES.REJECTED,
+        leadQualifiedAt: now,
+        leadQualificationSource: LEAD_QUALIFICATION_SOURCES.CLASSIFIER_NON_LEAD,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();

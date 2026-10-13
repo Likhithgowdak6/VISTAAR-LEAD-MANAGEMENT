@@ -33,19 +33,28 @@ import {
 } from '../../observability/pipeline-trace.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity } from '../activity/activity-log.repository.js';
+import {
+  LEAD_QUALIFICATION_SOURCES,
+  LEAD_QUALIFICATION_STATUSES,
+} from '../../constants/lead-qualification.js';
 import { loadVisibleConversationForActor } from '../conversations/conversation.service.js';
 import { type ConversationDocument } from '../conversations/conversation.model.js';
 import {
   AI_FACTS_PRECEDENCE,
+  confirmLeadQualification,
   findConversationById,
   mergeConversationAiContext,
+  rejectLeadQualification,
   setAiIntent,
   updateAutomationState,
   updateStage as updateConversationStage,
 } from '../conversations/conversation.repository.js';
 import { recomputeLeadScore } from '../conversations/lead-score.service.js';
 import { describeMediaMessage } from '../messages/message-media-labels.js';
-import { findMessagesByConversationCursor } from '../messages/message.repository.js';
+import {
+  findMessagesByConversationCursor,
+  hasDeliveredAiReply,
+} from '../messages/message.repository.js';
 import { createOutboundMessageService } from '../messages/outbound-message.service.js';
 import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 import { enqueueConversationChanged } from '../realtime/realtime-outbox.repository.js';
@@ -268,6 +277,62 @@ export const handleInboundMessageForAutomation = async ({
       return;
     }
 
+    // ---- Is this conversation an established lead? -----------------------
+    //
+    // Normally a stored field, decided when an AI reply was last delivered. The branch below is
+    // only for conversations OLDER than that field, which all load as `unknown` because it was
+    // added without a backfill - and without this they would each be put back through the
+    // classifier on their next message, which is the behaviour this whole change removed.
+    //
+    // NARROW BY CONSTRUCTION, and each clause is load-bearing:
+    //
+    //   - `unknown` only. A confirmed thread needs nothing, and a REJECTED one must not be
+    //     revived this way - that would let an old non-lead adopt itself.
+    //   - `aiIntent === sales_lead` is an in-memory read of the conversation already loaded, and
+    //     is a necessary condition for a legitimately qualified legacy thread: the gate wrote it
+    //     when a model said this was a customer. Cheap, and it keeps the query below off the
+    //     hot path for everything else.
+    //   - and only then the query, asking the SAME question the live rule asks: did an
+    //     AI-authored reply actually reach this person? Not "does this thread have messages",
+    //     not "did somebody reply once" - neither is evidence the business engaged them.
+    //
+    // Self-extinguishing: every conversation it matches is confirmed on the spot, so the set it
+    // runs for shrinks to nothing. Idempotent because the write is the same atomic at-most-once
+    // claim used everywhere else.
+    let leadQualified =
+      conversation.leadQualificationStatus === LEAD_QUALIFICATION_STATUSES.CONFIRMED;
+
+    if (
+      !leadQualified &&
+      (conversation.leadQualificationStatus ?? LEAD_QUALIFICATION_STATUSES.UNKNOWN) ===
+        LEAD_QUALIFICATION_STATUSES.UNKNOWN &&
+      conversation.aiIntent === AI_INTENTS.SALES_LEAD
+    ) {
+      try {
+        if (
+          await hasDeliveredAiReply({
+            organizationId,
+            conversationId: conversationDoc(conversation)._id,
+          })
+        ) {
+          await confirmLeadQualification({
+            conversationId: conversationDoc(conversation)._id,
+            organizationId,
+            source: LEAD_QUALIFICATION_SOURCES.LEGACY_DELIVERED_REPLY,
+          });
+
+          leadQualified = true;
+        }
+      } catch (error: unknown) {
+        // Failing closed here costs one classifier call on one message, and the next inbound
+        // tries again. Failing OPEN would answer on the strength of a query that did not run.
+        logger.error(
+          { err: error, conversationId: conversation._id.toString() },
+          'Legacy lead-qualification check failed; treating the conversation as unqualified.',
+        );
+      }
+    }
+
     // ---- The service-enquiry gate ----------------------------------------
     //
     // Everything above asks whether we MAY answer. This asks the only question that matters:
@@ -286,6 +351,11 @@ export const handleInboundMessageForAutomation = async ({
     const eligibility = await canAiRespondToInbound({
       inboundText,
       ownerInstruction,
+      // An established lead - qualified once, and a reply actually delivered - is not put back
+      // through the classifier, and its one-word answers are not mistaken for a stranger's
+      // "hi". Only those two things change; the empty-text check and every other deterministic
+      // reason inside the gate still run.
+      leadQualified,
       transcript: buildTranscript(recentMessages),
       classifyIntent: (({ message, transcript }) =>
         aiBrainClient.classifyIntent({
@@ -311,6 +381,23 @@ export const handleInboundMessageForAutomation = async ({
     // Worth storing even on a silence, so the dashboard can show what the CRM made of a thread.
     // Only a real verdict: a classifier that fell over leaves the field alone, so the next
     // message gets a clean attempt rather than inheriting a timeout.
+    // A definite "not a customer", recorded on the conversation so the inbox can show what the
+    // CRM made of the thread. Deliberately NOT a mute: the next message is classified exactly as
+    // it is today. `unclear` never lands here - it is the answer the classifier is told to
+    // prefer, and one of those must not brand a conversation. Never demotes a confirmed lead;
+    // the repository filter enforces that, not this call site.
+    if (eligibility.intent === AI_INTENTS.NON_LEAD && eligibility.decided) {
+      await rejectLeadQualification({
+        conversationId: conversationDoc(conversation)._id,
+        organizationId,
+      }).catch((error: unknown) => {
+        logger.error(
+          { err: error, conversationId: conversation._id.toString() },
+          'Could not record the non-lead verdict; the silence itself still stands.',
+        );
+      });
+    }
+
     if (eligibility.decided) {
       await setAiIntent({
         conversationId: conversationDoc(conversation)._id,

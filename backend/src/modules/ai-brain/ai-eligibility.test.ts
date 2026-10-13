@@ -30,12 +30,14 @@ const ask = (
     intent = 'sales_lead',
     transcript = [] as { role: string; text: string }[],
     ownerInstruction = '',
+    leadQualified = false,
     classifyIntent = classifierSaying(intent),
   } = {},
 ) =>
   canAiRespondToInbound({
     inboundText: inboundText as string,
     ownerInstruction,
+    leadQualified,
     transcript,
     classifyIntent,
     logger: silentLogger,
@@ -450,5 +452,168 @@ describe('enquiries about any Vistaar service reach the classifier', () => {
     });
 
     expect(verdict.respond).toBe(false);
+  });
+});
+
+describe('an established lead is not re-interviewed', () => {
+  it('answers without consulting the classifier at all', async () => {
+    const classifyIntent = classifierSaying('unclear');
+
+    const verdict = await ask('I will confirm the details tomorrow', {
+      leadQualified: true,
+      classifyIntent,
+    });
+
+    // THE WHOLE POINT. constants/ai-intents.ts has always said the classifier should run "ONCE
+    // per conversation"; the read of that state was lost when this gate was rewritten, so every
+    // message was re-judged and a mid-sale reply came back unclear.
+    expect(verdict.respond).toBe(true);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.CONFIRMED_LEAD);
+    expect(classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'I will confirm the details tomorrow',
+    'can you recommend me the best package',
+    'photography only',
+    'we are thinking about the 16th',
+  ])('answers %j, which alone would not read as an enquiry', async (text) => {
+    const classifyIntent = classifierSaying('non_lead');
+
+    const verdict = await ask(text, { leadQualified: true, classifyIntent });
+
+    expect(verdict.respond).toBe(true);
+    expect(classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing back, because nothing new was decided', async () => {
+    const verdict = await ask('what about drone coverage', { leadQualified: true });
+
+    // Re-stamping the conversation on every message would be churn with no information in it.
+    expect(verdict.decided).toBe(false);
+  });
+
+  // ---- what being confirmed does NOT buy ---------------------------------
+  //
+  // These four are the incident guard. Qualification skips the CLASSIFIER and nothing else; if
+  // it ever skipped the checks above it, an established thread would become the same hole that
+  // put fifty cold intros on the wire.
+
+  it('still says nothing when there is no readable text', async () => {
+    const classifyIntent = classifierSaying('sales_lead');
+
+    const verdict = await ask('', { leadQualified: true, classifyIntent });
+
+    // A template or list message in a confirmed thread has no body either, and handing an empty
+    // string to the brain is exactly what made it introduce the studio out of nowhere.
+    expect(verdict.respond).toBe(false);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.NO_TEXT);
+    expect(classifyIntent).not.toHaveBeenCalled();
+  });
+
+  it.each(['👍', '???', '   '])('still says nothing to %j', async (text) => {
+    const verdict = await ask(text, { leadQualified: true });
+
+    expect(verdict.respond).toBe(false);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.NO_TEXT);
+  });
+
+  it('still applies the deterministic non-lead filter', async () => {
+    const verdict = await ask('Your OTP is 445566. Do not share it with anyone.', {
+      leadQualified: true,
+    });
+
+    expect(verdict.respond).toBe(false);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.DETERMINISTIC_NON_LEAD);
+  });
+
+  it('leaves an unqualified conversation exactly as it was', async () => {
+    const classifyIntent = classifierSaying('unclear');
+
+    const verdict = await ask('I will confirm the details tomorrow', {
+      leadQualified: false,
+      classifyIntent,
+    });
+
+    // The gate must not have become more permissive for strangers.
+    expect(verdict.respond).toBe(false);
+    expect(classifyIntent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a short answer from an established lead is an answer', () => {
+  // The AI asks "photography, or videography as well?" and the customer types "yes". The
+  // pleasantry list matches a whole message equal to "yes", so that reply - the most direct
+  // answer possible to our own question - used to end the conversation. The list is right for a
+  // stranger who typed "hi" and wrong for someone mid-sale, so the reason is waived once, and
+  // only once, the thread is established.
+  it.each(['yes', 'ok', 'okay', 'sure', 'please do', 'yes please', 'thanks'])(
+    'lets %j through for a confirmed lead',
+    async (text) => {
+      const classifyIntent = classifierSaying('non_lead');
+
+      const verdict = await ask(text, { leadQualified: true, classifyIntent });
+
+      expect(verdict.respond).toBe(true);
+      expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.CONFIRMED_LEAD);
+      // And still without an LLM call - waiving the filter must not reintroduce the
+      // re-interviewing this change removed.
+      expect(classifyIntent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('lets a short but contextual reply through', async () => {
+    const verdict = await ask('both please', { leadQualified: true });
+
+    expect(verdict.respond).toBe(true);
+  });
+
+  it.each(['yes', 'ok', 'okay', 'sure', 'thanks'])(
+    'still filters %j for a conversation that was never qualified',
+    async (text) => {
+      const verdict = await ask(text, { leadQualified: false });
+
+      // NOT A GLOBAL WHITELIST. A stranger typing "ok" into a cold thread is exactly what the
+      // pleasantry filter is for, and nothing here may loosen that.
+      expect(verdict.respond).toBe(false);
+      expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.DETERMINISTIC_NON_LEAD);
+    },
+  );
+
+  it.each(['please do', 'yes please', 'both please'])(
+    'sends %j to the classifier when the conversation is unqualified',
+    async (text) => {
+      // These are NOT on the pleasantry list - checked against classifyNonLead rather than
+      // assumed - so an unqualified thread still pays for a verdict on them. Asserted so a
+      // future edit to that list cannot quietly change which layer decides these.
+      const classifyIntent = classifierSaying('non_lead');
+
+      const verdict = await ask(text, { leadQualified: false, classifyIntent });
+
+      expect(classifyIntent).toHaveBeenCalledTimes(1);
+      expect(verdict.respond).toBe(false);
+    },
+  );
+
+  // ---- what the waiver does NOT cover -----------------------------------
+  //
+  // Exactly one reason is waived. These are the other five, on a confirmed lead, and every one
+  // of them must still be silence - a forwarded OTP is an OTP whoever sends it.
+
+  it.each([
+    ['a bank OTP', 'Your OTP is 445566. Do not share it with anyone.'],
+    ['a bare link', 'https://example.com/offer'],
+  ])('still filters %s from a confirmed lead', async (_label, text) => {
+    const verdict = await ask(text, { leadQualified: true });
+
+    expect(verdict.respond).toBe(false);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.DETERMINISTIC_NON_LEAD);
+  });
+
+  it('still says nothing to an empty body from a confirmed lead', async () => {
+    const verdict = await ask('', { leadQualified: true });
+
+    expect(verdict.respond).toBe(false);
+    expect(verdict.reason).toBe(AI_ELIGIBILITY_REASONS.NO_TEXT);
   });
 });

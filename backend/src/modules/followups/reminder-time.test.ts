@@ -227,3 +227,59 @@ describe('isUsableDueDate', () => {
     },
   );
 });
+
+describe('PRODUCTION GAP: "after N minutes" was not a time', () => {
+  // A real lead sent "Message be after 5 min so I can get back to you" and no reminder was
+  // created. The relative-offset matcher was anchored on the literal word "in", so this fell
+  // through to the calendar branch, where the bare "5" read as a non-explicit clock hour and the
+  // whole thing came back "did you mean 5 AM or 5 PM?" - a question about a time nobody typed.
+  it.each([
+    ['message me after 5 min so i can get back to you', '11/10/2026, 12:05'],
+    ['remind me after 5 minutes', '11/10/2026, 12:05'],
+    ['call me after 10 mins', '11/10/2026, 12:10'],
+    ['i will call you in 10 minutes', '11/10/2026, 12:10'],
+    ['ill get back to you within 20 minutes', '11/10/2026, 12:20'],
+    ['after 2 hours', '11/10/2026, 14:00'],
+    ['after an hour', '11/10/2026, 13:00'],
+    ['after half an hour', '11/10/2026, 12:30'],
+    ['within an hour', '11/10/2026, 13:00'],
+  ])('resolves %j', (text, expected) => {
+    expect(ist(resolve(text))).toBe(expected);
+  });
+
+  it('still refuses "after lunch", which names no hour at all', () => {
+    // The pattern needs a NUMBER and a unit, so this keeps falling through to the vague-daypart
+    // branch. Nobody can say when someone else's lunch ends.
+    expect(resolve('can you message me after lunch').kind).toBe('ambiguous');
+  });
+
+  it('still refuses "after work"', () => {
+    expect(resolve('call me after work').kind).toBe('ambiguous');
+  });
+
+  it('does not break "after 5 pm", which is a clock time and not a duration', () => {
+    // "pm" is not a duration unit, so this must keep resolving through the calendar branch.
+    expect(ist(resolve('call me after 5 pm'))).toBe('11/10/2026, 17:00');
+  });
+});
+
+describe('the phrasings a lead actually uses', () => {
+  it('resolves "I will confirm tomorrow at 5 PM"', () => {
+    expect(ist(resolve('i will confirm tomorrow at 5 pm'))).toBe('12/10/2026, 17:00');
+  });
+
+  it('refuses "contact me tomorrow evening" rather than inventing an hour', () => {
+    const result = resolve('contact me tomorrow evening');
+
+    expect(result.kind).toBe('ambiguous');
+    // "evening" is 6pm to one person and 9pm to another, and the owner is right there to ask.
+    expect(result.kind === 'ambiguous' ? result.question : '').toMatch(/what time/i);
+  });
+
+  it('refuses "I will get back to you tomorrow" - a day with no hour', () => {
+    const result = resolve('i will get back to you tomorrow');
+
+    expect(result.kind).toBe('ambiguous');
+    expect(result.kind === 'ambiguous' ? result.question : '').toMatch(/what time/i);
+  });
+});

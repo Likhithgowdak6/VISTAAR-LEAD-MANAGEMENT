@@ -3,6 +3,11 @@ import mongoose, { type Model, type Types } from 'mongoose';
 import { type AiIntent, DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
+  DEFAULT_LEAD_QUALIFICATION_STATUS,
+  type LeadQualificationSource,
+  type LeadQualificationStatus,
+} from '../../constants/lead-qualification.js';
+import {
   CONVERSATION_STATUSES,
   CONVERSATION_STATUS_VALUES,
   type ConversationStatus,
@@ -97,6 +102,20 @@ export interface ConversationDocument {
    * `aiCategory`. Set once by the intent gate so the classifier is not re-run on every message.
    */
   aiIntent: AiIntent;
+  /**
+   * Whether this conversation has been ESTABLISHED as a service lead, as opposed to what the
+   * classifier made of the last message. Set to `confirmed` only once a qualifying AI reply has
+   * actually been delivered - see constants/lead-qualification.ts for why that is the bar.
+   *
+   * Read by the eligibility gate to skip re-classifying later messages in a thread that is
+   * already a known lead. It does NOT grant permission to reply: automation, manual takeover,
+   * opt-out and quiet hours are separate and all still apply.
+   */
+  leadQualificationStatus: LeadQualificationStatus;
+  /** When it became `confirmed` or `rejected`. Null while unknown. */
+  leadQualifiedAt: Date | null;
+  /** What caused the current status. See LEAD_QUALIFICATION_SOURCES. */
+  leadQualificationSource: LeadQualificationSource | null;
   /** Facts the AI has learned about this lead so far - sent back to ai-brain-service every call. */
   aiFacts: Record<string, unknown>;
   /** How many nurture follow-ups (day-2/5/9/15 style) have already fired for this conversation. */
@@ -379,6 +398,31 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       lowercase: true,
       maxlength: 30,
       default: DEFAULT_AI_INTENT,
+    },
+
+    // Not a Mongoose enum, for exactly the reason aiIntent is not one: every conversation
+    // written before this field existed must still load. Mongoose applies `default` on read for
+    // a missing path, so a legacy document behaves as `unknown` - gated normally, the way all
+    // conversations were before this existed - without a migration.
+    leadQualificationStatus: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+      maxlength: 20,
+      default: DEFAULT_LEAD_QUALIFICATION_STATUS,
+    },
+
+    leadQualifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    leadQualificationSource: {
+      type: String,
+      trim: true,
+      maxlength: 40,
+      default: null,
     },
 
     aiFacts: {

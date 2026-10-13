@@ -9,6 +9,12 @@
  * for what actually went wrong. One function now owns the decision; nothing else may form its
  * own opinion about whether to answer.
  *
+ * QUALIFY ONCE, THEN STOP ASKING. The gate judges a message on its own merits only while the
+ * conversation is still unproven. Once a thread has been qualified AND a reply has actually
+ * reached the customer, the classifier is no longer consulted for it - see check 4. The cheaper
+ * safety checks never stop running, so an empty body is silence on an established lead exactly
+ * as it is on a stranger.
+ *
  * SILENCE IS NOT A PAUSE. This is the part that is easy to get wrong in the other direction.
  * Ignoring a message must leave the conversation exactly as able to be served as it was a second
  * earlier, because the person who just sent "hi" is very often the person who sends "I need a
@@ -24,7 +30,10 @@
  */
 import { AI_INTENTS, type AiIntent } from '../../constants/ai-intents.js';
 import { logger as defaultLogger } from '../../config/logger.js';
-import { classifyNonLead as defaultClassifyNonLead } from '../whatsapp/automation/non-lead.js';
+import {
+  classifyNonLead as defaultClassifyNonLead,
+  NON_LEAD_REASONS,
+} from '../whatsapp/automation/non-lead.js';
 import { normalizeOptOutText } from '../whatsapp/automation/opt-out.js';
 
 /** Why the gate decided what it decided. Logged, never shown to a customer. */
@@ -35,6 +44,8 @@ export const AI_ELIGIBILITY_REASONS = Object.freeze({
   INTENT_NOT_SALES_LEAD: 'intent_not_sales_lead',
   CLASSIFIER_UNAVAILABLE: 'classifier_unavailable',
   SERVICE_ENQUIRY: 'service_enquiry',
+  /** An established lead: already qualified, so the classifier was not consulted again. */
+  CONFIRMED_LEAD: 'confirmed_lead',
 } as const);
 
 export type AiEligibilityReason =
@@ -59,6 +70,12 @@ export interface ClassifyIntentFn {
 
 export interface CanAiRespondToInboundParams {
   inboundText?: string | null;
+  /**
+   * True when this conversation is an established service lead - qualified once, and a reply
+   * actually delivered. Skips the CLASSIFIER only; every cheaper safety check above it still
+   * runs. See the `leadQualified` branch below for why that distinction matters.
+   */
+  leadQualified?: boolean;
   /** A directive from a human or from the importer's greeting job - not a customer message. */
   ownerInstruction?: string | null;
   /** Recent turns, oldest first, so "how much?" can be read against what came before it. */
@@ -96,6 +113,7 @@ const ignore = (reason: AiEligibilityReason, intent: AiIntent): AiEligibilityVer
 export const canAiRespondToInbound = async ({
   inboundText,
   ownerInstruction,
+  leadQualified = false,
   transcript = [],
   classifyIntent,
   classifyNonLead = defaultClassifyNonLead,
@@ -126,12 +144,65 @@ export const canAiRespondToInbound = async ({
   const deterministic = classifyNonLead(inboundText);
 
   if (deterministic.isNonLead) {
-    return ignore(AI_ELIGIBILITY_REASONS.DETERMINISTIC_NON_LEAD, AI_INTENTS.NON_LEAD);
+    // "YES" IS AN ANSWER WHEN SOMEBODY WAS ASKED A QUESTION.
+    //
+    // The pleasantry list matches a whole message equal to "hi", "ok", "yes", "sure", "thanks".
+    // That list exists to stop the AI introducing the studio to a stranger who typed "hi" - a
+    // perfectly good rule for a conversation that has not started. It is the wrong rule once one
+    // has: the AI asks "photography, or videography as well?", the customer answers "yes", and
+    // the thread dies on the one message that was a direct reply to our own question.
+    //
+    // So for an established lead this single reason is waived and the message carries on to the
+    // brain, which has the transcript and can tell what "yes" was agreeing to. The brain may
+    // still choose to say nothing; that is its call to make with context, not this filter's to
+    // make without any.
+    //
+    // EVERY OTHER REASON STILL STANDS, for confirmed and unconfirmed threads alike - banking and
+    // OTPs, vendor paperwork, marketing blasts, automated notices, bare links. A forwarded OTP
+    // is an OTP whoever sends it, and widening more than one reason here would re-open the hole
+    // this file was written to close.
+    const waivedForEstablishedLead =
+      leadQualified && deterministic.reason === NON_LEAD_REASONS.PLEASANTRY;
+
+    if (!waivedForEstablishedLead) {
+      return ignore(AI_ELIGIBILITY_REASONS.DETERMINISTIC_NON_LEAD, AI_INTENTS.NON_LEAD);
+    }
   }
 
-  // 4. The model, on every remaining message. Deliberately NOT cached per conversation: a thread
-  //    that asked a real question yesterday can send an invoice today, and a thread that sent an
-  //    invoice can ask a real question an hour later. The verdict describes THIS message.
+  // 4. AN ESTABLISHED LEAD DOES NOT GET RE-INTERVIEWED.
+  //
+  //    THE BUG THIS FIXES. constants/ai-intents.ts has always said the classifier should run
+  //    "ONCE per conversation rather than on every inbound message", and the conversation model
+  //    says `aiIntent` is "set once by the intent gate so the classifier is not re-run". Both
+  //    describe a short-circuit that this file stopped performing: when the gate was rewritten
+  //    after the cold-message incident, the WRITE of that field survived and the READ was lost.
+  //    Every message has been re-interviewed since.
+  //
+  //    What that costs is not theoretical. The classifier is told to prefer "unclear", and is
+  //    judging one message, so an answer inside a live sale - "I'll confirm tomorrow", "which
+  //    package do you recommend?" - is not a service enquiry on its own terms and comes back
+  //    unclear. The AI then goes silent in the middle of a conversation it started, mid
+  //    qualification, which reads to the customer as being ignored.
+  //
+  //    ONLY THE CLASSIFIER IS SKIPPED, and every check above it still ran. That is deliberate
+  //    and is what keeps the incident closed: an empty body is still silence (check 2) even on
+  //    a confirmed lead, because "nothing to classify" meaning "carry on" is precisely what put
+  //    fifty cold intros on the wire. Deterministic noise is still noise (check 3). This branch
+  //    widens exactly one thing - whether a model gets a veto over a thread it already approved.
+  if (leadQualified) {
+    return {
+      respond: true,
+      intent: AI_INTENTS.SALES_LEAD,
+      reason: AI_ELIGIBILITY_REASONS.CONFIRMED_LEAD,
+      // Nothing new was decided, so nothing is written back. The conversation is already
+      // confirmed; re-stamping it on every message would be churn with no information in it.
+      decided: false,
+    };
+  }
+
+  // 5. The model, for a conversation that is not yet established. A thread that sent an invoice
+  //    can ask a real question an hour later, so an unconfirmed verdict describes THIS message
+  //    and never mutes what comes next.
   try {
     const result = await classifyIntent({ message: inboundText ?? '', transcript });
     const returned = result?.intent;

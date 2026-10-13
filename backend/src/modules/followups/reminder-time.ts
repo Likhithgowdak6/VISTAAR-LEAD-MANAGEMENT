@@ -136,17 +136,35 @@ const findClockTime = (text: string): ClockTime | null => {
   return { hour: rawHour, minute, explicit: false };
 };
 
-/** "in 30 minutes" / "in 2 hours" / "in an hour" - the only form that needs no calendar. */
+/**
+ * "in 30 minutes" / "after 10 minutes" / "within 2 hours" / "in an hour" - the only forms that
+ * need no calendar, and therefore the only ones that can never be ambiguous.
+ *
+ * IN, AFTER AND WITHIN ALL MEAN THE SAME THING HERE, and for a while only one of them worked.
+ * This matched the literal word "in", so "message me after 5 min" - ordinary phrasing, and what
+ * a real lead actually sent - fell through to the calendar branch, where `findClockTime` read
+ * the bare "5" as a non-explicit hour and the whole thing came back as "did you mean 5 AM or
+ * 5 PM?". A reminder that should have been trivially resolvable instead asked a question about
+ * a clock time nobody had mentioned.
+ *
+ * "after lunch" and "after work" are untouched by this: the pattern needs a NUMBER and a unit,
+ * so they still fall through to VAGUE_DAYPARTS and are refused with a question, which is right -
+ * nobody can say what hour someone else's lunch ends. "after 5 pm" is untouched too, because
+ * "pm" is not a duration unit, so it still resolves as a clock time.
+ */
 const findRelativeOffsetMs = (text: string): number | null => {
-  if (/\bin an hour\b/.test(text)) {
+  if (/\b(?:in|after|within) an hour\b/.test(text)) {
     return HOUR_MS;
   }
 
-  if (/\bin half an hour\b/.test(text)) {
+  if (/\b(?:in|after|within) half an hour\b/.test(text)) {
     return 30 * MINUTE_MS;
   }
 
-  const match = /\bin (\d{1,4}) (minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b/.exec(text);
+  const match =
+    /\b(?:in|after|within) (\d{1,4}) (minute|minutes|min|mins|hour|hours|hr|hrs|day|days)\b/.exec(
+      text,
+    );
 
   if (!match) {
     return null;

@@ -1,3 +1,4 @@
+import { DEFAULT_LEAD_QUALIFICATION_STATUS } from '../../constants/lead-qualification.js';
 import { DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import {
   serializeDate,
@@ -34,6 +35,7 @@ export interface SerializedConversation {
   eventDate: string | null;
   aiCategory: unknown;
   aiIntent: unknown;
+  leadQualificationStatus: unknown;
   aiFacts: unknown;
   /** 0-100, from conversations/lead-score.ts. */
   leadScore: number;
@@ -134,6 +136,10 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     // Defaulted like aiCategory above: a conversation written before the intent gate existed
     // has no verdict, and 'unknown' is exactly what that means.
     aiIntent: value.aiIntent ?? DEFAULT_AI_INTENT,
+    // Exposed alongside aiIntent, and distinct from it: this says whether the thread is an
+    // ESTABLISHED lead, which is what decides whether the gate still interviews it.
+    leadQualificationStatus:
+      value.leadQualificationStatus ?? DEFAULT_LEAD_QUALIFICATION_STATUS,
     aiFacts: value.aiFacts ?? {},
     // Defaulted rather than trusted: a conversation written before scoring existed has none of
     // these fields, and the dashboard must render it as "nothing known yet", not as a blank.

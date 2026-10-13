@@ -38,6 +38,7 @@ const {
   claimEventReminder,
   claimHotLeadAlert,
   claimNewLeadAlert,
+  confirmLeadQualification,
   countConversationsCreatedSince,
   findConversationsDueForHandoverRead,
   findGoingColdConversations,
@@ -47,6 +48,7 @@ const {
   markConversationCold,
   markOptedOut,
   mergeConversationAiContext,
+  rejectLeadQualification,
   releaseEventReminderClaim,
   updateConversationSummary,
   updateLeadScore,
@@ -732,5 +734,101 @@ describe('updateConversationSummary', () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+});
+
+describe('lead qualification transitions', () => {
+  const NOW = new Date('2026-10-13T06:15:00.000Z');
+
+  describe('confirmLeadQualification', () => {
+    it('is atomic: "not already confirmed" is part of the FILTER, not a prior read', async () => {
+      const exec = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+      mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+      await confirmLeadQualification({
+        conversationId: 'conv-1',
+        organizationId: 'org-1',
+        now: NOW,
+      });
+
+      // Two deliveries completing at once, or a retried send, must not produce conflicting
+      // transitions or a second leadQualifiedAt. Checking in JavaScript first would allow both.
+      expect(mocks.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _id: 'conv-1',
+          organizationId: 'org-1',
+          leadQualificationStatus: { $ne: 'confirmed' },
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            leadQualificationStatus: 'confirmed',
+            leadQualifiedAt: NOW,
+            leadQualificationSource: 'ai_reply_sent',
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('loses the race quietly when another caller already confirmed it', async () => {
+      const exec = vi.fn().mockResolvedValue(null);
+      mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+      await expect(
+        confirmLeadQualification({ conversationId: 'conv-1', organizationId: 'org-1' }),
+      ).resolves.toBeNull();
+    });
+
+    it('promotes a previously rejected conversation', async () => {
+      const exec = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+      mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+      await confirmLeadQualification({ conversationId: 'conv-1', organizationId: 'org-1' });
+
+      // The filter excludes only `confirmed`, so `rejected` is promotable. A thread the
+      // classifier once wrote off can ask a real question later, and when that reply lands it
+      // IS an established lead.
+      const [filter] = mocks.findOneAndUpdate.mock.calls.at(-1)!;
+      expect(filter.leadQualificationStatus).toEqual({ $ne: 'confirmed' });
+    });
+
+    it('is organization-scoped', async () => {
+      const exec = vi.fn().mockResolvedValue(null);
+      mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+      await confirmLeadQualification({ conversationId: 'conv-1', organizationId: 'someone-else' });
+
+      expect(mocks.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 'someone-else' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe('rejectLeadQualification', () => {
+    it('can only move a conversation that is still unknown', async () => {
+      const exec = vi.fn().mockResolvedValue(null);
+      mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+      await rejectLeadQualification({
+        conversationId: 'conv-1',
+        organizationId: 'org-1',
+        now: NOW,
+      });
+
+      // THE GUARD THAT MATTERS. An invoice forwarded into a live sale must not end the sale, so
+      // a confirmed conversation can never be demoted by a later message looking like noise.
+      expect(mocks.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ leadQualificationStatus: 'unknown' }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            leadQualificationStatus: 'rejected',
+            leadQualificationSource: 'classifier_non_lead',
+          }),
+        }),
+        expect.anything(),
+      );
+    });
   });
 });

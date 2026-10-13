@@ -886,3 +886,134 @@ describe('ingestInboundMessage - rapid message bursts', () => {
     );
   });
 });
+
+describe('reminder extraction is independent of whether the AI may reply', () => {
+  const createBurstHarness = (
+    conversationOverrides: Record<string, unknown> = {},
+    repositoryOverrides: Record<string, unknown> = {},
+  ) => {
+    let pending: (() => void)[] = [];
+    const collector = createInboundBurstCollector({
+      debounceMs: 3000,
+      setTimer: ((fn: () => void) => {
+        pending.push(fn);
+        return pending.length as unknown as ReturnType<typeof setTimeout>;
+      }) as never,
+      clearTimer: ((handle: number) => {
+        pending = pending.filter((_fn, index) => index + 1 !== handle);
+      }) as never,
+    });
+
+    const h = createHarness(conversationOverrides, {}, repositoryOverrides, collector);
+
+    return {
+      ...h,
+      settle: async () => {
+        const due = pending;
+        pending = [];
+        due.forEach((fn) => fn());
+        await collector.flushAll();
+      },
+    };
+  };
+
+  it('extracts a commitment while the owner has taken the conversation over', async () => {
+    // THE CASE THAT MATTERS MOST. "Call me after 5 minutes" said to a human who is already
+    // typing is exactly what a busy owner forgets. Extraction sits BESIDE handleAutomation
+    // rather than inside it for this reason: handleAutomation returns at its first check when
+    // automation is paused, which is what manual takeover sets.
+    const h = createBurstHarness({ aiAutomationEnabled: false });
+
+    await h.run({ text: 'call me after 5 minutes' });
+    await h.settle();
+
+    expect(h.extractLeadCommitment).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'call me after 5 minutes' }),
+    );
+  });
+
+  it('extracts a commitment from a message the AI will not answer', async () => {
+    const h = createBurstHarness();
+
+    await h.run({ text: 'I will confirm after 10 minutes' });
+    await h.settle();
+
+    // Eligibility decides whether to SPEAK. It has never decided whether to listen, and the
+    // reminder is written to the owner's own task list, not sent to the lead.
+    expect(h.extractLeadCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs extraction before automation, so a paused thread still produces reminders', async () => {
+    const h = createBurstHarness({ aiAutomationEnabled: false });
+
+    await h.run({ text: 'ring me in 20 minutes' });
+    await h.settle();
+
+    expect(h.extractLeadCommitment).toHaveBeenCalled();
+  });
+
+  it('extracts once per burst, not once per message', async () => {
+    const h = createBurstHarness();
+
+    for (const text of ['Hi', 'one sec', 'call me after 15 minutes']) {
+      await h.run({ text });
+    }
+    await h.settle();
+
+    // Five messages typed in ten seconds are one turn. Extracting per message would create
+    // three reminders for one request.
+    expect(h.extractLeadCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT extract from a lead who has opted out', async () => {
+    const h = createBurstHarness();
+
+    await h.run({ text: 'stop' });
+    await h.settle();
+
+    // An opt-out short-circuits before the burst window, so nothing is extracted - and that is
+    // the right way round. Someone who just asked to be left alone has not made a commitment,
+    // and a reminder to contact them would be the one thing they explicitly refused. The
+    // message itself is still saved and visible.
+    expect(h.extractLeadCommitment).not.toHaveBeenCalled();
+    expect(h.createInboundMessage).toHaveBeenCalled();
+  });
+
+  it('does NOT extract from a conversation that opted out earlier', async () => {
+    const h = createBurstHarness({ optedOutAt: new Date('2026-08-01T00:00:00.000Z') });
+
+    await h.run({ text: 'call me after 10 minutes' });
+    await h.settle();
+
+    // Still true on a later message that does look like a commitment: the opt-out is a standing
+    // instruction, not a one-message verdict.
+    expect(h.extractLeadCommitment).not.toHaveBeenCalled();
+  });
+});
+
+describe('an unanswered message is kept, not discarded', () => {
+  it('saves the message and raises the unread count before anything judges it', async () => {
+    const h = createHarness();
+
+    await h.run({ text: 'can you recommend me the best package' });
+
+    // "The AI said nothing" must never mean "the message is gone". Persistence and the unread
+    // count happen during ingestion, before the eligibility gate runs at all - which is what
+    // makes the existing inbox indicator the owner-reply-needed signal, with no second
+    // mechanism needed.
+    expect(h.createInboundMessage).toHaveBeenCalled();
+    expect(h.updateConversationPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ unreadCountIncrement: 1 }),
+    );
+  });
+
+  it('still counts the message as unread while the owner has taken over', async () => {
+    const h = createHarness({ aiAutomationEnabled: false });
+
+    await h.run({ text: 'any update on the quote' });
+
+    expect(h.updateConversationPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ unreadCountIncrement: 1 }),
+    );
+  });
+});

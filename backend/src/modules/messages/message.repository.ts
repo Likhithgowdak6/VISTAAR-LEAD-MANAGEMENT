@@ -507,3 +507,44 @@ export const updateMessageStatus = ({
       runValidators: true,
     },
   ).exec();
+
+export interface HasDeliveredAiReplyParams {
+  organizationId?: ObjectIdLike;
+  conversationId?: ObjectIdLike;
+}
+
+/**
+ * Has an AI-authored reply in this conversation ever actually reached the customer?
+ *
+ * EXISTS ONLY FOR CONVERSATIONS THAT PREDATE `leadQualificationStatus`. Those load as `unknown`
+ * because the field was added without a backfill, which would otherwise put every live thread
+ * back through the classifier on its next message - the exact behaviour that was just fixed.
+ *
+ * This asks the SAME question the live rule asks, against data that was already being written:
+ * an outbound message, authored by the AI, in a status that only a successful send can produce.
+ * It is not a guess from "this conversation has messages" or "somebody replied once" - neither
+ * of those is evidence that the business ever engaged this person as a lead.
+ *
+ * DELIVERED AND READ COUNT. They are states a message can only reach after being sent; excluding
+ * them would miss precisely the oldest and most established threads. QUEUED, SENDING and the
+ * FAILED states are all absent on purpose - a reply nobody received proves nothing.
+ */
+export const hasDeliveredAiReply = ({
+  organizationId,
+  conversationId,
+}: HasDeliveredAiReplyParams = {}) =>
+  Message.countDocuments(
+    {
+      organizationId,
+      conversationId,
+      direction: MESSAGE_DIRECTIONS.OUT,
+      authoredBy: MESSAGE_AUTHORS.AI,
+      status: {
+        $in: [MESSAGE_STATUSES.SENT, MESSAGE_STATUSES.DELIVERED, MESSAGE_STATUSES.READ],
+      },
+    },
+    // One is all the evidence needed; counting the rest is wasted work on a hot path.
+    { limit: 1 },
+  )
+    .exec()
+    .then((count) => count > 0);

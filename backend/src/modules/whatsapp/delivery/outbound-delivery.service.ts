@@ -17,6 +17,7 @@ import {
   markOutboundMessageSent as defaultMarkOutboundMessageSent,
   rescheduleOutboundMessage as defaultRescheduleOutboundMessage,
 } from '../../messages/message.repository.js';
+import { confirmLeadQualification as defaultConfirmLeadQualification } from '../../conversations/conversation.repository.js';
 import { REALTIME_REASONS } from '../../realtime/realtime.events.js';
 import { publishConversationChanged as defaultPublishConversationChanged } from '../../realtime/realtime.publisher.js';
 import { type SendTextMessageResult } from '../providers/whatsapp-provider.interface.js';
@@ -93,6 +94,11 @@ export interface MessageRepositoryLike {
 export interface CreateOutboundDeliveryServiceOptions {
   sessionService: DeliverySessionService;
   config?: Env;
+  /**
+   * Promotes the conversation to an established lead once an AI reply has actually been sent.
+   * Injected so the delivery tests can assert it without a database.
+   */
+  confirmLeadQualification?: typeof defaultConfirmLeadQualification;
   contactRepository?: ContactRepositoryLike;
   messageRepository?: MessageRepositoryLike;
   findConversationById?: typeof defaultFindConversationById;
@@ -176,6 +182,7 @@ export const createOutboundDeliveryService = ({
   logger = console,
   createTrace = createPipelineTrace,
   echoGuardService = createEchoGuardService(),
+  confirmLeadQualification = defaultConfirmLeadQualification,
 }: CreateOutboundDeliveryServiceOptions) => {
   const maxAttempts = Number(config.WHATSAPP_OUTBOUND_MAX_ATTEMPTS ?? 3);
   const leaseMs = Number(config.WHATSAPP_OUTBOUND_LEASE_MS ?? 120_000);
@@ -469,6 +476,31 @@ export const createOutboundDeliveryService = ({
         accountId: message.whatsappAccountId,
         providerMessageId: result?.providerMessageId ?? null,
       });
+
+      // THE CONVERSATION IS NOW AN ESTABLISHED LEAD - and this is the only place that can
+      // honestly say so. The eligibility gate's verdict was a classifier's guess; a draft that
+      // was queued might never have left. Here the message has actually reached WhatsApp, which
+      // means it cleared the gate, automation, safety checks, quiet hours and the queue. From
+      // the next inbound message the gate stops re-interviewing this thread.
+      //
+      // AI-AUTHORED ONLY. An owner typing by hand is not the AI qualifying anyone, and treating
+      // it as such would let any manual reply to any stranger widen the gate for that number.
+      //
+      // Idempotent and atomic in the repository, so a retried delivery cannot re-stamp it, and
+      // failure-isolated here: a conversation that cannot be marked must not turn a message that
+      // WAS delivered into a failed one, which would resend it.
+      if (message.authoredBy === MESSAGE_AUTHORS.AI) {
+        await confirmLeadQualification({
+          conversationId: message.conversationId,
+          organizationId,
+        }).catch((error: unknown) => {
+          const err = error as { code?: unknown; name?: unknown };
+          logger?.error?.('Could not confirm lead qualification after a successful send.', {
+            code: err?.code,
+            name: err?.name,
+          });
+        });
+      }
 
       await publishStatusChange({ organizationId, message });
 

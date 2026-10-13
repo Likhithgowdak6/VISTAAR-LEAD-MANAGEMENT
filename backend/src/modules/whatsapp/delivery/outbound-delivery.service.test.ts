@@ -66,6 +66,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
   });
   const publishEvent = vi.fn().mockResolvedValue(true);
   const echoGuardService = { remember: vi.fn(), isOwnMessage: vi.fn() };
+  const confirmLeadQualification = vi.fn().mockResolvedValue({ _id: 'conv-1' });
 
   const service = createOutboundDeliveryService({
     sessionService,
@@ -74,12 +75,13 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     findConversationById,
     publishEvent,
     echoGuardService: echoGuardService as never,
+    confirmLeadQualification: confirmLeadQualification as never,
     now: () => new Date('2026-08-25T10:00:00.000Z'),
     logger: { error: vi.fn() },
     ...overrides,
   } as never);
 
-  return { service, messageRepository, contactRepository, sessionService, findConversationById, publishEvent, echoGuardService };
+  return { service, messageRepository, contactRepository, sessionService, findConversationById, publishEvent, echoGuardService, confirmLeadQualification };
 };
 
 beforeEach(() => {
@@ -506,5 +508,69 @@ describe('deliverNext - the pipeline trace (stage 13)', () => {
     await h.service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
 
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('confirming a lead once its reply has actually gone out', () => {
+  it('confirms the conversation after an AI reply is sent', async () => {
+    const { service, messageRepository, confirmLeadQualification } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', conversationId: 'conv-7' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    // THIS is the moment a conversation becomes an established lead: not when a classifier
+    // guessed, and not when a draft was queued, but when the message reached WhatsApp.
+    expect(confirmLeadQualification).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: 'conv-7', organizationId: 'org-1' }),
+    );
+  });
+
+  it('does NOT confirm when the owner sent the message by hand', async () => {
+    const { service, messageRepository, confirmLeadQualification } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'human' }));
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    // An owner typing to a stranger is not the AI qualifying anyone. Confirming here would let
+    // one manual reply widen the gate for that number forever.
+    expect(confirmLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('does NOT confirm when the send fails', async () => {
+    const { service, messageRepository, sessionService, confirmLeadQualification } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'ai' }));
+    sessionService.sendTextMessage.mockRejectedValue(new Error('socket down'));
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    // A reply nobody received is not evidence of anything. Confirming on a failed send is how a
+    // conversation gets permanently treated as qualified without the customer ever hearing from
+    // the business.
+    expect(confirmLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('does NOT confirm when quiet hours held the message back', async () => {
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    const { service, messageRepository, confirmLeadQualification } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'ai' }));
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(confirmLeadQualification).not.toHaveBeenCalled();
+  });
+
+  it('still reports the message as delivered when confirmation fails', async () => {
+    const { service, messageRepository, confirmLeadQualification } = createHarness();
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(baseMessage({ authoredBy: 'ai' }));
+    confirmLeadQualification.mockRejectedValue(new Error('mongo down'));
+
+    const result = await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    // Failure-isolated. The message WAS sent; turning that into a failed delivery would resend
+    // it, and the customer would get the same reply twice because of a bookkeeping error.
+    expect(result).toMatchObject({ delivered: true });
+    expect(messageRepository.markOutboundMessageSent).toHaveBeenCalled();
   });
 });
