@@ -50,6 +50,9 @@ interface Props {
     armedCount: number;
     lastSkip: 'unsupported-platform' | 'permission-denied' | null;
     lastSyncFailed: boolean;
+    clockAlarmCount: number;
+    clockAlarmsPending: number;
+    clockAlarmUnavailable: boolean;
   };
   onRequestNotificationPermission?: () => Promise<ReminderPermission>;
   /** Opens Android's "Alarms & reminders" screen, so reminders ring on the minute. */
@@ -202,6 +205,9 @@ const RemindersPage = ({
           permission={alarmStatus.permission}
           exactAlarm={alarmStatus.exactAlarm}
           onRequestExactAlarm={onRequestExactAlarm}
+          clockAlarmCount={alarmStatus.clockAlarmCount}
+          clockAlarmsPending={alarmStatus.clockAlarmsPending}
+          clockAlarmUnavailable={alarmStatus.clockAlarmUnavailable}
           lastSkip={alarmStatus.lastSkip}
           lastSyncFailed={alarmStatus.lastSyncFailed}
           armedCount={alarmStatus.armedCount}

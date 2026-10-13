@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { syncReminders } from '../api/endpoints';
+import { syncClockAlarms } from '../lib/clock-alarm';
 import {
   checkExactAlarmSetting,
   checkReminderPermission,
@@ -35,6 +36,15 @@ import {
 
 const ARMED_KEY = 'vistaar.reminders.armed';
 const CURSOR_KEY = 'vistaar.reminders.syncedAt';
+/**
+ * Which reminders already have an alarm sitting in the phone's Clock app.
+ *
+ * A SOURCE OF TRUTH, not a cache - unlike ARMED_KEY, which the reconciler can rebuild from
+ * getPending(). Nothing can ask the Clock app what it holds, and nothing can delete from it, so
+ * if this record is lost the next sync creates a second alarm for the same reminder and the
+ * owner is rung twice with no way to tell which one is current.
+ */
+const CLOCK_KEY = 'vistaar.reminders.clockAlarms';
 
 type AuthedRequest = <T>(makeRequest: (token: string | null) => Promise<T>) => Promise<T>;
 
@@ -81,6 +91,18 @@ export interface ReminderAlarmStatus {
   lastSkip: 'unsupported-platform' | 'permission-denied' | null;
   /** True when the last sync could not reach the server - offline, or the session expired. */
   lastSyncFailed: boolean;
+  /** How many alarms are sitting in the phone's Clock app for this owner's reminders. */
+  clockAlarmCount: number;
+  /**
+   * Pending reminders more than 24 hours out, which cannot have a Clock alarm yet.
+   *
+   * Surfaced rather than hidden: the owner should not believe every reminder in the list will
+   * ring like an alarm when the ones further out only get one once the app is next opened
+   * inside a day of them falling due.
+   */
+  clockAlarmsPending: number;
+  /** Set when the handset has no app that can answer ACTION_SET_ALARM. */
+  clockAlarmUnavailable: boolean;
 }
 
 export const useReminderAlarms = ({
@@ -99,6 +121,9 @@ export const useReminderAlarms = ({
     armedCount: 0,
     lastSkip: null,
     lastSyncFailed: false,
+    clockAlarmCount: 0,
+    clockAlarmsPending: 0,
+    clockAlarmUnavailable: false,
   });
   // Guards against two syncs overlapping - a resume event arriving mid-startup-sync would
   // otherwise have both passes reading the same `getPending()` and both arming the same alarm.
@@ -172,6 +197,32 @@ export const useReminderAlarms = ({
         writeJson(ARMED_KEY, next);
         setStatus((previous) => ({ ...previous, armedCount: Object.keys(next).length }));
       }
+
+      // THE CLOCK APP IS A SEPARATE CHANNEL and is reconciled separately. It deliberately does
+      // not share the local notification's armed map: that one is version-keyed and rebuilt from
+      // getPending(), while a Clock alarm cannot be read back, cannot be deleted, and must
+      // therefore be created exactly once per reminder for the life of the install.
+      //
+      // Runs after the notifications are armed, not instead of them. On an OEM that ignores
+      // skipUi this call can open the Clock app, and anything after it would not run until the
+      // owner came back.
+      const clockCreated = readJson<Record<string, true>>(CLOCK_KEY, {});
+      const clockOutcome = await syncClockAlarms(reminders, { created: clockCreated });
+
+      if (clockOutcome.created.length > 0) {
+        clockOutcome.created.forEach((id) => {
+          clockCreated[id] = true;
+        });
+
+        writeJson(CLOCK_KEY, clockCreated);
+      }
+
+      setStatus((previous) => ({
+        ...previous,
+        clockAlarmCount: Object.keys(clockCreated).length,
+        clockAlarmsPending: clockOutcome.remaining,
+        clockAlarmUnavailable: clockOutcome.skipped === 'no-clock-app',
+      }));
 
       if (payload?.data?.syncedAt) {
         writeJson(CURSOR_KEY, payload.data.syncedAt);

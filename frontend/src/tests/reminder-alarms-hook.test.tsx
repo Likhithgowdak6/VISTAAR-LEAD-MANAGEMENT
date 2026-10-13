@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   requestReminderPermission: vi.fn(),
   checkExactAlarmSetting: vi.fn(),
   requestExactAlarmSetting: vi.fn(),
+  syncClockAlarms: vi.fn(),
   addListener: vi.fn(),
   removeListener: vi.fn(),
 }));
@@ -42,6 +43,8 @@ vi.mock('../lib/reminder-alarms', () => ({
   checkExactAlarmSetting: mocks.checkExactAlarmSetting,
   requestExactAlarmSetting: mocks.requestExactAlarmSetting,
 }));
+
+vi.mock('../lib/clock-alarm', () => ({ syncClockAlarms: mocks.syncClockAlarms }));
 
 vi.mock('@capacitor/local-notifications', () => ({
   LocalNotifications: {
@@ -111,6 +114,7 @@ beforeEach(() => {
   mocks.requestReminderPermission.mockResolvedValue('granted');
   mocks.checkExactAlarmSetting.mockResolvedValue('granted');
   mocks.requestExactAlarmSetting.mockResolvedValue('granted');
+  mocks.syncClockAlarms.mockResolvedValue({ created: [], remaining: 0, skipped: null });
   mocks.addListener.mockResolvedValue({ remove: mocks.removeListener });
 });
 
@@ -370,3 +374,55 @@ describe('the exact-alarm setting', () => {
     expect(mocks.syncReminders).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('alarms in the phone Clock app', () => {
+  it('remembers what it put in the Clock app, so it is never created twice', async () => {
+    mocks.syncClockAlarms.mockResolvedValue({ created: ['task-1'], remaining: 0, skipped: null });
+
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.syncClockAlarms).toHaveBeenCalledTimes(1));
+
+    // THE RECORD THAT MATTERS MOST. A Clock alarm cannot be read back or deleted, so losing
+    // this is not a cache miss - it is a second permanent alarm for the same reminder.
+    await waitFor(() =>
+      expect(JSON.parse(window.localStorage.getItem('vistaar.reminders.clockAlarms') ?? '{}')).toEqual(
+        { 'task-1': true },
+      ),
+    );
+  });
+
+  it('passes what it already created back on the next sync', async () => {
+    window.localStorage.setItem(
+      'vistaar.reminders.clockAlarms',
+      JSON.stringify({ 'task-1': true }),
+    );
+
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.syncClockAlarms).toHaveBeenCalledTimes(1));
+
+    expect(mocks.syncClockAlarms).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ created: { 'task-1': true } }),
+    );
+  });
+
+  it('writes nothing when no alarm was created', async () => {
+    render(<Harness />);
+
+    await waitFor(() => expect(mocks.syncClockAlarms).toHaveBeenCalledTimes(1));
+
+    expect(window.localStorage.getItem('vistaar.reminders.clockAlarms')).toBeNull();
+  });
+
+  it('does not let a Clock failure break the notification sync', async () => {
+    mocks.syncClockAlarms.mockRejectedValue(new Error('clock app exploded'));
+
+    render(<Harness />);
+
+    // The local notifications are armed BEFORE the Clock app is touched, so they survive.
+    await waitFor(() => expect(mocks.reconcileReminderAlarms).toHaveBeenCalledTimes(1));
+  });
+});
+

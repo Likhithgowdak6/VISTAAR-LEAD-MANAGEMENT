@@ -30,6 +30,28 @@
     -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!--
+        SET_ALARM lets Vistaar hand a reminder to the phone's own Clock app, so it rings on the
+        alarm stream like any other alarm instead of chiming once in the notification shade.
+
+        A NORMAL permission: granted at install, no runtime prompt, nothing for the owner to turn
+        on. It does not let this app read or delete the owner's existing alarms - ACTION_SET_ALARM
+        only creates, which is also why a reminder cancelled in the CRM cannot take its Clock
+        alarm with it. See ClockAlarmPlugin.java.
+    -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!--
+        Android 11 filters which other apps a package can see. Without this, resolveActivity()
+        for ACTION_SET_ALARM returns null even on a phone with a perfectly good Clock app, and
+        the plugin would report Clock alarms as unavailable on every modern handset.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

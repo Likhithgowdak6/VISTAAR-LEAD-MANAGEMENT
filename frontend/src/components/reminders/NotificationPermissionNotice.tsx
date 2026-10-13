@@ -35,6 +35,12 @@ interface Props {
   onRequest: () => Promise<ReminderPermission>;
   /** Opens Android's "Alarms & reminders" screen. */
   onRequestExactAlarm?: () => Promise<ReminderPermission>;
+  /** How many of this owner's reminders have a real alarm in the phone's Clock app. */
+  clockAlarmCount?: number;
+  /** Pending reminders more than 24 hours out, which cannot have a Clock alarm yet. */
+  clockAlarmsPending?: number;
+  /** True when nothing on this handset can answer ACTION_SET_ALARM. */
+  clockAlarmUnavailable?: boolean;
 }
 
 const NotificationPermissionNotice = ({
@@ -45,6 +51,9 @@ const NotificationPermissionNotice = ({
   armedCount,
   onRequest,
   onRequestExactAlarm,
+  clockAlarmCount = 0,
+  clockAlarmsPending = 0,
+  clockAlarmUnavailable = false,
 }: Props) => {
   const [busy, setBusy] = useState(false);
   const [justDenied, setJustDenied] = useState(false);
@@ -96,15 +105,38 @@ const NotificationPermissionNotice = ({
     }
 
     return (
-      <p
-        role="status"
-        className="rounded-xl border border-line bg-panel p-3 text-xs text-muted"
-      >
-        Phone alarms are on
-        {exactAlarm === 'granted' ? ' and will ring on the minute' : ''}
-        {armedCount > 0 ? ` — ${armedCount} armed on this device` : ''}.
-        {lastSyncFailed ? ' Could not reach the server just now, so this list may be behind.' : ''}
-      </p>
+      <div role="status" className="rounded-xl border border-line bg-panel p-3 text-xs text-muted">
+        <p>
+          Phone alarms are on
+          {exactAlarm === 'granted' ? ' and will ring on the minute' : ''}
+          {armedCount > 0 ? ` — ${armedCount} armed on this device` : ''}.
+          {lastSyncFailed
+            ? ' Could not reach the server just now, so this list may be behind.'
+            : ''}
+        </p>
+
+        {clockAlarmUnavailable ? (
+          <p className="mt-1">
+            This phone has no clock app that accepts alarms from other apps, so reminders arrive
+            as notifications only.
+          </p>
+        ) : clockAlarmCount > 0 || clockAlarmsPending > 0 ? (
+          <p className="mt-1">
+            {clockAlarmCount > 0
+              ? `${clockAlarmCount} ${clockAlarmCount === 1 ? 'alarm is' : 'alarms are'} in your Clock app and will ring there. `
+              : ''}
+            {/* Stated plainly because the platform gives no way around it: ACTION_SET_ALARM can
+                create an alarm and cannot remove one, so a reminder finished here leaves its
+                alarm behind. Better said once than discovered at 6am. */}
+            {clockAlarmCount > 0
+              ? 'Finishing a reminder here does not delete its Clock alarm — remove that in the Clock app. '
+              : ''}
+            {clockAlarmsPending > 0
+              ? `${clockAlarmsPending} further out ${clockAlarmsPending === 1 ? 'gets its' : 'get their'} alarm when you next open the app within a day of ${clockAlarmsPending === 1 ? 'it being' : 'them being'} due.`
+              : ''}
+          </p>
+        ) : null}
+      </div>
     );
   }
 
