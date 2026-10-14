@@ -832,3 +832,41 @@ describe('lead qualification transitions', () => {
     });
   });
 });
+
+describe('markConversationCold cannot affect lead temperature', () => {
+  it('writes only automation fields - no band, no timestamp, no temperature', async () => {
+    const exec = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+    mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+    await markConversationCold({
+      conversationId: 'conv-1',
+      organizationId: 'org-1',
+      pausedReason: 'no reply after the full nurture cadence',
+    });
+
+    // THE INVARIANT THAT KEEPS THE TWO CONCEPTS APART. The sweep's "cold" means "stop
+    // nurturing this one"; the inbox's "Cold" means "they have not written in over a day".
+    // They share a word and nothing else, and temperature is derived from lastInboundAt on
+    // read - so the sweep has nothing to overwrite and cannot race ingestion. If a future edit
+    // makes this write a band or a timestamp, those two meanings merge again and this fails.
+    const [, update] = mocks.findOneAndUpdate.mock.calls.at(-1)!;
+    const written = Object.keys((update as { $set: Record<string, unknown> }).$set);
+
+    expect(written.sort()).toEqual(['aiAutomationEnabled', 'aiAutomationPausedReason']);
+  });
+
+  it('only turns automation off, never changes how warm the lead looks', async () => {
+    const exec = vi.fn().mockResolvedValue({ _id: 'conv-1' });
+    mocks.findOneAndUpdate.mockReturnValue({ exec });
+
+    await markConversationCold({
+      conversationId: 'conv-1',
+      organizationId: 'org-1',
+      pausedReason: 'the event has passed',
+    });
+
+    const [, update] = mocks.findOneAndUpdate.mock.calls.at(-1)!;
+    expect((update as { $set: Record<string, unknown> }).$set.aiAutomationEnabled).toBe(false);
+  });
+});
+

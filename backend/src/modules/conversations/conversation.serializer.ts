@@ -6,6 +6,7 @@ import {
   serializeIdArray,
   toPlainObject,
 } from '../../utils/serialization.js';
+import { leadTemperatureFor } from './lead-temperature.js';
 import { bandForScore } from './lead-score.js';
 
 export interface SerializedConversation {
@@ -24,6 +25,8 @@ export interface SerializedConversation {
   summary: unknown;
   unreadCount: unknown;
   lastMessageAt: string | null;
+  /** Source for `leadTemperature`. Not itself serialized - the derived label is what the UI needs. */
+  lastInboundAt?: Date | string | null;
   lastMessagePreview: unknown;
   nextFollowUpAt: string | null;
   status: unknown;
@@ -39,8 +42,16 @@ export interface SerializedConversation {
   aiFacts: unknown;
   /** 0-100, from conversations/lead-score.ts. */
   leadScore: number;
-  /** `hot` / `warm` / `cold` / `low_intent`. */
+  /**
+   * `hot` / `warm` / `cold` / `low_intent` - BUYING INTENT, from the six scoring signals. Not a
+   * temperature, despite one of its bands being called "cold". See `leadTemperature`.
+   */
   leadScoreBand: string;
+  /**
+   * `new` / `hot` / `cold` - how recently the CUSTOMER last wrote. Derived from `lastInboundAt`
+   * on every read, so a lead who replies is hot immediately and nothing can go stale.
+   */
+  leadTemperature: string;
   /** The LEAD_SCORE_SIGNALS keys that fired - the panel renders these as the breakdown, and the
    *  six minus these as what is still worth asking about. */
   leadScoreSignals: string[];
@@ -145,6 +156,10 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     // these fields, and the dashboard must render it as "nothing known yet", not as a blank.
     leadScore: typeof value.leadScore === 'number' ? value.leadScore : 0,
     leadScoreBand: bandForScore(value.leadScore),
+    // Computed here rather than stored, for the reason set out in lead-temperature.ts: a stored
+    // temperature needs a writer, and ingestion, the nurture sweep and the importers all run at
+    // once. Derived from a timestamp ingestion already maintains, nothing can race it.
+    leadTemperature: leadTemperatureFor({ lastInboundAt: value.lastInboundAt as Date | null }),
     leadScoreSignals: Array.isArray(value.leadScoreSignals)
       ? value.leadScoreSignals.map((signal) => String(signal))
       : [],

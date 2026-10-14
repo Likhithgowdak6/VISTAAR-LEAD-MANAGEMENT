@@ -82,6 +82,7 @@ export type ConversationSummary = Pick<
       | 'aiCategory'
       | 'leadScore'
       | 'leadScoreBand'
+      | 'leadTemperature'
       | 'leadScoreSignals'
     >
   >;

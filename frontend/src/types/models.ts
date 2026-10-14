@@ -14,6 +14,8 @@ export type StageKey = BuiltinStageKey | (string & {});
 
 /** How warm a lead is, from the backend's conversations/lead-score.ts. */
 export type LeadScoreBand = 'hot' | 'warm' | 'cold' | 'low_intent';
+/** How recently the CUSTOMER last wrote. Distinct from LeadScoreBand, which measures intent. */
+export type LeadTemperature = 'new' | 'hot' | 'cold';
 
 /**
  * What the intent gate decided this conversation is. Distinct from `aiCategory`, which answers
@@ -179,8 +181,12 @@ export interface Conversation {
   aiFacts: Record<string, unknown>;
   /** 0-100, built from what this lead has told us and done. 0 until they tell us something. */
   leadScore: number;
-  /** Which band that score falls in - 80+ HOT, 50+ WARM, 20+ COLD, else LOW INTENT. */
+  /** Which band that score falls in - 80+ HOT, 50+ WARM, 20+ COLD, else LOW INTENT. BUYING
+   *  INTENT, not recency: see `leadTemperature` for how warm the lead actually is. */
   leadScoreBand: LeadScoreBand;
+  /** `new` / `hot` / `cold`, from how long ago the CUSTOMER last wrote. Derived server-side on
+   *  every read, so it is never stale. */
+  leadTemperature: LeadTemperature;
   /** The signal keys that fired (see lib/lead-score.ts). The six minus these are what is still
    *  worth asking about. */
   leadScoreSignals: string[];

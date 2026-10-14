@@ -9,6 +9,7 @@ import AddLeadDialog from './AddLeadDialog';
 import EmptyState from './EmptyState';
 import InboxFilters from './InboxFilters';
 import LeadScoreBadge from './LeadScoreBadge';
+import LeadTemperatureBadge from './LeadTemperatureBadge';
 import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
 import StageBadge from './StageBadge';
@@ -252,12 +253,21 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
                       label={findStageByKey(stages, conversation.stage)?.label}
                       color={findStageByKey(stages, conversation.stage)?.color}
                     />
-                    {/* How warm the lead is, so a HOT one is visible without opening it.
-                        Renders nothing for a lead nobody has scored yet. */}
-                    <LeadScoreBadge
-                      band={conversation.leadScoreBand}
-                      score={conversation.leadScore}
-                    />
+                    {/* How warm the lead is: have they written, and how recently. This used to
+                        be the SCORE band, whose 20-49 tier is also called "cold" - so an
+                        imported lead that had never been contacted arrived labelled Cold, and
+                        a lead who messaged a minute ago with no details yet showed nothing at
+                        all. Neither was about temperature. */}
+                    <LeadTemperatureBadge temperature={conversation.leadTemperature} />
+                    {/* Intent still earns a pill, but only when it is high enough to be worth
+                        interrupting for - which is what "visible without opening it" was for.
+                        The full score and its six signals live in the lead panel. */}
+                    {conversation.leadScoreBand === 'hot' || conversation.leadScoreBand === 'warm' ? (
+                      <LeadScoreBadge
+                        band={conversation.leadScoreBand}
+                        score={conversation.leadScore}
+                      />
+                    ) : null}
                   </div>
                 </button>
 
