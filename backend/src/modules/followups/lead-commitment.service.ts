@@ -32,6 +32,8 @@ import {
   rescheduleReminder as defaultRescheduleReminder,
 } from './followup-task.repository.js';
 import { DEFAULT_REMINDER_TIMEZONE, isUsableDueDate, resolveReminderTime } from './reminder-time.js';
+import { enqueueCommitmentRetry as defaultEnqueueCommitmentRetry } from './commitment-retry.repository.js';
+import { isTransientAiFailure } from './transient-failure.js';
 
 type Logger = { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
 
@@ -61,6 +63,10 @@ export interface CreateLeadCommitmentServiceOptions {
   createFollowUpTask?: typeof defaultCreateFollowUpTask;
   findTasksByConversation?: typeof defaultFindTasksByConversation;
   rescheduleReminder?: typeof defaultRescheduleReminder;
+  /** Durable recovery for a classifier that was merely slow. See commitment-retry.model.ts. */
+  enqueueCommitmentRetry?: typeof defaultEnqueueCommitmentRetry;
+  /** False inside the retry sweep itself, so a failing retry cannot re-enqueue itself. */
+  enqueueOnFailure?: boolean;
   now?: () => Date;
   logger?: Logger;
 }
@@ -72,6 +78,8 @@ export const createLeadCommitmentService = ({
   createFollowUpTask = defaultCreateFollowUpTask,
   findTasksByConversation = defaultFindTasksByConversation,
   rescheduleReminder = defaultRescheduleReminder,
+  enqueueCommitmentRetry = defaultEnqueueCommitmentRetry,
+  enqueueOnFailure = true,
   now = () => new Date(),
   logger = defaultLogger,
 }: CreateLeadCommitmentServiceOptions = {}) => {
@@ -85,7 +93,17 @@ export const createLeadCommitmentService = ({
     messageId,
     transcript = [],
     optedOut = false,
-  }: ExtractLeadCommitmentParams = {}): Promise<{ created: boolean; updated: boolean }> => {
+  }: ExtractLeadCommitmentParams = {}): Promise<{
+    created: boolean;
+    updated: boolean;
+    /**
+     * True only when the classifier never answered and asking again could work. The retry
+     * sweep branches on this: without it a transient failure during a retry is indistinguishable
+     * from "no commitment here", and the row would be dropped after a single attempt - which is
+     * the ladder not existing.
+     */
+    retryable?: boolean;
+  }> => {
     const nothing = { created: false, updated: false };
     const body = String(text ?? '').trim();
 
@@ -103,12 +121,32 @@ export const createLeadCommitmentService = ({
       });
 
       if (!verdict || verdict.action === 'none') {
+        // SAID SO RATHER THAN RETURNING IN SILENCE. Without this line the commonest outcome is
+        // indistinguishable in production from extraction never having run at all - and those
+        // two have completely different fixes. One line per turn, matching AI_ELIGIBILITY's
+        // cadence, carrying the conversation and the verdict and no customer text.
+        logger?.info?.(
+          { conversationId: String(conversationId), action: verdict?.action ?? 'none' },
+          'REMINDER_EXTRACT: no commitment in this turn; nothing created.',
+        );
+
         return nothing;
       }
 
       // Uncertainty produces nothing. A reminder for every future-tense sentence is how an
       // owner learns to ignore reminders.
       if ((verdict.confidence ?? 0) < MIN_COMMITMENT_CONFIDENCE) {
+        // Logged separately from the `none` case above: "the model saw a commitment but was not
+        // sure enough" is a threshold to tune, and "the model saw nothing" is not.
+        logger?.info?.(
+          {
+            conversationId: String(conversationId),
+            action: verdict.action,
+            confidence: verdict.confidence ?? 0,
+          },
+          'REMINDER_EXTRACT: commitment below the confidence threshold; nothing created.',
+        );
+
         return nothing;
       }
 
@@ -194,14 +232,48 @@ export const createLeadCommitmentService = ({
         return nothing;
       }
 
+      // TRANSIENT MEANS "ASK AGAIN", and this is the branch the whole retry queue exists for.
+      // An 8-second abort on /v1/commitment is not a verdict - the classifier never answered -
+      // and without this the commitment is gone for good. Queued durably, keyed on the same
+      // message id the reminder's idempotency key is built from, so the retry cannot produce a
+      // second reminder if the original somehow also lands.
+      //
+      // Not retried for anything else. A 400, a bad service key or malformed input will fail
+      // identically next minute, and a queue that retries those is a queue that spends money
+      // to stay wrong.
+      const transient = isTransientAiFailure(error);
+
+      if (transient && enqueueOnFailure && messageId) {
+        try {
+          await enqueueCommitmentRetry({
+            organizationId,
+            whatsappAccountId,
+            conversationId,
+            messageId: String(messageId),
+            text: body,
+            optedOut,
+            now: now(),
+          });
+        } catch (enqueueError: unknown) {
+          const queueErr = enqueueError as { code?: unknown; name?: unknown };
+          // Even the recovery mechanism is best-effort. Ingestion must survive it failing.
+          logger?.error?.(
+            { code: queueErr?.code, name: queueErr?.name },
+            'REMINDER_EXTRACT: could not queue a retry; this commitment is lost.',
+          );
+        }
+      }
+
       // Failure-isolated, like every other best-effort consumer of an inbound message: a
       // classifier outage must never cost the lead their message or stall ingestion.
       logger?.error?.(
-        { code: err?.code, name: err?.name },
-        'Lead commitment extraction failed safely; no reminder was created.',
+        { code: err?.code, name: err?.name, transient },
+        transient
+          ? 'REMINDER_EXTRACT: extraction failed transiently; queued for retry.'
+          : 'Lead commitment extraction failed safely; no reminder was created.',
       );
 
-      return nothing;
+      return { ...nothing, retryable: transient };
     }
   };
 

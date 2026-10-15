@@ -48,6 +48,9 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
   const createFollowUpTask = vi.fn(async (p: Record<string, unknown>) => ({ _id: 'task-new', ...p }));
   const findTasksByConversation = vi.fn(async (_p?: Record<string, unknown>) => existing);
   const rescheduleReminder = vi.fn(async (_p?: Record<string, unknown>) => null);
+  const logger = { info: vi.fn(), error: vi.fn() };
+  // Injected, or a transient failure reaches the real Mongoose model and logs a second error.
+  const enqueueCommitmentRetry = vi.fn(async (_p?: Record<string, unknown>) => null);
 
   const service = createLeadCommitmentService({
     aiBrainClient: { classifyCommitment } as never,
@@ -55,8 +58,9 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
     createFollowUpTask: createFollowUpTask as never,
     findTasksByConversation: findTasksByConversation as never,
     rescheduleReminder: rescheduleReminder as never,
+    enqueueCommitmentRetry: enqueueCommitmentRetry as never,
     now: () => NOW,
-    logger: { info: vi.fn(), error: vi.fn() },
+    logger,
   });
 
   const run = (text: string, extra: Record<string, unknown> = {}) =>
@@ -72,6 +76,8 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
   return {
     run,
     service,
+    logger,
+    enqueueCommitmentRetry,
     classifyCommitment,
     getOwnerActor,
     createFollowUpTask,
@@ -281,7 +287,7 @@ describe('safety', () => {
     h.classifyCommitment.mockRejectedValue(new Error('ETIMEDOUT'));
 
     // A classifier outage must not cost the lead their message or stall the pipeline.
-    await expect(h.run('contact me tomorrow at 5 pm')).resolves.toEqual({
+    await expect(h.run('contact me tomorrow at 5 pm')).resolves.toMatchObject({
       created: false,
       updated: false,
     });
@@ -295,5 +301,193 @@ describe('safety', () => {
 
     expect(result.created).toBe(false);
     expect(h.createFollowUpTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('PRODUCTION: the classifier timing out', () => {
+  /**
+   * The real shape, from the production log:
+   *
+   *   {"level":"error","code":20,"name":"AbortError",
+   *    "msg":"Lead commitment extraction failed safely; no reminder was created."}
+   *
+   * `classifyCommitment` is called with AI_BRAIN_INTENT_TIMEOUT_MS (8s by default), and
+   * ai-brain.client.ts aborts the fetch on that timer. An aborted fetch rejects with a
+   * DOMException named AbortError whose `code` is 20 - which is exactly what was logged, so
+   * this is a timeout on /v1/commitment rather than a crash anywhere in this file.
+   */
+  const abortError = () => {
+    const error = new Error('This operation was aborted');
+    Object.assign(error, { name: 'AbortError', code: 20 });
+
+    return error;
+  };
+
+  it('creates no reminder and does not throw into ingestion', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockRejectedValue(abortError());
+
+    await expect(h.run('I will message you after 5 min')).resolves.toMatchObject({
+      created: false,
+      updated: false,
+    });
+    expect(h.createFollowUpTask).not.toHaveBeenCalled();
+  });
+
+  it('QUEUES the turn durably instead of losing it', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockRejectedValue(abortError());
+
+    const outcome = await h.run('I will message you after 5 min');
+
+    // This used to be the end of the road - the turn was gone, the burst window had closed,
+    // and the reminder the customer implicitly asked for never existed. Now the turn is
+    // written to a row that survives a restart, keyed on the same message id the reminder's
+    // idempotency key is built from.
+    expect(h.createFollowUpTask).not.toHaveBeenCalled();
+    expect(outcome.retryable).toBe(true);
+    expect(h.enqueueCommitmentRetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'msg-1',
+        text: 'I will message you after 5 min',
+        conversationId,
+      }),
+    );
+  });
+
+  it('does NOT queue a retry for a failure that will not change', async () => {
+    const h = createHarness();
+    // A 400 from the service: malformed input, or a rejected key. Asking again next minute
+    // fails identically, and a queue that retries those spends money to stay wrong.
+    h.classifyCommitment.mockRejectedValue(
+      Object.assign(new Error('bad request'), { name: 'AiBrainRequestError', statusCode: 400 }),
+    );
+
+    const outcome = await h.run('I will message you after 5 min');
+
+    expect(outcome.retryable).toBe(false);
+    expect(h.enqueueCommitmentRetry).not.toHaveBeenCalled();
+  });
+
+  it('does not queue anything when the model simply found no commitment', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(verdict({ action: 'none' }) as never);
+
+    await h.run('what are your rates');
+
+    // A successful classification is an answer. Retrying it is an LLM call to be told the
+    // same thing.
+    expect(h.enqueueCommitmentRetry).not.toHaveBeenCalled();
+  });
+
+  it('does not queue a below-confidence result either', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(
+      verdict({ action: 'contact_lead', confidence: 0.1 }) as never,
+    );
+
+    await h.run('maybe I will call you tomorrow at 5 pm');
+
+    expect(h.enqueueCommitmentRetry).not.toHaveBeenCalled();
+  });
+
+  it('survives the retry queue itself being unavailable', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockRejectedValue(abortError());
+    h.enqueueCommitmentRetry.mockRejectedValue(new Error('mongo down'));
+
+    // Even the recovery mechanism is best-effort. Ingestion must not break because the thing
+    // meant to rescue a commitment could not be written.
+    await expect(h.run('I will message you after 5 min')).resolves.toMatchObject({
+      created: false,
+    });
+  });
+
+  it('logs the failure without the customer\'s message in it', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockRejectedValue(abortError());
+
+    await h.run('I will message you after 5 min on 9876543210');
+
+    const logged = JSON.stringify([h.logger.error.mock.calls, h.logger.info.mock.calls]);
+
+    expect(logged).toContain('AbortError');
+    // Logs are shipped and retained; the lead's words and number are not theirs to keep.
+    expect(logged).not.toContain('9876543210');
+    expect(logged).not.toContain('I will message you');
+  });
+
+  it('is distinguishable in the log from the model simply finding nothing', async () => {
+    const timedOut = createHarness();
+    timedOut.classifyCommitment.mockRejectedValue(abortError());
+    await timedOut.run('I will message you after 5 min');
+
+    const foundNothing = createHarness();
+    foundNothing.classifyCommitment.mockResolvedValue(verdict({ action: 'none' }) as never);
+    await foundNothing.run('what are your rates');
+
+    // THE OBSERVABILITY GAP THIS CLOSED. Both outcomes create no reminder. Before, only the
+    // first said anything, so "no reminder appeared" could not be diagnosed from the logs -
+    // a slow classifier and a model that saw no commitment looked identical.
+    expect(timedOut.logger.error).toHaveBeenCalledTimes(1);
+    expect(foundNothing.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'none' }),
+      expect.stringContaining('no commitment in this turn'),
+    );
+  });
+});
+
+describe('every extraction outcome says which one it was', () => {
+  it('announces a reminder it created', async () => {
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm');
+
+    expect(h.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: expect.any(String) }),
+      expect.stringContaining('reminder created from a lead commitment'),
+    );
+  });
+
+  it('announces a commitment it could not time', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(
+      verdict({ action: 'contact_lead', when: 'sometime next year maybe' }) as never,
+    );
+
+    await h.run('call me sometime');
+
+    expect(h.logger.info).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('no usable time'),
+    );
+  });
+
+  it('announces a commitment below the confidence bar, with the score', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(
+      verdict({ action: 'contact_lead', confidence: 0.1 }) as never,
+    );
+
+    await h.run('maybe I will call you tomorrow at 5 pm');
+
+    // Separate from "none" on purpose: this one is a threshold worth tuning, and the score is
+    // the number you would tune it against.
+    expect(h.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ confidence: 0.1 }),
+      expect.stringContaining('below the confidence threshold'),
+    );
+  });
+
+  it('logs no customer text on any of those paths', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(verdict({ action: 'none' }) as never);
+
+    await h.run('my number is 9876543210 and my budget is 2 lakhs');
+
+    const logged = JSON.stringify(h.logger.info.mock.calls);
+
+    expect(logged).not.toContain('9876543210');
+    expect(logged).not.toContain('2 lakhs');
   });
 });

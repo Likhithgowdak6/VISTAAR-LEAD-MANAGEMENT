@@ -12,17 +12,30 @@
 import { env, type Env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { createReminderSweepService, type ReminderSweepService } from './reminder-sweep.service.js';
+import {
+  createCommitmentRetrySweepService,
+  type CommitmentRetrySweepService,
+} from './commitment-retry.service.js';
 
 const asBoolean = (value: unknown): boolean => value === true || value === 'true';
 
 export interface CreateReminderRunnerOptions {
   config?: Env;
   service?: ReminderSweepService;
+  /**
+   * Drains the commitment-retry queue on the SAME tick as the reminder sweep.
+   *
+   * Deliberately not its own interval loop: the two do related work on the same cadence, and a
+   * second runner would be a second thing to start, stop, guard against overlap and remember
+   * exists.
+   */
+  commitmentRetryService?: CommitmentRetrySweepService;
 }
 
 export const createReminderRunner = ({
   config = env,
   service = createReminderSweepService({ config }),
+  commitmentRetryService = createCommitmentRetrySweepService({ config }),
 }: CreateReminderRunnerOptions = {}) => {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -44,6 +57,18 @@ export const createReminderRunner = ({
     } catch (error: unknown) {
       const err = error as { code?: unknown; name?: unknown };
       logger.error({ code: err?.code, name: err?.name }, 'Reminder sweep tick failed safely.');
+    }
+
+    // Separate try, so a failure draining the retry queue cannot stop reminders going out.
+    // Delivering what is already due outranks recovering what was never extracted.
+    try {
+      await commitmentRetryService.sweepOnce({});
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown };
+      logger.error(
+        { code: err?.code, name: err?.name },
+        'Commitment retry sweep tick failed safely.',
+      );
     } finally {
       running = false;
     }

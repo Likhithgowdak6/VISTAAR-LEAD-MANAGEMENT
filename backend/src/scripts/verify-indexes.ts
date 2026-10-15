@@ -2,6 +2,7 @@ import { type IndexDefinition, type IndexDirection, type Model } from 'mongoose'
 
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { ActivityLog } from '../modules/activity/activity-log.model.js';
+import { CommitmentRetry } from '../modules/followups/commitment-retry.model.js';
 import { Contact } from '../modules/contacts/contact.model.js';
 import { Conversation } from '../modules/conversations/conversation.model.js';
 import { FollowUpTask } from '../modules/followups/followup-task.model.js';
@@ -98,6 +99,20 @@ const requiredIndexes: ModelIndexRequirement[] = [
       { keys: { organizationId: 1, assignedTo: 1, status: 1, dueAt: 1 } },
       { keys: { organizationId: 1, conversationId: 1, status: 1, dueAt: 1 } },
       { keys: { organizationId: 1, whatsappAccountId: 1, status: 1, dueAt: 1 } },
+    ],
+  },
+  {
+    model: CommitmentRetry as Model<unknown>,
+    name: 'CommitmentRetry',
+    indexes: [
+      // The uniqueness that makes enqueueing idempotent. Without it a turn that fails twice
+      // queues two rows, two retries race for one `lead-commit:<messageId>` key, and one loses
+      // on a unique index it should never have reached.
+      { keys: { messageId: 1 }, options: { unique: true } },
+      // The sweep's claim query.
+      { keys: { status: 1, availableAt: 1 } },
+      // Last-resort cleanup, so a row holding a customer's words cannot outlive its purpose.
+      { keys: { updatedAt: 1 }, options: { expireAfterSeconds: 7 * 24 * 60 * 60 } },
     ],
   },
   {
