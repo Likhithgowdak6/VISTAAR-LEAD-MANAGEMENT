@@ -10,7 +10,6 @@
  * and why, and a personal reminder has no lead to name and should not pretend otherwise.
  */
 import { getLocalDateParts } from '../whatsapp/automation/quiet-hours.js';
-import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
 import { type FollowUpTaskDocument } from './followup-task.model.js';
 
 const DEFAULT_TIMEZONE = 'Asia/Kolkata';
@@ -53,9 +52,26 @@ const describeDay = (dueAt: Date, timezone: string | null, now: Date): string =>
 
 export interface BuildReminderMessageOptions {
   now?: Date;
-  /** The lead's display name, when the caller has it. */
-  leadDisplayName?: string | null;
+  /**
+   * Who the reminder is about, from reminder-lead-context.ts. Absent for a personal reminder,
+   * and absent-but-present-shaped when the lookup failed - either way every field is optional
+   * and the lines below simply do not appear.
+   */
+  lead?: {
+    displayName?: string | null;
+    phone?: string | null;
+    requirement?: string | null;
+  } | null;
 }
+
+/** WhatsApp is a phone screen. A long quote gets cut rather than wrapped into a wall. */
+const REASON_MAX_LENGTH = 200;
+
+const clip = (value: string, max: number): string => {
+  const clean = value.replace(/\s+/g, ' ').trim();
+
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1).trimEnd()}…`;
+};
 
 /**
  * The reminder, written for a phone screen.
@@ -65,38 +81,57 @@ export interface BuildReminderMessageOptions {
  */
 export const buildReminderMessage = (
   task: FollowUpTaskDocument,
-  { now = new Date(), leadDisplayName = null }: BuildReminderMessageOptions = {},
+  { now = new Date(), lead = null }: BuildReminderMessageOptions = {},
 ): string => {
   const when = `${formatReminderTime(task.dueAt, task.timezone)} ${describeDay(task.dueAt, task.timezone, now)}`;
   const task_ = (task.title ?? task.note ?? 'Follow up').trim();
 
+  // The words that CAUSED this reminder, whoever said them - the lead's promise, or the owner's
+  // own instruction when they asked for it in the self-chat. Shown for both kinds of reminder
+  // now: "Task: follow up" read a day later is a riddle, and the quote is the answer to it.
+  const reason = (task.sourceQuote ?? '').trim();
+
   const isLeadFollowUp = Boolean(task.conversationId);
 
   if (!isLeadFollowUp) {
+    // NO LEAD LINES HERE, EVER. A personal reminder has no customer, and inventing a name or a
+    // number for one would be worse than the sparse message this replaces.
     return [
       '⏰ *Personal Reminder*',
-      `Task: ${task_}`,
-      `Time: ${when}`,
+      `✅ Task: ${task_}`,
+      ...(reason ? [`💬 Reason: "${clip(reason, REASON_MAX_LENGTH)}"`] : []),
+      `🕒 Reminder Time: ${when}`,
       '',
       "It's time to complete your task.",
     ].join('\n');
   }
 
-  const lines = ['⏰ *Lead Follow-up*'];
+  const lines = [
+    '⏰ *Lead Follow-up Reminder*',
+    // Named even when unknown. A reminder whose subject is missing is the exact failure this
+    // format exists to fix, and a blank where the name goes reads as a bug rather than as
+    // "we never learned it".
+    `👤 Lead: ${lead?.displayName?.trim() || 'Unknown customer'}`,
+  ];
 
-  if (leadDisplayName) {
-    lines.push(`Lead: ${leadDisplayName}`);
+  // Omitted entirely when absent, rather than shown as "-" or "unknown". The owner taps this to
+  // call somebody; a placeholder is a wasted tap.
+  if (lead?.phone) {
+    lines.push(`📞 Phone: ${lead.phone}`);
   }
 
-  lines.push(`Task: ${task_}`);
+  // Never invented. reminder-lead-context.ts returns null when nothing has been recorded about
+  // this thread, and saying so plainly beats a confident guess about what somebody wants.
+  lines.push(
+    `📌 Requirement: ${lead?.requirement?.trim() || 'Requirement not yet clear'}`,
+    `✅ Task: ${task_}`,
+  );
 
-  // The lead's own words, when the reminder came from something they said. This is what makes
-  // the ping actionable rather than mysterious an hour later.
-  if (task.source === REMINDER_SOURCES.LEAD_COMMITMENT && task.sourceQuote) {
-    lines.push(`Reason: "${task.sourceQuote.trim()}"`);
+  if (reason) {
+    lines.push(`💬 Reason: "${clip(reason, REASON_MAX_LENGTH)}"`);
   }
 
-  lines.push(`Time: ${when}`, '', 'Open Vistaar CRM to continue the conversation.');
+  lines.push(`🕒 Reminder Time: ${when}`, '', 'Open Vistaar CRM to continue the conversation.');
 
   return lines.join('\n');
 };

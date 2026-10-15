@@ -67,6 +67,21 @@ const createHarness = ({
     }),
   );
 
+  // Return type spelled out: inferred from the default it would be non-nullable, and the
+  // tests that matter most here are the ones where a field is MISSING.
+  const loadReminderLeadContext = vi.fn(
+    async (
+      _task?: unknown,
+    ): Promise<{
+      displayName: string | null;
+      phone: string | null;
+      requirement: string | null;
+    }> => ({
+      displayName: 'Rahul',
+      phone: '+919876543210',
+      requirement: 'Wedding photography; confirming the shoot details',
+    }),
+  );
   const findAccountsByOrganization = vi.fn(
     async (_params?: { organizationId?: unknown; status?: string; limit?: number }) => accounts,
   );
@@ -78,6 +93,7 @@ const createHarness = ({
     recordReminderDelivery: recordReminderDelivery as never,
     finishReminderDelivery: finishReminderDelivery as never,
     findAccountsByOrganization: findAccountsByOrganization as never,
+    loadReminderLeadContext: loadReminderLeadContext as never,
     notifyOwner: notifyOwner as never,
     now: () => NOW,
     logger,
@@ -90,6 +106,7 @@ const createHarness = ({
     recordReminderDelivery,
     finishReminderDelivery,
     findAccountsByOrganization,
+    loadReminderLeadContext,
     notifyOwner,
     logger,
   };
@@ -530,5 +547,157 @@ describe('PRODUCTION DEFECT: a personal reminder has no account to send through'
     expect(result.whatsappSent).toBe(0);
     expect(deliveryFor(h, 'whatsapp')?.status).toBe('skipped');
     expect(h.logger.error).toHaveBeenCalled();
+  });
+});
+
+describe('the reminder that goes out names the customer', () => {
+  it('puts the lead, number and requirement in the message', async () => {
+    const h = createHarness();
+
+    await h.service.sweepOnce({});
+
+    const [[params]] = h.notifyOwner.mock.calls;
+    const text = String((params as { text?: string }).text ?? '');
+
+    expect(text).toContain('👤 Lead: Rahul');
+    expect(text).toContain('📞 Phone: +919876543210');
+    expect(text).toContain('📌 Requirement: Wedding photography; confirming the shoot details');
+  });
+
+  it('looks the context up for the task it is about to send', async () => {
+    const h = createHarness({ tasks: [baseTask({ _id: 'task-7', conversationId: 'conv-7' })] });
+
+    await h.service.sweepOnce({});
+
+    expect(h.loadReminderLeadContext).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: 'task-7', conversationId: 'conv-7' }),
+      expect.anything(),
+    );
+  });
+
+  it('NEVER gives one customer another customer\'s details', async () => {
+    // Two reminders for two different leads in a single sweep. Each message must carry only
+    // its own lead - this is the failure that has the owner phoning the wrong person about
+    // somebody else's wedding.
+    const h = createHarness({
+      tasks: [
+        baseTask({ _id: 'task-a', conversationId: 'conv-a' }),
+        baseTask({ _id: 'task-b', conversationId: 'conv-b' }),
+      ],
+    });
+
+    h.loadReminderLeadContext.mockImplementation(async (task: unknown) =>
+      (task as { conversationId?: string }).conversationId === 'conv-a'
+        ? { displayName: 'Anita', phone: '+911111111111', requirement: 'Wedding shoot' }
+        : { displayName: 'Bhaskar', phone: '+922222222222', requirement: 'Birthday shoot' },
+    );
+
+    await h.service.sweepOnce({});
+
+    const texts = h.notifyOwner.mock.calls.map(([params]) =>
+      String((params as { text?: string }).text ?? ''),
+    );
+    const anita = texts.find((text) => text.includes('Anita')) ?? '';
+    const bhaskar = texts.find((text) => text.includes('Bhaskar')) ?? '';
+
+    expect(anita).toContain('+911111111111');
+    expect(anita).not.toContain('+922222222222');
+    expect(anita).not.toContain('Bhaskar');
+
+    expect(bhaskar).toContain('+922222222222');
+    expect(bhaskar).not.toContain('+911111111111');
+    expect(bhaskar).not.toContain('Anita');
+  });
+
+  it('still delivers when the lookup finds nothing', async () => {
+    const h = createHarness();
+    h.loadReminderLeadContext.mockResolvedValue({
+      displayName: null,
+      phone: null,
+      requirement: null,
+    });
+
+    const result = await h.service.sweepOnce({});
+
+    // Thin but punctual. Being late is the one thing a reminder may not be.
+    const [[params]] = h.notifyOwner.mock.calls;
+    const text = String((params as { text?: string }).text ?? '');
+
+    expect(result.whatsappSent).toBe(1);
+    expect(text).toContain('👤 Lead: Unknown customer');
+    expect(text).toContain('📌 Requirement: Requirement not yet clear');
+  });
+
+  it('does not log the phone number anywhere', async () => {
+    const h = createHarness();
+
+    await h.service.sweepOnce({});
+
+    // The number belongs in the owner's message and nowhere else. Logs are shipped and kept.
+    const logged = JSON.stringify([
+      h.logger.info.mock.calls,
+      h.logger.error.mock.calls,
+    ]);
+
+    expect(logged).not.toContain('919876543210');
+  });
+});
+
+describe('a context failure must not duplicate or lose a reminder', () => {
+  it('sends exactly once when the lookup returns nothing', async () => {
+    const h = createHarness();
+    h.loadReminderLeadContext.mockResolvedValue({
+      displayName: null,
+      phone: null,
+      requirement: null,
+    });
+
+    await h.service.sweepOnce({});
+
+    // One notification, and it is stamped as announced so no later sweep repeats it.
+    expect(h.notifyOwner).toHaveBeenCalledTimes(1);
+    expect(h.finishReminderDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends NOTHING, and keeps the reminder, if the lookup ever throws', async () => {
+    // loadReminderLeadContext is total today - every path inside it returns empty context. This
+    // pins what happens if that ever stops being true, because the call sits inside the same
+    // try as the send: the throw becomes a retryable failure rather than a half-sent reminder.
+    const h = createHarness();
+    h.loadReminderLeadContext.mockRejectedValue(new Error('mongo down'));
+
+    const result = await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).not.toHaveBeenCalled();
+    // NOT retired: finishReminderDelivery is what tells every later sweep the reminder is done
+    // with, and stamping it here would lose the reminder entirely over a failed lookup.
+    expect(h.finishReminderDelivery).not.toHaveBeenCalled();
+    expect(result.whatsappRetrying).toBe(1);
+  });
+
+  it('does not re-send a reminder that was already announced', async () => {
+    const h = createHarness({ tasks: [baseTask({ lastNotificationAt: new Date() })] });
+
+    await h.service.sweepOnce({});
+
+    // The duplicate guard is upstream of all of this and the context work must not have
+    // disturbed it: an announced reminder is released, not loaded and not re-sent.
+    expect(h.loadReminderLeadContext).not.toHaveBeenCalled();
+    expect(h.notifyOwner).not.toHaveBeenCalled();
+  });
+
+  it('does not load context for a reminder that is out of attempts', async () => {
+    const h = createHarness({
+      tasks: [
+        baseTask({
+          whatsappDelivery: { status: 'pending', attempts: 3, deliveredAt: null, error: 'x' },
+        }),
+      ],
+    });
+
+    await h.service.sweepOnce({});
+
+    // Two database reads for a reminder that is about to be written off would be pure waste.
+    expect(h.loadReminderLeadContext).not.toHaveBeenCalled();
   });
 });

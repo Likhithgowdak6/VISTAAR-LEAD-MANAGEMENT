@@ -35,6 +35,7 @@ import {
   type OwnerNotifyServiceHandle,
 } from '../whatsapp/automation/owner-notify.service.js';
 import { findAccountsByOrganization as defaultFindAccountsByOrganization } from '../whatsapp-accounts/whatsapp-account.repository.js';
+import { loadReminderLeadContext as defaultLoadReminderLeadContext } from './reminder-lead-context.js';
 import {
   claimDueReminder as defaultClaimDueReminder,
   finishReminderDelivery as defaultFinishReminderDelivery,
@@ -59,6 +60,8 @@ export interface CreateReminderSweepOptions {
   recordReminderDelivery?: typeof defaultRecordReminderDelivery;
   finishReminderDelivery?: typeof defaultFinishReminderDelivery;
   findAccountsByOrganization?: typeof defaultFindAccountsByOrganization;
+  /** Who the reminder is about. Injected so tests can describe a lead without a database. */
+  loadReminderLeadContext?: typeof defaultLoadReminderLeadContext;
   notifyOwner?: OwnerNotifyServiceHandle['notifyOwner'];
   /** Injected so tests can drive the clock instead of waiting for one. */
   now?: () => Date;
@@ -83,6 +86,7 @@ export const createReminderSweepService = ({
   recordReminderDelivery = defaultRecordReminderDelivery,
   finishReminderDelivery = defaultFinishReminderDelivery,
   findAccountsByOrganization = defaultFindAccountsByOrganization,
+  loadReminderLeadContext = defaultLoadReminderLeadContext,
   // Built lazily and shared, the same way every other caller of this sink does it: constructing
   // it at import time would pull the WhatsApp session manager into any module that merely
   // imports this one.
@@ -199,10 +203,19 @@ export const createReminderSweepService = ({
     }
 
     try {
+      // WHO the reminder is about, loaded here rather than stored on the task: a name, a number
+      // and a requirement all change after the reminder is created, and a copy taken at
+      // creation time would be a day stale by the time it fires. Keyed on the task's own
+      // conversation id and scoped to its organization - never looked up by name.
+      //
+      // Best-effort by construction: on any failure this returns empty context and the reminder
+      // still goes out, thinner. Being late is the one thing a reminder may not be.
+      const lead = await loadReminderLeadContext(task, { logger });
+
       const result = await notifyOwner({
         organizationId: task.organizationId,
         accountId,
-        text: buildReminderMessage(task),
+        text: buildReminderMessage(task, { now: now(), lead }),
       });
 
       // notifyOwner resolves with a null id when there is no session or no owner number. That
