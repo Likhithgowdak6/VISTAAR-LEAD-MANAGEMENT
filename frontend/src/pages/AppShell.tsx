@@ -18,7 +18,6 @@ import SettingsPage from './SettingsPage';
 import StagesPage from './StagesPage';
 import TagsPage from './TagsPage';
 import TeamPage from './TeamPage';
-import TemplatesPage from './TemplatesPage';
 
 type AppView =
   | 'inbox'
@@ -28,7 +27,6 @@ type AppView =
   | 'stages'
   | 'tags'
   | 'ai-knowledge'
-  | 'templates'
   | 'lead-sources'
   | 'settings';
 
@@ -143,7 +141,6 @@ const AppShell = () => {
   const canManageStages = hasPermission(permissions, PERMISSIONS.CRM_STAGE_MANAGE);
   const canManageTags = hasPermission(permissions, PERMISSIONS.CRM_TAGS_MANAGE);
   const canManageAiKnowledge = hasPermission(permissions, PERMISSIONS.AI_KNOWLEDGE_MANAGE);
-  const canManageTemplates = hasPermission(permissions, PERMISSIONS.TEMPLATES_MANAGE);
   const canManageLeadSources = hasPermission(permissions, PERMISSIONS.LEAD_SOURCES_MANAGE);
   const canManageSettings = hasPermission(permissions, PERMISSIONS.SETTINGS_MANAGE);
 
@@ -207,11 +204,6 @@ const AppShell = () => {
               Knowledge
             </NavButton>
           ) : null}
-          {canManageTemplates ? (
-            <NavButton active={view === 'templates'} onClick={() => setView('templates')}>
-              Templates
-            </NavButton>
-          ) : null}
           {canManageSettings ? (
             <NavButton active={view === 'settings'} onClick={() => setView('settings')}>
               Settings
@@ -273,10 +265,6 @@ const AppShell = () => {
       ) : view === 'ai-knowledge' && canManageAiKnowledge ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <AiKnowledgePage />
-        </div>
-      ) : view === 'templates' && canManageTemplates ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <TemplatesPage />
         </div>
       ) : view === 'lead-sources' && canManageLeadSources ? (
         <div className="min-h-0 flex-1 overflow-y-auto">

@@ -80,6 +80,7 @@ export type ConversationSummary = Pick<
       | 'optedOutAt'
       | 'eventDate'
       | 'aiCategory'
+      | 'aiFacts'
       | 'leadScore'
       | 'leadScoreBand'
       | 'leadTemperature'

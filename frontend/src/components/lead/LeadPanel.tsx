@@ -5,13 +5,13 @@ import { hasPermission, PERMISSIONS } from '../../lib/permissions';
 import { type AuthValue, type ConversationSummary } from '../types';
 import ActivitySection from './ActivitySection';
 import AiAutomationSection from './AiAutomationSection';
-import AiProposalSection from './AiProposalSection';
 import AssignmentControl from './AssignmentControl';
 import DeleteChatSection from './DeleteChatSection';
 import EventDateSection from './EventDateSection';
 import FollowUpsSection from './FollowUpsSection';
 import LeadFormSection from './LeadFormSection';
 import LeadScoreSection from './LeadScoreSection';
+import MessageTemplatesSection from './MessageTemplatesSection';
 import NotesSection from './NotesSection';
 import RevealPhone from './RevealPhone';
 import ServiceSection from './ServiceSection';
@@ -77,8 +77,19 @@ const LeadPanel = ({ conversation, contactId, onStageChange, onDeleted }: Props)
         onAutomationChange={bumpActivity}
       />
 
+      {/* Replaced the proposal drafter here. A proposal is a document the owner still has to
+          attach and send by hand; what they reach for mid-conversation is a message they can
+          send now. AiProposalSection itself is untouched and still works - it just is not what
+          belongs in this slot. */}
       {canDraftProposal ? (
-        <AiProposalSection conversationId={conversation.id} displayName={conversation.displayName} />
+        <MessageTemplatesSection
+          // Remounts on a thread change, so drafts written for one lead cannot linger on
+          // screen while another is open.
+          key={conversation.id}
+          conversationId={conversation.id}
+          aiCategory={conversation.aiCategory ?? null}
+          aiFacts={conversation.aiFacts ?? null}
+        />
       ) : null}
 
       {canAssign ? (
