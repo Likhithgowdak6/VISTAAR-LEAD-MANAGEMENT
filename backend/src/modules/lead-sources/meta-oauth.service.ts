@@ -332,6 +332,13 @@ export const fetchMetaAuthorizedUser = async (
  *
  * Must be computed on the exact bytes received - re-serializing the parsed JSON changes key order
  * and whitespace and the digest stops matching. See the raw-body capture in app.ts.
+ *
+ * AN UNSET SECRET REFUSES EVERYTHING. `META_APP_SECRET` is optional in env.ts and defaults to '',
+ * and `createHmac('sha256', '')` is a perfectly valid HMAC - so without this guard a deployment
+ * that had not configured the secret yet would accept any body signed under the empty key, which
+ * anyone who learned the URL could produce. That is the whole of this route's authentication, so
+ * it has to fail closed. The GET handshake above already refuses an unset verify token for the
+ * same reason; this is the POST half of the same rule.
  */
 export const verifyMetaWebhookSignature = ({
   rawBody,
@@ -342,11 +349,17 @@ export const verifyMetaWebhookSignature = ({
   signatureHeader: unknown;
   config?: Env;
 }): boolean => {
+  const appSecret = String(config.META_APP_SECRET ?? '');
+
+  if (appSecret === '') {
+    return false;
+  }
+
   if (!rawBody || typeof signatureHeader !== 'string' || !signatureHeader.startsWith('sha256=')) {
     return false;
   }
 
-  const expected = createHmac('sha256', String(config.META_APP_SECRET))
+  const expected = createHmac('sha256', appSecret)
     .update(typeof rawBody === 'string' ? Buffer.from(rawBody, 'utf8') : rawBody)
     .digest('hex');
 

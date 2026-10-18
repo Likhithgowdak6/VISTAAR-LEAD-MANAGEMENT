@@ -63,7 +63,15 @@ export const receiveMetaWebhook = asyncHandler(async (req, res) => {
   });
 
   if (!valid) {
-    logger.warn({}, 'Meta webhook rejected: the payload signature did not verify.');
+    // Named separately because the two look identical from the outside and need opposite
+    // responses: a bad digest is somebody probing the URL and should be ignored, an unset secret
+    // is a misconfiguration that silently 403s every real lead Meta delivers.
+    logger.warn(
+      {},
+      String(env.META_APP_SECRET ?? '') === ''
+        ? 'Meta webhook rejected: META_APP_SECRET is not configured, so no signature can be verified and every delivery will be refused. Set it to the Meta app secret.'
+        : 'Meta webhook rejected: the payload signature did not verify.',
+    );
 
     res.status(403).send('Forbidden');
 

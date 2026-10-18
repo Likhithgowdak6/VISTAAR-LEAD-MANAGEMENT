@@ -209,4 +209,42 @@ describe('the webhook signature', () => {
       verifyMetaWebhookSignature({ rawBody: undefined, signatureHeader: sign(rawBody), config }),
     ).toBe(false);
   });
+
+  describe('when META_APP_SECRET is not configured', () => {
+    // env.ts defaults it to '' and nothing requires it, so this is the state of any deployment
+    // that has not finished the Meta setup - including, at the time of writing, the local one.
+    const unconfigured = { ...config, META_APP_SECRET: '' } as typeof config;
+
+    it('refuses a body signed under the empty key', () => {
+      // `createHmac('sha256', '')` is a perfectly valid HMAC that anybody can compute. Without an
+      // explicit guard the comparison SUCCEEDS and the route's entire authentication is gone -
+      // an attacker who knows the URL can post a leadgen_id and have the CRM fetch and create a
+      // lead from it. Fails closed, the same way the GET handshake refuses an unset verify token.
+      expect(
+        verifyMetaWebhookSignature({
+          rawBody,
+          signatureHeader: sign(rawBody, ''),
+          config: unconfigured,
+        }),
+      ).toBe(false);
+    });
+
+    it('refuses even a body signed with the real secret', () => {
+      // Nothing gets through while the secret is missing: there is no key to verify against, so
+      // there is no such thing as a request this process can call authentic.
+      expect(
+        verifyMetaWebhookSignature({ rawBody, signatureHeader: sign(rawBody), config: unconfigured }),
+      ).toBe(false);
+    });
+
+    it.each([undefined, null])('refuses when the secret is %p rather than empty', (secret) => {
+      expect(
+        verifyMetaWebhookSignature({
+          rawBody,
+          signatureHeader: sign(rawBody, ''),
+          config: { ...config, META_APP_SECRET: secret } as never,
+        }),
+      ).toBe(false);
+    });
+  });
 });
