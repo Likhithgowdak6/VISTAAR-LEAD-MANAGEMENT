@@ -103,6 +103,17 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Pro
       ),
     );
 
+  const handleToggleCallScheduling = () =>
+    run('call-scheduling', () =>
+      authedRequest((token) =>
+        updateLeadSource({
+          token,
+          leadSourceId: leadSource.id,
+          callSchedulingEnabled: !leadSource.callSchedulingEnabled,
+        }),
+      ),
+    );
+
   const handleRemove = () =>
     run('remove', () =>
       authedRequest((token) => deleteLeadSource({ token, leadSourceId: leadSource.id })),
@@ -254,6 +265,34 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Pro
           <span className="text-[11px] text-amber-700">
             New leads get a WhatsApp from the AI 5 minutes after they fill this form.
           </span>
+        ) : null}
+
+        {/* META ONLY, AND ONLY ONCE THE AI IS ALLOWED TO SPEAK FIRST. The workflow keys on a
+            verified Meta submission id, which a spreadsheet row cannot provide - and chasing
+            someone who was never greeted would be a message out of nowhere. Hidden rather than
+            disabled, because a switch that can never apply is just clutter on every other row. */}
+        {leadSource.kind === 'meta_lead_ads' && leadSource.autoGreetEnabled ? (
+          <>
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <ToggleSwitch
+                size="sm"
+                checked={Boolean(leadSource.callSchedulingEnabled)}
+                disabled={busy !== null}
+                label={`Ask new leads from ${leadSource.name} for a call time`}
+                onChange={handleToggleCallScheduling}
+              />
+              <span>Ask for a call time</span>
+            </label>
+
+            {leadSource.callSchedulingEnabled ? (
+              // The second unsolicited message is the part worth spelling out. Someone turning
+              // this on should know it chases people who chose not to answer.
+              <span className="text-[11px] text-amber-700">
+                The opening asks for a call today. If nobody replies within an hour, you get a
+                reminder and they get one follow-up.
+              </span>
+            ) : null}
+          </>
         ) : null}
       </div>
 

@@ -17,6 +17,10 @@ import {
   type LeadCommitmentService,
 } from '../../followups/lead-commitment.service.js';
 import {
+  createCallSchedulingService,
+  type CallSchedulingService,
+} from '../../lead-sources/call-scheduling.service.js';
+import {
   createInboundBurstCollector,
   type InboundBurstCollector,
 } from './inbound-burst.js';
@@ -199,6 +203,8 @@ export interface CreateInboundMessageIngestionServiceOptions {
    * Same contract as `handleAutomation`: internally failure-isolated, never throws.
    */
   extractLeadCommitment?: LeadCommitmentService['extractLeadCommitment'];
+  /** Cancels a pending call-scheduling chase. No-op unless this thread has one. */
+  onInboundMessage?: CallSchedulingService['onInboundMessage'];
   /**
    * Pings the owner's WhatsApp self-chat about a brand-new lead's first message. Held to the
    * same contract as `handleAutomation`: internally failure-isolated, never throws, so a missing
@@ -248,6 +254,12 @@ export interface IngestInboundMessageOptions {
  * config. Shared on purpose: a burst is defined by a conversation, not by which request
  * happened to receive its third message.
  */
+let callSchedulingSingleton: CallSchedulingService | null = null;
+const getCallSchedulingService = (): CallSchedulingService => {
+  callSchedulingSingleton ??= createCallSchedulingService();
+  return callSchedulingSingleton;
+};
+
 let leadCommitmentSingleton: LeadCommitmentService | null = null;
 const getLeadCommitmentService = (): LeadCommitmentService => {
   leadCommitmentSingleton ??= createLeadCommitmentService();
@@ -296,6 +308,7 @@ export const createInboundMessageIngestionService = ({
   handleAutomation = defaultHandleAutomation,
   burstCollector = defaultBurstCollector,
   extractLeadCommitment = (params) => getLeadCommitmentService().extractLeadCommitment(params),
+  onInboundMessage = (params) => getCallSchedulingService().onInboundMessage(params),
   sendNewLeadAlert = defaultSendNewLeadAlert,
   isOptOutRequest = defaultIsOptOutRequest,
   sendOptOutAlert = defaultSendOptOutAlert,
@@ -522,6 +535,21 @@ export const createInboundMessageIngestionService = ({
       lastMessagePreview: truncate(preview, CONVERSATION_PREVIEW_MAX_LENGTH),
       unreadCountIncrement: 1,
       lastInboundAt: message.sentAt ?? receivedAt,
+    });
+
+    // ANY reply stops the one-hour call-scheduling chase. "Okay", "I'm busy", a thumbs-up -
+    // all of them answer the only question that chase was asking, which is whether this person
+    // is there. Whether they named a TIME is a separate matter, handled independently by
+    // commitment extraction further down.
+    //
+    // Placed here, immediately after the message is persisted and before any automation, so a
+    // reply counts even if the AI declines to answer it, the owner has taken over, or the
+    // burst window is still open. Uses the message's own timestamp, so a webhook that reaches
+    // us late still cancels a chase the customer beat on the clock.
+    await onInboundMessage?.({
+      organizationId,
+      conversationId: conversation._id,
+      receivedAt: message.sentAt ?? receivedAt,
     });
 
     await publishEvent?.({

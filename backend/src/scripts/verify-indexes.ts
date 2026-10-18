@@ -2,6 +2,7 @@ import { type IndexDefinition, type IndexDirection, type Model } from 'mongoose'
 
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { ActivityLog } from '../modules/activity/activity-log.model.js';
+import { CallSchedulingAttempt } from '../modules/lead-sources/call-scheduling-attempt.model.js';
 import { CommitmentRetry } from '../modules/followups/commitment-retry.model.js';
 import { Contact } from '../modules/contacts/contact.model.js';
 import { Conversation } from '../modules/conversations/conversation.model.js';
@@ -99,6 +100,19 @@ const requiredIndexes: ModelIndexRequirement[] = [
       { keys: { organizationId: 1, assignedTo: 1, status: 1, dueAt: 1 } },
       { keys: { organizationId: 1, conversationId: 1, status: 1, dueAt: 1 } },
       { keys: { organizationId: 1, whatsappAccountId: 1, status: 1, dueAt: 1 } },
+    ],
+  },
+  {
+    model: CallSchedulingAttempt as Model<unknown>,
+    name: 'CallSchedulingAttempt',
+    indexes: [
+      // One chase per Meta submission, ever. This is the duplicate guard the whole workflow
+      // rests on: without it a redelivered webhook or a re-import starts a second clock.
+      { keys: { leadSubmissionId: 1 }, options: { unique: true } },
+      // The sweep's claim query.
+      { keys: { status: 1, deadlineAt: 1 } },
+      // Cancelling on reply, looked up by the thread the reply arrived on.
+      { keys: { conversationId: 1, status: 1 } },
     ],
   },
   {

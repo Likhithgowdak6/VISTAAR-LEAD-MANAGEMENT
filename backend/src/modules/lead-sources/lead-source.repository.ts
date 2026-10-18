@@ -52,6 +52,11 @@ export interface CreateLeadSourceParams {
   aiContextEnabled?: boolean;
   /** The one switch that makes the AI message a stranger. Off unless asked for. */
   autoGreetEnabled?: boolean;
+  // `callSchedulingEnabled` is deliberately NOT settable at creation. A new source always starts
+  // with the schema default of false and is switched on afterwards through the update path,
+  // which is where the Meta-only kind check lives. Accepting it here would be a second door into
+  // the same flag with no such check behind it - and, as it stood, a silent no-op, since nothing
+  // below read it.
   columnMapping?: Partial<LeadSourceColumnMapping>;
   /** Human overrides of the automatic label mapping. Empty means fully automatic. */
   fieldMappings?: LeadSourceFieldMapping[];
@@ -284,6 +289,8 @@ export interface UpdateLeadSourceParams {
   aiContextEnabled?: boolean;
   /** Whether the AI opens the conversation itself. The one switch that messages a stranger. */
   autoGreetEnabled?: boolean;
+  /** Meta sources only: ask for a call time, and chase once if nobody answers. */
+  callSchedulingEnabled?: boolean;
   status?: LeadSourceStatus;
   columnMapping?: Partial<LeadSourceColumnMapping>;
   /** Meta sources: rotate the token. Plaintext in, ciphertext out; never stored as given. */
@@ -302,6 +309,7 @@ export const updateLeadSource = ({
   defaultCountryCode,
   aiContextEnabled,
   autoGreetEnabled,
+  callSchedulingEnabled,
   status,
   columnMapping,
   metaAccessToken,
@@ -332,6 +340,10 @@ export const updateLeadSource = ({
   // to ever switch it back off.
   if (autoGreetEnabled !== undefined) {
     update.autoGreetEnabled = autoGreetEnabled;
+  }
+
+  if (callSchedulingEnabled !== undefined) {
+    update.callSchedulingEnabled = callSchedulingEnabled;
   }
 
   if (status !== undefined) {

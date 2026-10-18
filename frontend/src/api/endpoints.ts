@@ -1091,6 +1091,7 @@ export interface UpdateLeadSourceParams extends TokenParams {
   aiContextEnabled?: boolean;
   /** Whether the AI opens the chat with new leads from this form. */
   autoGreetEnabled?: boolean;
+  callSchedulingEnabled?: boolean;
   status?: LeadSourceStatus;
   /** Meta sources only: rotate the token, or repoint at a different form. */
   accessToken?: string;

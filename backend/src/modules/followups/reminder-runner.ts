@@ -16,6 +16,10 @@ import {
   createCommitmentRetrySweepService,
   type CommitmentRetrySweepService,
 } from './commitment-retry.service.js';
+import {
+  createCallSchedulingSweepService,
+  type CallSchedulingSweepService,
+} from '../lead-sources/call-scheduling-sweep.service.js';
 
 const asBoolean = (value: unknown): boolean => value === true || value === 'true';
 
@@ -30,12 +34,19 @@ export interface CreateReminderRunnerOptions {
    * exists.
    */
   commitmentRetryService?: CommitmentRetrySweepService;
+  /**
+   * Chases ad leads who never answered the call-scheduling message. Same tick again: it is the
+   * same kind of work on the same cadence, and a third interval loop would be a third thing to
+   * start, stop and guard against overlap.
+   */
+  callSchedulingService?: CallSchedulingSweepService;
 }
 
 export const createReminderRunner = ({
   config = env,
   service = createReminderSweepService({ config }),
   commitmentRetryService = createCommitmentRetrySweepService({ config }),
+  callSchedulingService = createCallSchedulingSweepService(),
 }: CreateReminderRunnerOptions = {}) => {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -68,6 +79,18 @@ export const createReminderRunner = ({
       logger.error(
         { code: err?.code, name: err?.name },
         'Commitment retry sweep tick failed safely.',
+      );
+    }
+
+    // Its own try again: chasing an unanswered ad lead is the least urgent of the three, and
+    // must not be able to stop reminders going out or commitments being recovered.
+    try {
+      await callSchedulingService.sweepOnce({});
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown };
+      logger.error(
+        { code: err?.code, name: err?.name },
+        'Call scheduling sweep tick failed safely.',
       );
     } finally {
       running = false;

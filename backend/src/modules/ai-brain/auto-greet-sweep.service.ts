@@ -28,6 +28,7 @@ import {
   findConversationsDueForAutoGreet as defaultFindConversationsDueForAutoGreet,
   releaseAutoGreetClaim as defaultReleaseAutoGreetClaim,
 } from '../conversations/conversation.repository.js';
+import { LEAD_SOURCE_KINDS } from '../../constants/lead-source-kinds.js';
 import { findLeadSourceById as defaultFindLeadSourceById } from '../lead-sources/lead-source.repository.js';
 import { createImportedLeadGreetingService } from './imported-lead-greeting.service.js';
 
@@ -119,8 +120,19 @@ export const createAutoGreetSweepService = ({
           conversation,
           sourceLabel: leadSource?.name ?? 'our enquiry form',
           category: conversation.aiCategory,
-          // No lead source means nobody filled in a form - so the opening must not claim one.
-          origin: conversation.leadSourceId ? 'form' : 'manual',
+          // Three variants, narrowing as the evidence allows:
+          //   - no lead source at all: nobody filled in a form, so the opening may not claim one;
+          //   - a form, with the call-scheduling workflow switched on for THIS Meta source:
+          //     ask for a call time, and the one-hour chase begins once it is delivered;
+          //   - any other form: the ordinary opening.
+          // `kind` is checked as well as the flag because the chase keys on a verified Meta
+          // submission id, which a spreadsheet row cannot give us.
+          origin: !conversation.leadSourceId
+            ? 'manual'
+            : leadSource?.kind === LEAD_SOURCE_KINDS.META_LEAD_ADS &&
+                leadSource?.callSchedulingEnabled === true
+              ? 'form_call_scheduling'
+              : 'form',
           originNote: conversation.manualOriginNote,
         });
 

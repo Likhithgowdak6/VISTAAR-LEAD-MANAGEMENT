@@ -118,6 +118,21 @@ export interface LeadSourceDocument {
    * rather than something that comes on with the importer.
    */
   autoGreetEnabled: boolean;
+  /**
+   * Whether the opening message should ask this source's leads for a call time, and chase once
+   * if they do not answer within the hour.
+   *
+   * ITS OWN SWITCH, OFF BY DEFAULT, and dependent on `autoGreetEnabled` rather than replacing
+   * it. Two reasons it is not folded into that flag: this one sends a SECOND unsolicited
+   * message to someone who has already declined to answer the first, which is a materially
+   * larger thing to do to a stranger's WhatsApp; and every source that exists today has to keep
+   * behaving exactly as it does, so the default must be false and nothing may turn it on
+   * retroactively.
+   *
+   * Meaningful only on a `meta_lead_ads` source - the workflow needs a verified form submission
+   * to key on, which a spreadsheet row does not give us.
+   */
+  callSchedulingEnabled: boolean;
   columnMapping: LeadSourceColumnMapping;
   /**
    * The OAuth connection this source was created through, when it was. Null for a source whose
@@ -310,6 +325,12 @@ const leadSourceSchema = new mongoose.Schema<LeadSourceDocument>(
     },
 
     autoGreetEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+
+    callSchedulingEnabled: {
       type: Boolean,
       required: true,
       default: false,

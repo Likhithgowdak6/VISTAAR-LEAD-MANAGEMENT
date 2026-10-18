@@ -213,3 +213,80 @@ describe('AddLeadSourceForm (kept, no longer mounted on the page)', () => {
     });
   });
 });
+
+describe('the call-scheduling toggle', () => {
+  const META = {
+    ...LEAD_SOURCE,
+    id: 'ls-meta',
+    kind: 'meta_lead_ads',
+    // Always present on a serialized Meta source; LeadSourceRow reads it unguarded.
+    meta: { formName: 'Wedding Sept-Dec', usesFacebookLogin: true },
+    name: 'Wedding Sept-Dec',
+    autoGreetEnabled: true,
+    callSchedulingEnabled: false,
+  };
+
+  const showing = async (source: Record<string, unknown>) => {
+    endpoints.listLeadSources.mockResolvedValue({ data: [source] });
+    renderAuthed(<LeadSourcesPage />);
+    await waitFor(() => expect(screen.getByText(String(source.name))).toBeInTheDocument());
+  };
+
+  it('is offered for a Meta source that already messages first', async () => {
+    await showing(META);
+
+    expect(screen.getByText('Ask for a call time')).toBeInTheDocument();
+  });
+
+  it('is HIDDEN for a Google Sheet source', async () => {
+    // The workflow keys on a verified Meta submission id. A spreadsheet row has none, so the
+    // switch could never do anything - and a switch that cannot work is worse than absent.
+    await showing({ ...META, kind: 'google_sheet' });
+
+    expect(screen.queryByText('Ask for a call time')).not.toBeInTheDocument();
+  });
+
+  it('is HIDDEN until the AI is allowed to message first', async () => {
+    // Chasing someone who was never greeted would be a message out of nowhere.
+    await showing({ ...META, autoGreetEnabled: false });
+
+    expect(screen.queryByText('Ask for a call time')).not.toBeInTheDocument();
+  });
+
+  it('is off by default and turns on through the existing authenticated endpoint', async () => {
+    await showing(META);
+
+    const toggle = screen.getByLabelText('Ask new leads from Wedding Sept-Dec for a call time');
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(endpoints.updateLeadSource).toHaveBeenCalledWith(
+        expect.objectContaining({ leadSourceId: 'ls-meta', callSchedulingEnabled: true }),
+      ),
+    );
+  });
+
+  it('is independent of the auto-greet switch', async () => {
+    await showing({ ...META, callSchedulingEnabled: true });
+
+    fireEvent.click(screen.getByLabelText('Ask new leads from Wedding Sept-Dec for a call time'));
+
+    await waitFor(() => expect(endpoints.updateLeadSource).toHaveBeenCalled());
+
+    // Turning one off must not carry the other with it.
+    const [[params]] = endpoints.updateLeadSource.mock.calls;
+    expect(params).toEqual(
+      expect.objectContaining({ callSchedulingEnabled: false }),
+    );
+    expect(params).not.toHaveProperty('autoGreetEnabled');
+  });
+
+  it('warns that enabling it chases people who did not answer', async () => {
+    await showing({ ...META, callSchedulingEnabled: true });
+
+    // The second unsolicited message is the part worth spelling out next to the switch.
+    expect(screen.getByText(/one follow-up/)).toBeInTheDocument();
+  });
+});

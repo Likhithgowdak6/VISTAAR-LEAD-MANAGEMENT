@@ -110,6 +110,7 @@ export const updateLeadSourceBodySchema = z
     defaultCountryCode: countryCodeSchema.optional(),
     aiContextEnabled: z.boolean().optional(),
     autoGreetEnabled: z.boolean().optional(),
+    callSchedulingEnabled: z.boolean().optional(),
     status: z.enum(LEAD_SOURCE_STATUS_VALUES).optional(),
     columnMapping: columnMappingSchema,
     // Meta only. `kind` is deliberately absent: a source does not change what it pulls from.

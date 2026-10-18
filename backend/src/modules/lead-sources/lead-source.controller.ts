@@ -215,6 +215,7 @@ export const updateLeadSource = asyncHandler(async (req, res) => {
       defaultCountryCode: body.defaultCountryCode,
       aiContextEnabled: body.aiContextEnabled,
       autoGreetEnabled: body.autoGreetEnabled,
+      callSchedulingEnabled: body.callSchedulingEnabled,
       status: body.status,
       columnMapping: body.columnMapping,
       accessToken: body.accessToken,

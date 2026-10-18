@@ -18,6 +18,10 @@ import {
   rescheduleOutboundMessage as defaultRescheduleOutboundMessage,
 } from '../../messages/message.repository.js';
 import { confirmLeadQualification as defaultConfirmLeadQualification } from '../../conversations/conversation.repository.js';
+import {
+  createCallSchedulingService,
+  type CallSchedulingService,
+} from '../../lead-sources/call-scheduling.service.js';
 import { REALTIME_REASONS } from '../../realtime/realtime.events.js';
 import { publishConversationChanged as defaultPublishConversationChanged } from '../../realtime/realtime.publisher.js';
 import { type SendTextMessageResult } from '../providers/whatsapp-provider.interface.js';
@@ -99,6 +103,11 @@ export interface CreateOutboundDeliveryServiceOptions {
    * Injected so the delivery tests can assert it without a database.
    */
   confirmLeadQualification?: typeof defaultConfirmLeadQualification;
+  /**
+   * Starts the one-hour call-scheduling clock, but only for a delivered Meta-form greeting.
+   * A no-op for every other message; see call-scheduling.service.ts.
+   */
+  onOutboundMessageSent?: CallSchedulingService['onOutboundMessageSent'];
   contactRepository?: ContactRepositoryLike;
   messageRepository?: MessageRepositoryLike;
   findConversationById?: typeof defaultFindConversationById;
@@ -183,6 +192,7 @@ export const createOutboundDeliveryService = ({
   createTrace = createPipelineTrace,
   echoGuardService = createEchoGuardService(),
   confirmLeadQualification = defaultConfirmLeadQualification,
+  onOutboundMessageSent = createCallSchedulingService().onOutboundMessageSent,
 }: CreateOutboundDeliveryServiceOptions) => {
   const maxAttempts = Number(config.WHATSAPP_OUTBOUND_MAX_ATTEMPTS ?? 3);
   const leaseMs = Number(config.WHATSAPP_OUTBOUND_LEASE_MS ?? 120_000);
@@ -501,6 +511,22 @@ export const createOutboundDeliveryService = ({
           });
         });
       }
+
+      // THE ONLY MOMENT A CHASE MAY BE ARMED. Queued is not sent, and an hour counted from a
+      // draft would chase someone who was never asked anything. Failure-isolated for the same
+      // reason as the qualification hook above: this message WAS delivered, and turning that
+      // into a failure would resend it.
+      await onOutboundMessageSent({
+        message,
+        organizationId: organizationId as ObjectIdLike,
+        sentAt: now(),
+      }).catch((error: unknown) => {
+        const err = error as { code?: unknown; name?: unknown };
+        logger?.error?.('Could not arm the call-scheduling follow-up after a send.', {
+          code: err?.code,
+          name: err?.name,
+        });
+      });
 
       await publishStatusChange({ organizationId, message });
 

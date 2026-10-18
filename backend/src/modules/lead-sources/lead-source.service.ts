@@ -301,6 +301,12 @@ export interface UpdateLeadSourceForActorParams {
   defaultCountryCode?: string;
   aiContextEnabled?: boolean;
   autoGreetEnabled?: boolean;
+  /**
+   * Meta sources only. Enforced here rather than trusted from the request: a Google Sheet
+   * source can carry the flag in a payload, and the workflow would then be switched on for a
+   * source whose rows have no verified Meta submission id to key on.
+   */
+  callSchedulingEnabled?: boolean;
   status?: LeadSourceStatus;
   columnMapping?: Partial<LeadSourceColumnMapping>;
   /** Meta sources only: rotate the stored token. Never echoed back. */
@@ -318,6 +324,7 @@ export const updateLeadSourceForActor = async ({
   defaultCountryCode,
   aiContextEnabled,
   autoGreetEnabled,
+  callSchedulingEnabled,
   status,
   columnMapping,
   accessToken,
@@ -349,6 +356,14 @@ export const updateLeadSourceForActor = async ({
     defaultCountryCode,
     aiContextEnabled,
     autoGreetEnabled,
+    // SERVER-SIDE KIND CHECK. A request may ask for this on any source; only a Meta one may
+    // actually have it, because the workflow keys on a verified Meta submission id that a
+    // spreadsheet row cannot produce. Forced off rather than rejected, so a client that sends
+    // it harmlessly gets the safe answer instead of an error.
+    callSchedulingEnabled:
+      callSchedulingEnabled === undefined
+        ? undefined
+        : leadSource.kind === LEAD_SOURCE_KINDS.META_LEAD_ADS && callSchedulingEnabled,
     status,
     columnMapping,
     metaAccessToken: accessToken,

@@ -627,6 +627,8 @@ export interface LeadSource {
   aiContextEnabled: boolean;
   /** Whether the AI sends the first message to new leads from this form. Off by default. */
   autoGreetEnabled: boolean;
+  /** Meta sources only: ask new leads for a call time and chase once if nobody answers. */
+  callSchedulingEnabled: boolean;
   columnMapping: {
     externalId: string | null;
     createdTime: string | null;

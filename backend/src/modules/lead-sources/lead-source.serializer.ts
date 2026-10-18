@@ -51,6 +51,7 @@ export interface SerializedLeadSource {
   status: LeadSourceStatus | unknown;
   aiContextEnabled: boolean;
   autoGreetEnabled: boolean;
+  callSchedulingEnabled: boolean;
   columnMapping: {
     externalId: unknown;
     createdTime: unknown;
@@ -114,6 +115,7 @@ export const serializeLeadSource = (leadSource: unknown): SerializedLeadSource |
     status: value.status,
     aiContextEnabled: Boolean(value.aiContextEnabled),
     autoGreetEnabled: Boolean(value.autoGreetEnabled),
+    callSchedulingEnabled: Boolean(value.callSchedulingEnabled),
     columnMapping: {
       externalId: columnMapping.externalId ?? null,
       createdTime: columnMapping.createdTime ?? null,
