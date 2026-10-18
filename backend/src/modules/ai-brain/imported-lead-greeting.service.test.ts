@@ -144,3 +144,212 @@ describe('sending it', () => {
     );
   });
 });
+
+describe('the call-scheduling opening for Meta ad leads', () => {
+  const directive = (overrides: Record<string, unknown> = {}) =>
+    buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'wedding',
+      origin: 'form_call_scheduling',
+      ...overrides,
+    } as never);
+
+  it('asks for a call today', () => {
+    // The whole purpose of this variant. Without it the opening is the ordinary qualifying
+    // greeting and nobody is asked for a time.
+    expect(directive().toLowerCase()).toContain('call');
+    expect(directive().toLowerCase()).toContain('today');
+  });
+
+  it('asks for ONE thing, not the usual qualifying questions too', () => {
+    // A message that asks for a call AND the date AND the venue gets answered on the easiest
+    // question and the call never happens.
+    expect(directive()).toContain('ONE clear ask');
+  });
+
+  it('DESCRIBES the emotional point instead of dictating a sentence', () => {
+    const text = directive();
+
+    // THE REQUIREMENT THIS FILE EXISTS FOR. The brief contained a specific sentence about
+    // "the people, emotions and little moments". Shipping that sentence as required output
+    // would send every single lead the identical paragraph - a mass campaign by definition,
+    // and recognisable as one the moment two recipients compare notes.
+    expect(text).not.toContain("isn't just covering the event");
+    expect(text).not.toContain('little moments you');
+
+    // The intent is stated, and the wording is left to the model.
+    expect(text).toContain('IN YOUR OWN WORDS AND DIFFERENTLY EACH TIME');
+    expect(text.toLowerCase()).toContain('small moments');
+  });
+
+  it('tells the model not to reuse a stock sentence', () => {
+    expect(directive().toLowerCase()).toContain('do not reuse a stock sentence');
+  });
+
+  it('forbids inventing anything it was not given', () => {
+    const text = directive().toLowerCase();
+
+    // The lead gave a form, not a quote. Everything commercial is off limits.
+    for (const claim of ['prices', 'packages', 'availability', 'deliverables', 'discounts']) {
+      expect(text).toContain(claim);
+    }
+    expect(text).toContain('no urgency');
+  });
+
+  it('refuses to guess a missing occasion or date', () => {
+    expect(directive().toLowerCase()).toContain('only where you actually have them');
+    expect(directive().toLowerCase()).toContain('never guess');
+  });
+
+  it('handles a lead whose service was never identified', () => {
+    const text = directive({ category: null });
+
+    // Neutral wording rather than a guess - and no placeholder left behind.
+    expect(text).toContain('They did not say which service.');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('{{');
+  });
+
+  it('still names the form, so a stranger can place the message', () => {
+    expect(directive()).toContain('"Wedding Sept-Dec"');
+  });
+
+  it('leaves the ordinary form greeting untouched', () => {
+    const ordinary = buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'wedding',
+      origin: 'form',
+    } as never);
+
+    // The general-purpose opening must not have acquired a call ask for every other source.
+    expect(ordinary).toContain('ask your opening questions');
+    expect(ordinary).not.toContain('ONE clear ask');
+  });
+
+  it('leaves the manual greeting untouched', () => {
+    const manual = buildGreetingDirective({
+      sourceLabel: 'ignored',
+      category: 'wedding',
+      origin: 'manual',
+    } as never);
+
+    // A hand-typed lead filled in no form and must never be told they did.
+    expect(manual).toContain('did NOT fill in a form');
+    expect(manual).not.toContain('ONE clear ask');
+  });
+});
+
+describe('the form name is not an answer the customer gave', () => {
+  /**
+   * OBSERVED IN A REAL MODEL CALL, which is the only reason this exists. A lead with no service
+   * answer, on a form the owner had named "Wedding Sept-Dec", was greeted with "thanks for
+   * filling in the wedding form" - the studio telling a stranger what they want, based on the
+   * owner's own filing system. A wedding-named form collects birthday and corporate enquiries
+   * too, and being told you asked about a wedding when you did not is the kind of wrong that
+   * gets a WhatsApp number reported.
+   */
+  const unknownService = () =>
+    buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'unknown',
+      origin: 'form_call_scheduling',
+    } as never);
+
+  const verifiedWedding = () =>
+    buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'wedding',
+      origin: 'form_call_scheduling',
+    } as never);
+
+  it('tells the model the form name is OURS, not theirs', () => {
+    const text = unknownService();
+
+    expect(text).toContain('that is OUR name for it');
+    expect(text).toContain('not evidence of their occasion');
+  });
+
+  it('forbids naming a service they did not ask for', () => {
+    expect(unknownService()).toContain('Do not call it "the wedding form"');
+  });
+
+  it('asks what they want instead of guessing', () => {
+    const text = unknownService();
+
+    expect(text).toContain('ASK what');
+    expect(text).toContain('neutral terms');
+  });
+
+  it('keeps the warmth general when there is no occasion to be warm about', () => {
+    // "the feeling of the day" presumes a day. Without a service there may not be one.
+    expect(unknownService()).toContain('Keep the warmth general');
+  });
+
+  it('still asks for a call today even with nothing else known', () => {
+    expect(unknownService().toLowerCase()).toContain('time today for a short call');
+  });
+
+  it('says NOTHING of the sort when the service really was answered', () => {
+    const text = verifiedWedding();
+
+    // A verified wedding enquiry should read as one - the caution only applies when we are
+    // guessing, and applying it always would make every message vague.
+    expect(text).toContain('They enquired about wedding.');
+    expect(text).not.toContain('that is OUR name for it');
+    expect(text).not.toContain('ASK what');
+  });
+
+  /**
+   * BOTH FORM VARIANTS, and this test used to assert the opposite.
+   *
+   * The guard was first written for the call-scheduling opening because that is where the bad
+   * message was observed, and this case pinned that scope down. It was the wrong line to draw:
+   * the form's name is the owner's filing whichever opening is being written, and the ordinary
+   * variant's "confirm we do the thing they asked about" is if anything a stronger invitation to
+   * invent an occasion than anything in the scheduling one.
+   */
+  const ordinaryUnknown = () =>
+    buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'unknown',
+      origin: 'form',
+    } as never);
+
+  it('guards the ordinary form greeting too', () => {
+    const text = ordinaryUnknown();
+
+    expect(text).toContain('that is OUR name for it');
+    expect(text).toContain('Do not call it "the wedding form"');
+  });
+
+  it('drops "confirm we do the thing they asked about" when they asked about nothing', () => {
+    // They named no service, so there is no "thing they asked about" to confirm - following that
+    // instruction means picking one, which is the whole defect.
+    expect(ordinaryUnknown()).not.toContain('confirm we do the thing they asked about');
+    expect(ordinaryUnknown()).toContain('say what we do');
+  });
+
+  it('keeps that line when the service really was answered', () => {
+    const text = buildGreetingDirective({
+      sourceLabel: 'Wedding Sept-Dec',
+      category: 'wedding',
+      origin: 'form',
+    } as never);
+
+    expect(text).toContain('confirm we do the thing they asked about');
+    expect(text).not.toContain('that is OUR name for it');
+  });
+
+  it('does not turn the ordinary greeting into the call-scheduling one', () => {
+    // The guard is shared; the call ask is not.
+    expect(ordinaryUnknown()).toContain('ask your opening questions');
+    expect(ordinaryUnknown()).not.toContain('ONE clear ask');
+  });
+
+  it('never leaves a placeholder behind in either variant', () => {
+    for (const text of [ordinaryUnknown(), unknownService()]) {
+      expect(text).not.toContain('undefined');
+      expect(text).not.toContain('{{');
+    }
+  });
+});

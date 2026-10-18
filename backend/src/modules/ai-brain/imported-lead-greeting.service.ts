@@ -26,7 +26,7 @@ import { type ConversationDocument } from '../conversations/conversation.model.j
 import { handleInboundMessageForAutomation as defaultHandleInboundMessageForAutomation } from './ai-brain.service.js';
 
 /** Where the lead came from. Decides what the opening line may truthfully claim. */
-export type GreetingOrigin = 'form' | 'manual';
+export type GreetingOrigin = 'form' | 'manual' | 'form_call_scheduling';
 
 export interface GreetImportedLeadParams {
   organizationId: ObjectIdLike;
@@ -54,6 +54,28 @@ export interface GreetImportedLeadParams {
  * says it vaguely when the owner gave no context, because a vague honest opening is recoverable
  * and a confident false one is not.
  */
+/**
+ * THE FORM'S NAME IS NOT AN ANSWER THEY GAVE.
+ *
+ * Observed in a real model call: a lead with no service answer, on a form the owner had called
+ * "Wedding Sept-Dec", was greeted with "thanks for filling in the wedding form" - the studio
+ * telling a stranger what they want, based on the owner's own filing system. A form named for
+ * weddings collects birthday and corporate enquiries too, and the first message is exactly where
+ * getting that wrong costs the lead.
+ *
+ * Applies to BOTH form variants. The label is the owner's filing, whichever opening is being
+ * written, and the ordinary variant's "confirm we do the thing they asked about" is if anything
+ * the stronger invitation to invent an occasion.
+ */
+const doNotInferTheServiceFromTheFormName = (sourceLabel: string): string[] => [
+  'YOU DO NOT KNOW WHAT THEY WANT. The form is called',
+  `"${sourceLabel}", and that is OUR name for it, not something they told us -`,
+  'it is not evidence of their occasion and you must not infer one from it.',
+  'Do not call it "the wedding form" or name any service they did not ask for.',
+  'Acknowledge the enquiry in neutral terms, say briefly what we do, and ASK what',
+  'they are looking for. Keep the warmth general rather than about "the day".',
+];
+
 export const buildGreetingDirective = ({
   sourceLabel,
   category,
@@ -65,10 +87,14 @@ export const buildGreetingDirective = ({
   origin?: GreetingOrigin;
   originNote?: string | null;
 }): string => {
-  const about =
-    category && category !== 'unknown'
-      ? `They enquired about ${category.replace(/_/g, ' ')}.`
-      : 'They did not say which service.';
+  // "We know" means THEY told us, on the form. Anything else - the form's name, the campaign,
+  // what this source usually brings in - is our inference, and inference is what produced a
+  // message telling a stranger they wanted a wedding shoot.
+  const hasVerifiedService = Boolean(category && category !== 'unknown');
+
+  const about = hasVerifiedService
+    ? `They enquired about ${category!.replace(/_/g, ' ')}.`
+    : 'They did not say which service.';
 
   if (origin === 'manual') {
     const context = originNote?.trim()
@@ -91,12 +117,45 @@ export const buildGreetingDirective = ({
     ].join(' ');
   }
 
+  if (origin === 'form_call_scheduling') {
+    // THE GOAL IS DESCRIBED, NOT DICTATED. The brief this came from contained a specific
+    // sentence about "the people, emotions and little moments". Putting that sentence here as
+    // required output would make every lead receive the identical paragraph - which is the
+    // definition of a mass campaign, and reads as one by the third person who compares notes.
+    // So the INTENT is stated and the wording is the model's, which is also how every other
+    // message this agent sends already works.
+    return [
+      'This is your FIRST message to this person and they have never messaged us.',
+      `They filled in our "${sourceLabel}" enquiry form. ${about}`,
+      'Open by referring to the form so they instantly recognise why we are messaging -',
+      'they filled it in on an ad and may not remember the studio name.',
+      'Use their name if you have it; if you do not, greet them without one rather than',
+      'leaving a gap. Mention their occasion and date ONLY where you actually have them -',
+      'never guess either, and do not repeat the occasion more than once.',
+      ...(hasVerifiedService ? [] : doNotInferTheServiceFromTheFormName(sourceLabel)),
+      'Convey, IN YOUR OWN WORDS AND DIFFERENTLY EACH TIME, that what matters to us is not just',
+      'covering the event but capturing the people, the feeling and the small moments they will',
+      'want back later. Do not reuse a stock sentence for this - say it the way it fits THIS',
+      "person's occasion.",
+      'Then ask, naturally, whether they have a time today for a short call.',
+      'ONE clear ask: the call. Do not also ask your usual qualifying questions in this message.',
+      'No prices, no packages, no availability, no deliverables, no discounts and no urgency -',
+      'you have been given none of those and must not imply any.',
+      'Keep it short, warm and human, and do not apologise for messaging them.',
+    ].join(' ');
+  }
+
   return [
     'This is your FIRST message to this person and they have never messaged us.',
     `They filled in our "${sourceLabel}" enquiry form. ${about}`,
     'Open by referring to the form so they instantly recognise why we are messaging -',
     'they filled it in on an ad and may not remember the studio name.',
-    'Then follow the normal opening: say what we do, confirm we do the thing they asked about,',
+    ...(hasVerifiedService
+      ? ['Then follow the normal opening: say what we do, confirm we do the thing they asked about,']
+      : [
+          ...doNotInferTheServiceFromTheFormName(sourceLabel),
+          'Then follow the normal opening: say what we do,',
+        ]),
     'and ask your opening questions. Keep it short and do not apologise for messaging them.',
   ].join(' ');
 };
