@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { listConversations, listStages, listTags, setAiAutomation } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
+import { useIsMobileViewport } from '../hooks/useMobileBackLayer';
+import { useScrollMemory } from '../hooks/useScrollMemory';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
 import AddLeadDialog from './AddLeadDialog';
 import EmptyState from './EmptyState';
 import InboxFilters from './InboxFilters';
+import MobileAppBar from './mobile/MobileAppBar';
 import LeadScoreBadge from './LeadScoreBadge';
 import LeadTemperatureBadge from './LeadTemperatureBadge';
 import RelativeTime from './RelativeTime';
@@ -48,6 +51,18 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Conversation id -> the value the user just chose, held until the refetch confirms it.
   const [pending, setPending] = useState<Record<string, boolean>>({});
+  /**
+   * On a phone this list is hidden rather than unmounted while a thread is open, so everything
+   * above survives on its own - but `display: none` resets scrollTop. This puts the owner back
+   * where they were reading instead of at the top of the inbox.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useScrollMemory(scrollRef);
+
+  const isMobile = useIsMobileViewport();
+  /** Narrows the loaded page only - see the note beside the input on why there is no server query. */
+  const [query, setQuery] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +101,34 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   useEffect(() => subscribe(() => load()), [subscribe, load]);
 
   const hasFilters = Boolean(stageFilter) || tagFilterIds.length > 0;
+  const activeFilterCount = (stageFilter ? 1 : 0) + tagFilterIds.length;
+
+  /**
+   * The rows actually rendered.
+   *
+   * GATED ON `isMobile`, NOT JUST ON THE QUERY, and the difference is a bug that was shipped
+   * once. The search input renders only on a phone, but this component is NOT remounted when
+   * the viewport crosses the breakpoint - its key is the refresh counter - so `query` survives
+   * into the desktop layout while the box that set it unmounts. Widening a browser window
+   * after searching left the desktop inbox filtered to a handful of rows with no visible
+   * search field and no way to clear it.
+   *
+   * Deriving it here rather than clearing `query` in an effect keeps the typed text for when
+   * the viewport narrows again, and costs no extra render.
+   *
+   * Matches the name and the last-message preview, which together are what someone is
+   * scanning for. Case-insensitive and trimmed, because nobody types a lead's name with the
+   * capitalisation WhatsApp gave it.
+   */
+  const needle = isMobile ? query.trim().toLowerCase() : '';
+  const visible =
+    needle === ''
+      ? conversations
+      : conversations.filter((conversation) =>
+          `${conversation.displayName ?? ''} ${conversation.lastMessagePreview ?? ''}`
+            .toLowerCase()
+            .includes(needle),
+        );
 
   /**
    * Optimistic, and deliberately so: the whole point is that switching the AI off feels immediate,
@@ -125,31 +168,125 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   // longer pins itself to max-w-sm and eats half a laptop viewport.
   return (
     <aside className="flex h-full w-full flex-col border-r border-hairline bg-ink-2">
-      <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
-        {/* Stays "Conversations", not "Contact sheet": this app has Contacts as a separate thing,
-            so the studio's own word for a page of frames would read as the wrong noun here. The
-            contact-sheet idea lives in the film-edge markers on the rows instead. */}
-        <h2 className="eyebrow">Conversations</h2>
-        <div className="flex items-center gap-3">
-          <output className="text-[0.6875rem] text-muted">{conversations.length}</output>
-          {canAddLead ? (
+      {isMobile ? (
+        <>
+          <MobileAppBar
+            asHeading
+            title="Inbox"
+            subtitle={`${visible.length} of ${conversations.length} leads`}
+            actions={
+              <>
+                {canAddLead ? (
+                  <button
+                    type="button"
+                    onClick={() => setAddingLead(true)}
+                    aria-label="Add a lead"
+                    className="m-appbar-action"
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5" fill="none">
+                      <path
+                        d="M10 4.5v11M4.5 10h11"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={load}
+                  aria-label="Refresh the list"
+                  className="m-appbar-action"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5" fill="none">
+                    <path
+                      d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </>
+            }
+          />
+
+          {/* SEARCH FILTERS WHAT IS ALREADY LOADED, and says so. The conversations endpoint
+              takes stage and tags but no query, and inventing a server parameter would be an
+              API change. Narrowing the page in the hand is still the thing you want nine times
+              out of ten - finding the lead you were just reading - so it is offered, labelled
+              honestly, and the count above shows how much of the list it is matching. */}
+          <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
+            <div className="relative min-w-0 flex-1">
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+                fill="none"
+              >
+                <circle cx="9" cy="9" r="5.25" stroke="currentColor" strokeWidth="1.6" />
+                <path
+                  d="m13 13 3.5 3.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search loaded leads…"
+                aria-label="Search the leads already loaded"
+                className="h-10 w-full rounded-lg border border-hairline bg-panel pl-8 pr-3 text-sm text-bone placeholder:text-muted focus:border-key/50 focus:outline-none"
+              />
+            </div>
             <button
               type="button"
-              onClick={() => setAddingLead(true)}
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              className={`flex h-10 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${
+                hasFilters ? 'border-key/50 text-key' : 'border-hairline text-bone-dim'
+              }`}
+            >
+              Filters
+              {activeFilterCount > 0 ? (
+                <span className="rounded-full bg-key px-1.5 font-mono text-[0.625rem] text-ink">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </>
+      ) : (
+        <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
+          {/* Stays "Conversations", not "Contact sheet": this app has Contacts as a separate thing,
+            so the studio's own word for a page of frames would read as the wrong noun here. The
+            contact-sheet idea lives in the film-edge markers on the rows instead. */}
+          <h2 className="eyebrow">Conversations</h2>
+          <div className="flex items-center gap-3">
+            <output className="text-[0.6875rem] text-muted">{conversations.length}</output>
+            {canAddLead ? (
+              <button
+                type="button"
+                onClick={() => setAddingLead(true)}
+                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+              >
+                + Lead
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={load}
               className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
             >
-              + Lead
+              Refresh
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={load}
-            className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
-          >
-            Refresh
-          </button>
-        </div>
-      </header>
+          </div>
+        </header>
+      )}
 
       {addingLead ? (
         <AddLeadDialog
@@ -164,16 +301,21 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
         />
       ) : null}
 
-      <InboxFilters
-        stages={stages}
-        tags={tags}
-        stage={stageFilter}
-        tagIds={tagFilterIds}
-        onStageChange={setStageFilter}
-        onTagsChange={setTagFilterIds}
-      />
+      {/* On a phone the two selects are folded away behind the Filters button: they are set
+          once and then take a permanent row away from the leads. On desktop they stay visible,
+          exactly as before. */}
+      {!isMobile || filtersOpen ? (
+        <InboxFilters
+          stages={stages}
+          tags={tags}
+          stage={stageFilter}
+          tagIds={tagFilterIds}
+          onStageChange={setStageFilter}
+          onTagsChange={setTagFilterIds}
+        />
+      ) : null}
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
         {loading ? (
           <div className="p-4">
             <Spinner label="Loading conversations…" />
@@ -184,6 +326,15 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
           <p role="alert" className="p-4 text-sm text-red-600">
             {error}
           </p>
+        ) : null}
+
+        {/* A search that matches nothing is a DIFFERENT state from an empty inbox, and saying
+            so is the difference between "try another word" and "nothing has come in". */}
+        {!loading && !error && conversations.length > 0 && visible.length === 0 ? (
+          <EmptyState
+            title="No leads match that search"
+            description={`Nothing in the ${conversations.length} loaded leads matches “${query.trim()}”. Older leads are not searched.`}
+          />
         ) : null}
 
         {!loading && !error && conversations.length === 0 ? (
@@ -198,7 +349,7 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
         ) : null}
 
         <ul>
-          {conversations.map((conversation) => {
+          {visible.map((conversation) => {
             const isSelected = conversation.id === selectedId;
 
             return (
@@ -262,7 +413,8 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
                     {/* Intent still earns a pill, but only when it is high enough to be worth
                         interrupting for - which is what "visible without opening it" was for.
                         The full score and its six signals live in the lead panel. */}
-                    {conversation.leadScoreBand === 'hot' || conversation.leadScoreBand === 'warm' ? (
+                    {conversation.leadScoreBand === 'hot' ||
+                    conversation.leadScoreBand === 'warm' ? (
                       <LeadScoreBadge
                         band={conversation.leadScoreBand}
                         score={conversation.leadScore}

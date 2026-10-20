@@ -14,20 +14,18 @@ const generateIdempotencyKey = (): string => {
 type SendArgs = {
   body: string;
   idempotencyKey: string;
-  draftId: string | null;
-  wasEdited: boolean;
   whatsappAccountId: string | null;
-};
-
-type SuggestResult = {
-  draftId: string | null;
-  draftText: string;
 };
 
 type Props = {
   onSend: (args: SendArgs) => Promise<void>;
-  onSuggest?: () => Promise<SuggestResult>;
-  canSuggest?: boolean;
+  /**
+   * Opens the template writer for the open thread. Replaced "Suggest reply", which filled this
+   * box with a single AI draft; the writer offers several versions, each editable and sendable
+   * on its own, and lives in a dialog so it does not crowd the composer on a phone.
+   */
+  onOpenTemplates?: () => void;
+  canUseTemplates?: boolean;
   /** Numbers with a live session that this user may send from. */
   sendableAccounts?: readonly SendableAccount[];
   /** The number the thread is currently on, pre-selected in the dropdown. */
@@ -42,8 +40,8 @@ type Props = {
 
 const MessageComposer = ({
   onSend,
-  onSuggest,
-  canSuggest = false,
+  onOpenTemplates,
+  canUseTemplates = false,
   sendableAccounts = [],
   currentAccountId = null,
   currentAccountName = null,
@@ -52,35 +50,10 @@ const MessageComposer = ({
   const [body, setBody] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Tracks whether the current text is an unedited AI draft, so the parent can record whether
-  // it was sent as-is or edited first (ADR-005's feedback-metadata control).
-  const [draftId, setDraftId] = useState<string | null>(null);
-  const [draftText, setDraftText] = useState<string | null>(null);
 
   const handleBodyChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setBody(event.target.value);
-  };
-
-  const handleSuggest = async () => {
-    if (suggesting || sending || !onSuggest) {
-      return;
-    }
-
-    setSuggesting(true);
-    setError(null);
-
-    try {
-      const suggestion = await onSuggest();
-      setBody(suggestion.draftText);
-      setDraftId(suggestion.draftId);
-      setDraftText(suggestion.draftText);
-    } catch (suggestError: unknown) {
-      setError(errorMessage(suggestError, 'Unable to suggest a reply.'));
-    } finally {
-      setSuggesting(false);
-    }
   };
 
   /**
@@ -99,9 +72,6 @@ const MessageComposer = ({
     }
 
     setBody(template.body);
-    // No longer an AI draft, so it must not be reported as one approved or edited.
-    setDraftId(null);
-    setDraftText(null);
   };
 
   // Falls back to the thread's own number until the agent picks something else, so a stale
@@ -138,13 +108,9 @@ const MessageComposer = ({
       await onSend({
         body: trimmed,
         idempotencyKey: generateIdempotencyKey(),
-        draftId,
-        wasEdited: draftId ? trimmed !== draftText : false,
         whatsappAccountId: activeAccountId,
       });
       setBody('');
-      setDraftId(null);
-      setDraftText(null);
     } catch (sendError: unknown) {
       setError(errorMessage(sendError, 'Unable to send message.'));
     } finally {
@@ -156,14 +122,16 @@ const MessageComposer = ({
     <form
       onSubmit={handleSubmit}
       aria-label="Send a message"
-      className="border-t border-slate-200 bg-white p-3"
+      // The bottom inset ADDS to p-3 so the send button clears the gesture bar; shrink-0 stops
+      // the composer being squeezed to nothing when the thread above it is long.
+      className="shrink-0 border-t border-slate-200 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
     >
       {error ? (
         <p role="alert" className="mb-2 text-sm text-red-600">
           {error}
         </p>
       ) : null}
-      {canSuggest || showAccountPicker || templates.length > 0 ? (
+      {canUseTemplates || showAccountPicker || templates.length > 0 ? (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {templates.length > 0 ? (
@@ -184,14 +152,14 @@ const MessageComposer = ({
                 ))}
               </select>
             ) : null}
-            {canSuggest ? (
+            {canUseTemplates && onOpenTemplates ? (
               <button
                 type="button"
-                onClick={handleSuggest}
-                disabled={suggesting || sending}
+                onClick={onOpenTemplates}
+                disabled={sending}
                 className="rounded-lg border border-blue-300 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {suggesting ? 'Suggesting…' : '✨ Suggest reply'}
+                ✨ Message templates
               </button>
             ) : null}
             {showAccountPicker ? (
@@ -218,9 +186,6 @@ const MessageComposer = ({
               <span className="text-xs text-amber-600">
                 This lead will move to the selected number.
               </span>
-            ) : null}
-            {draftId ? (
-              <span className="text-xs text-slate-400">AI draft — review before sending</span>
             ) : null}
           </div>
         </div>

@@ -262,7 +262,11 @@ const RemindersPage = ({
         </p>
       ) : null}
 
-      <div className="flex gap-1 border-b border-line" role="tablist">
+      {/* Wraps below sm instead of overflowing. The four buckets need ~374px of strip and a
+          360px phone clipped "Cancelled" off the right edge entirely - not scrolled to, lost,
+          because the document cannot scroll sideways. A second line costs 32px and makes every
+          bucket tappable. From sm it is the single row it always was. */}
+      <div className="flex flex-wrap gap-1 border-b border-line sm:flex-nowrap" role="tablist">
         {BUCKETS.map((entry) => (
           <button
             key={entry.key}

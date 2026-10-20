@@ -1,12 +1,16 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import RemindersPage from './RemindersPage';
+import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useReminderAlarms } from '../hooks/useReminderAlarms';
 import ChangePasswordGate from '../components/ChangePasswordGate';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
+import MobileSectionMenu, { type MobileNavItem } from '../components/MobileSectionMenu';
+import MobileAppBar from '../components/mobile/MobileAppBar';
+import MobileBottomNav from '../components/mobile/MobileBottomNav';
 import { useAuth } from '../auth/AuthContext';
 import { getInitials } from '../lib/format';
 import { readMetaConnectReturn } from '../lib/meta-connect';
@@ -68,7 +72,11 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
     type="button"
     onClick={onClick}
     aria-current={active}
-    className={`relative shrink-0 whitespace-nowrap px-3 py-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] transition-colors ${
+    // px-2 below sm only: at 320px the wordmark, the two live sections and the menu button are
+    // about 11px too wide at px-3 and the menu wrapped onto a second row, costing 37px of
+    // height on the smallest screen that can least afford it. From sm - and so on every
+    // desktop - the padding is exactly what it was.
+    className={`relative shrink-0 whitespace-nowrap px-2 py-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] transition-colors sm:px-3 ${
       active ? 'text-key' : 'text-muted hover:text-bone'
     }`}
   >
@@ -80,6 +88,44 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
       }`}
     />
   </button>
+);
+
+/**
+ * One section screen: its bar, its scroll area, and room for the bottom nav.
+ *
+ * Defined at module level rather than inside AppShell on purpose - a component declared during
+ * render gets a new identity every render, and React would unmount and remount the whole page
+ * inside it each time, throwing away its fetched state and scroll position.
+ *
+ * `isTab` marks the destinations the bottom bar owns. Those are roots: they get no back
+ * control, because back from a root is how you leave the app on Android and a chevron that
+ * pretends otherwise is a lie. Everything reached through More is a pushed screen and gets one.
+ */
+const SectionScreen = ({
+  mobile,
+  title,
+  isTab = false,
+  onBack,
+  children,
+}: {
+  mobile: boolean;
+  title: string;
+  isTab?: boolean;
+  onBack: () => void;
+  children: ReactNode;
+}) => (
+  <>
+    {mobile ? (
+      <MobileAppBar title={title} onBack={isTab ? undefined : onBack} backLabel="Back to inbox" />
+    ) : null}
+    {/* m-nav-clearance keeps the last row clear of the fixed bottom bar. Applied to the
+        scroller rather than the page so the bar overlaps nothing. */}
+    <div
+      className={`min-h-0 flex-1 overflow-y-auto ${mobile ? 'm-nav-clearance m-has-appbar' : ''}`}
+    >
+      {children}
+    </div>
+  </>
 );
 
 const AppShell = () => {
@@ -95,14 +141,113 @@ const AppShell = () => {
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
+  /** The More sheet. Owned here rather than inside the bar so the sheet outlives a tab change. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Decides which chrome renders - the desktop masthead, or the phone's app bar plus bottom
+  // navigation. Reports desktop wherever `matchMedia` is unavailable, so the server, a
+  // snapshot and every existing test keep the layout they already had.
+  const isMobileViewport = useIsMobileViewport();
+  /**
+   * Which section a thread was opened FROM, when it was not the inbox.
+   *
+   * A reminder opens a lead, and the thread can only render inside the inbox branch - so `view`
+   * has to become 'inbox' on the way. Without remembering where the tap came from, closing the
+   * thread would strand the owner in the inbox rather than back in the reminders list they were
+   * working through. A ref because nothing renders from it, and because `openConversation` has
+   * to stay referentially stable: it is a dependency of the alarm sync, which would otherwise
+   * tear down and re-register its listeners on every navigation.
+   */
+  const conversationOriginRef = useRef<AppView | null>(null);
+  const viewRef = useRef(view);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
   /**
    * Opens a lead. Used by the reminders list and by a tapped notification, so both land in the
    * same place as clicking the thread in the inbox - no second navigation concept.
    */
   const openConversation = useCallback((conversationId: string) => {
+    conversationOriginRef.current = viewRef.current === 'inbox' ? null : viewRef.current;
     setView('inbox');
     setSelectedId(conversationId);
   }, []);
+
+  /** Opening a thread from the inbox list itself has no origin to return to beyond the list. */
+  const selectConversation = useCallback((conversationId: string) => {
+    conversationOriginRef.current = null;
+    setSelectedId(conversationId);
+  }, []);
+
+  /**
+   * Returns to the INBOX ROOT - the list, not whatever thread happened to still be selected.
+   *
+   * Wired only to phone chrome (the bottom bar's Inbox tab and every pushed section's back
+   * arrow), so this cannot change desktop, where the masthead still calls `setView('inbox')`
+   * exactly as it always did.
+   *
+   * Clearing the selection is what makes the tab honest. Leaving it set landed you on an open
+   * thread with the Inbox tab lit - and because the bar hides itself over a thread, the
+   * navigation you had just used would vanish, which is a dead end rather than a destination.
+   */
+  const goToInbox = useCallback(() => {
+    conversationOriginRef.current = null;
+    setSelectedId(null);
+    setView('inbox');
+  }, []);
+
+  /**
+   * The open thread was deleted. Clears the selection WITHOUT the origin restore that
+   * `closeConversation` performs.
+   *
+   * Deliberately not `closeConversation`: that was wired here briefly and changed desktop
+   * behaviour, because a lead opened from Reminders carries an origin, and deleting it then
+   * threw the owner back to the reminders list instead of leaving them in the inbox - on
+   * desktop as well as on a phone. The thread no longer exists, so there is nothing to
+   * navigate "back" to; the original behaviour was to drop the selection and stay put.
+   */
+  const dismissDeletedConversation = useCallback(() => {
+    conversationOriginRef.current = null;
+    setSelectedId(null);
+  }, []);
+
+  /** The one way a thread closes, so the in-app arrow and the back gesture cannot diverge. */
+  const closeConversation = useCallback(() => {
+    setSelectedId(null);
+
+    if (conversationOriginRef.current) {
+      setView(conversationOriginRef.current);
+      conversationOriginRef.current = null;
+    }
+  }, []);
+
+  /**
+   * THE THREE MOBILE LAYERS, outermost first. Registration order is what the back gesture
+   * walks, so they are declared in the order they stack on screen rather than grouped by
+   * concern: a section opened over the inbox closes before the thread underneath it does.
+   *
+   * All three are no-ops on a desktop viewport - see useMobileBackLayer - so none of this
+   * changes how the dashboard behaves on a laptop.
+   */
+  useMobileBackLayer({
+    // Any section other than the inbox is a screen the person navigated INTO, so back returns
+    // to the inbox rather than leaving the app. The inbox itself is the root: back from there
+    // exits, which is what Android expects.
+    active: view !== 'inbox',
+    onBack: useCallback(() => setView('inbox'), []),
+  });
+
+  useMobileBackLayer({
+    // An open thread. Back returns to the list, which has stayed mounted the whole time, so its
+    // filters and scroll position are still where they were.
+    active: selectedId !== null,
+    onBack: closeConversation,
+  });
+
+  // No layer for the password dialog here: ChangePasswordDialog registers its own, the way
+  // every other modal in the app now does. Two layers for one dialog would need two back
+  // presses to dismiss it.
 
   /**
    * MOUNTED ONCE, HERE. AppShell renders only when authenticated and only once per session, so
@@ -134,7 +279,7 @@ const AppShell = () => {
       },
       [openConversation],
     ),
-    });
+  });
 
   const canReadAccounts = hasPermission(permissions, PERMISSIONS.ACCOUNTS_READ);
   const canReadUsers = hasPermission(permissions, PERMISSIONS.USERS_READ);
@@ -144,6 +289,23 @@ const AppShell = () => {
   const canManageLeadSources = hasPermission(permissions, PERMISSIONS.LEAD_SOURCES_MANAGE);
   const canManageSettings = hasPermission(permissions, PERMISSIONS.SETTINGS_MANAGE);
 
+  /**
+   * The same sections the masthead strip offers, as data, for the phone's menu sheet. Built
+   * from the same permission flags rather than a second list, so a section can never appear in
+   * one and not the other.
+   */
+  const navItems: MobileNavItem<AppView>[] = [
+    { view: 'reminders', label: 'Reminders' },
+    { view: 'inbox', label: 'Inbox' },
+    ...(canReadAccounts ? ([{ view: 'accounts', label: 'Accounts' }] as const) : []),
+    ...(canReadUsers ? ([{ view: 'team', label: 'Team' }] as const) : []),
+    ...(canManageStages ? ([{ view: 'stages', label: 'Stages' }] as const) : []),
+    ...(canManageTags ? ([{ view: 'tags', label: 'Tags' }] as const) : []),
+    ...(canManageLeadSources ? ([{ view: 'lead-sources', label: 'Lead sources' }] as const) : []),
+    ...(canManageAiKnowledge ? ([{ view: 'ai-knowledge', label: 'Knowledge' }] as const) : []),
+    ...(canManageSettings ? ([{ view: 'settings', label: 'Settings' }] as const) : []),
+  ];
+
   // A temporary password must be replaced before anything else is reachable. The backend
   // enforces this too, so this is UX rather than the security boundary.
   if (user?.mustChangePassword) {
@@ -151,127 +313,142 @@ const AppShell = () => {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-ink">
-      {/* Wraps rather than overflows: eight channels need ~1030px of strip, so below lg the nav
-          takes a line of its own (order-3, w-full) and scrolls sideways within it, while the
-          wordmark and the account controls share the line above. Sharing one line instead would
-          squeeze the nav to a couple of dozen pixels - scrollable, but with no legible label in
-          view. From lg it sits back between them on a single line. */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline bg-ink-2/80 px-4 py-2.5 backdrop-blur sm:px-5">
-        <span className="wordmark order-1 shrink-0">Vistaar</span>
-        {organization?.name ? (
-          <span className="order-1 hidden shrink-0 border-l border-hairline pl-5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted xl:inline">
-            {organization.name}
-          </span>
-        ) : null}
-        <nav
-          aria-label="Sections"
-          className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
-        >
-          <NavButton active={view === 'reminders'} onClick={() => setView('reminders')}>
-            Reminders
-          </NavButton>
-          <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
-            Inbox
-          </NavButton>
-          {canReadAccounts ? (
-            <NavButton active={view === 'accounts'} onClick={() => setView('accounts')}>
-              Accounts
-            </NavButton>
-          ) : null}
-          {canReadUsers ? (
-            <NavButton active={view === 'team'} onClick={() => setView('team')}>
-              Team
-            </NavButton>
-          ) : null}
-          {canManageStages ? (
-            <NavButton active={view === 'stages'} onClick={() => setView('stages')}>
-              Stages
-            </NavButton>
-          ) : null}
-          {canManageTags ? (
-            <NavButton active={view === 'tags'} onClick={() => setView('tags')}>
-              Tags
-            </NavButton>
-          ) : null}
-          {canManageLeadSources ? (
-            <NavButton active={view === 'lead-sources'} onClick={() => setView('lead-sources')}>
-              Lead sources
-            </NavButton>
-          ) : null}
-          {canManageAiKnowledge ? (
-            <NavButton active={view === 'ai-knowledge'} onClick={() => setView('ai-knowledge')}>
-              Knowledge
-            </NavButton>
-          ) : null}
-          {canManageSettings ? (
-            <NavButton active={view === 'settings'} onClick={() => setView('settings')}>
-              Settings
-            </NavButton>
-          ) : null}
-        </nav>
-        <div className="order-2 ml-auto flex shrink-0 items-center gap-3 lg:order-3">
-          <a
-            href="whatsapp-admin://open"
-            className="rounded-md border border-hairline px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key"
-          >
-            W-Staff
-          </a>
-          <div className="flex items-center gap-2 border-l border-hairline pl-3">
-            {/* The initials sit in the key light: the one warm point in the masthead, so "who am
-                I signed in as" is answerable at a glance without reading. */}
-            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-key/40 bg-key/10 font-mono text-[0.625rem] font-semibold text-key-soft">
-              {getInitials(user?.name)}
+    // `app-shell` swaps 100vh for 100dvh below lg only; see index.css on why the composer
+    // ended up under the browser chrome without it.
+    <div className="app-shell flex h-screen flex-col bg-ink">
+      {/* THE MASTHEAD IS DESKTOP-ONLY NOW.
+          It needs ~790px for nine letterspaced labels plus the account controls. On a phone
+          navigation has moved to the bottom bar, where the thumb is, and each screen carries
+          its own MobileAppBar - so rendering this at all below `lg` would be a second,
+          competing set of navigation at the far end of the screen from the hand holding it.
+          From `lg` it is exactly what it always was.
+
+          CHOSEN IN JS, NOT HIDDEN BY CSS. Rendering both and letting `lg:hidden` pick put two
+          buttons called "Inbox" in the accessibility tree and broke two existing tests: jsdom
+          applies no stylesheet media queries, so `findByRole('button', { name: 'Inbox' })`
+          matched both and threw. `useIsMobileViewport` reports desktop wherever `matchMedia`
+          is absent, so every existing test sees the markup it always saw. */}
+      {!isMobileViewport ? (
+        <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-ink-2/80 px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] backdrop-blur sm:gap-x-3 sm:px-5">
+          <span className="wordmark order-1 shrink-0">Vistaar</span>
+          {organization?.name ? (
+            <span className="order-1 hidden shrink-0 border-l border-hairline pl-5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted xl:inline">
+              {organization.name}
             </span>
-            <span className="hidden text-sm text-bone-dim md:inline">{user?.name}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setChangingPassword(true)}
-            className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
-          >
-            Password
-          </button>
-          <button
-            type="button"
-            onClick={logout}
-            className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+          ) : null}
+          <>
+            <nav
+              aria-label="Sections"
+              className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
+            >
+              <NavButton active={view === 'reminders'} onClick={() => setView('reminders')}>
+                Reminders
+              </NavButton>
+              <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
+                Inbox
+              </NavButton>
+              {canReadAccounts ? (
+                <NavButton active={view === 'accounts'} onClick={() => setView('accounts')}>
+                  Accounts
+                </NavButton>
+              ) : null}
+              {canReadUsers ? (
+                <NavButton active={view === 'team'} onClick={() => setView('team')}>
+                  Team
+                </NavButton>
+              ) : null}
+              {canManageStages ? (
+                <NavButton active={view === 'stages'} onClick={() => setView('stages')}>
+                  Stages
+                </NavButton>
+              ) : null}
+              {canManageTags ? (
+                <NavButton active={view === 'tags'} onClick={() => setView('tags')}>
+                  Tags
+                </NavButton>
+              ) : null}
+              {canManageLeadSources ? (
+                <NavButton active={view === 'lead-sources'} onClick={() => setView('lead-sources')}>
+                  Lead sources
+                </NavButton>
+              ) : null}
+              {canManageAiKnowledge ? (
+                <NavButton active={view === 'ai-knowledge'} onClick={() => setView('ai-knowledge')}>
+                  Knowledge
+                </NavButton>
+              ) : null}
+              {canManageSettings ? (
+                <NavButton active={view === 'settings'} onClick={() => setView('settings')}>
+                  Settings
+                </NavButton>
+              ) : null}
+            </nav>
+            {/* The account controls are a second header line on a phone for things used once
+                a week, so on a phone they live in the menu sheet instead. */}
+            <div className="order-2 ml-auto flex shrink-0 items-center gap-3 lg:order-3">
+              <a
+                href="whatsapp-admin://open"
+                className="rounded-md border border-hairline px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key"
+              >
+                W-Staff
+              </a>
+              <div className="flex items-center gap-2 border-l border-hairline pl-3">
+                {/* The initials sit in the key light: the one warm point in the masthead, so "who am
+                I signed in as" is answerable at a glance without reading. */}
+                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-key/40 bg-key/10 font-mono text-[0.625rem] font-semibold text-key-soft">
+                  {getInitials(user?.name)}
+                </span>
+                <span className="hidden text-sm text-bone-dim md:inline">{user?.name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangingPassword(true)}
+                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+              >
+                Password
+              </button>
+              <button
+                type="button"
+                onClick={logout}
+                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
+              >
+                Sign out
+              </button>
+            </div>
+          </>
+        </header>
+      ) : null}
 
       {changingPassword ? (
         <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
       ) : null}
 
       {view === 'accounts' && canReadAccounts ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="WhatsApp numbers">
           <AccountsPage />
-        </div>
+        </SectionScreen>
       ) : view === 'team' && canReadUsers ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Team">
           <TeamPage />
-        </div>
+        </SectionScreen>
       ) : view === 'stages' && canManageStages ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Stages">
           <StagesPage />
-        </div>
+        </SectionScreen>
       ) : view === 'tags' && canManageTags ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tags">
           <TagsPage />
-        </div>
+        </SectionScreen>
       ) : view === 'ai-knowledge' && canManageAiKnowledge ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Knowledge">
           <AiKnowledgePage />
-        </div>
+        </SectionScreen>
       ) : view === 'lead-sources' && canManageLeadSources ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Lead sources">
           <LeadSourcesPage />
-        </div>
+        </SectionScreen>
       ) : view === 'reminders' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Reminders" isTab>
           <RemindersPage
             onOpenConversation={openConversation}
             alarmStatus={alarmStatus}
@@ -279,37 +456,41 @@ const AppShell = () => {
             onRequestExactAlarm={requestExactAlarm}
             onSyncAlarms={syncAlarms}
           />
-        </div>
+        </SectionScreen>
       ) : view === 'settings' && canManageSettings ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Settings">
           <SettingsPage />
-        </div>
+        </SectionScreen>
       ) : (
         <div className="flex min-h-0 flex-1">
           {/* Below lg the inbox is a drill-down, not three columns: list, then thread, then
               details. Side by side it gave the thread 18px at laptop widths. From lg the list
-              becomes a fixed rail and both panes are visible at once again. */}
+              becomes a fixed rail and both panes are visible at once again.
+
+              `m-nav-clearance` only while the list is the visible screen: with a thread open
+              the list is hidden and the thread owns the bottom of the screen, where the
+              composer - not the nav bar - sits. */}
           <div
             className={`min-h-0 w-full lg:block lg:w-[21rem] lg:shrink-0 xl:w-[23rem] ${
               selectedId ? 'hidden' : 'block'
-            }`}
+            } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
             <ConversationList
               key={`list-${listRefreshKey}`}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              onSelect={selectConversation}
             />
           </div>
           {selectedId ? (
             <ConversationView
               key={selectedId}
               conversationId={selectedId}
-              onBack={() => setSelectedId(null)}
+              onBack={closeConversation}
               onDeleted={() => {
                 // Clear the selection first: the backend now 404s this id, so leaving it selected
                 // would swap the thread for an error message. Then force the list to refetch, or
                 // the deleted row sits there until the next poll.
-                setSelectedId(null);
+                dismissDeletedConversation();
                 setListRefreshKey((value) => value + 1);
               }}
             />
@@ -325,6 +506,31 @@ const AppShell = () => {
           )}
         </div>
       )}
+
+      {/* THE PHONE'S ONLY NAVIGATION. Hidden whenever a thread is open: that screen ends in
+          the composer, and a nav bar under it would sit between the keyboard and the message
+          being typed. Back returns to the list, which brings the bar back with it. */}
+      {isMobileViewport && !(view === 'inbox' && selectedId) ? (
+        <MobileBottomNav
+          active={view === 'inbox' ? 'inbox' : view === 'reminders' ? 'reminders' : 'more'}
+          onInbox={goToInbox}
+          onReminders={() => setView('reminders')}
+          onMore={() => setMoreOpen(true)}
+        />
+      ) : null}
+
+      {isMobileViewport && moreOpen ? (
+        <MobileSectionMenu
+          items={navItems}
+          activeView={view}
+          onSelect={setView}
+          onClose={() => setMoreOpen(false)}
+          userName={user?.name}
+          organizationName={organization?.name}
+          onChangePassword={() => setChangingPassword(true)}
+          onSignOut={logout}
+        />
+      ) : null}
     </div>
   );
 };

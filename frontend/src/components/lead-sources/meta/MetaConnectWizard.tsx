@@ -23,6 +23,7 @@ import MetaMappingStep from './MetaMappingStep';
 import MetaPageStep from './MetaPageStep';
 import MetaReviewStep from './MetaReviewStep';
 import MetaSettingsStep from './MetaSettingsStep';
+import { useMobileBackLayer } from '../../../hooks/useMobileBackLayer';
 import {
   type FieldChoice,
   type MetaActivationResult,
@@ -100,6 +101,9 @@ const MetaConnectWizard = ({
   onClose,
   onCreated,
 }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest } = useAuth() as AuthValue;
 
   const [step, setStep] = useState<StepKey>('connect');
@@ -492,9 +496,13 @@ const MetaConnectWizard = ({
     <div
       role="dialog"
       aria-label="Connect a Facebook lead form"
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4"
     >
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+      <div
+        data-mobile-sheet
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+      >
         <div className="border-b border-slate-200 px-6 pb-3 pt-5">
           <div className="flex items-start justify-between gap-3">
             <div>

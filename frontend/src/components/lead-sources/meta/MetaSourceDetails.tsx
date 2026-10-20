@@ -9,12 +9,9 @@ import { useAuth } from '../../../auth/AuthContext';
 import RelativeTime from '../../RelativeTime';
 import Spinner from '../../Spinner';
 import { errorMessage, type AuthValue } from '../../types';
-import {
-  type LeadSource,
-  type MetaConnection,
-  type MetaDiagnostics,
-} from './meta-wizard-types';
+import { type LeadSource, type MetaConnection, type MetaDiagnostics } from './meta-wizard-types';
 import { primaryButtonClass, secondaryButtonClass } from './meta-wizard-ui';
+import { useMobileBackLayer } from '../../../hooks/useMobileBackLayer';
 
 type Props = {
   leadSource: LeadSource;
@@ -40,6 +37,9 @@ const CHECK_LABELS: Readonly<Record<string, string>> = {
  * panel to understand.
  */
 const MetaSourceDetails = ({ leadSource, onClose, onChanged, onReconnect }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest } = useAuth() as AuthValue;
   const [connection, setConnection] = useState<MetaConnection | null>(null);
   const [diagnostics, setDiagnostics] = useState<MetaDiagnostics | null>(null);
@@ -112,9 +112,13 @@ const MetaSourceDetails = ({ leadSource, onClose, onChanged, onReconnect }: Prop
     <div
       role="dialog"
       aria-label={`Connection details for ${leadSource.name}`}
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div
+        data-mobile-sheet
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-slate-900">{leadSource.name}</h3>
@@ -224,7 +228,10 @@ const MetaSourceDetails = ({ leadSource, onClose, onChanged, onReconnect }: Prop
         </div>
 
         {retryNote ? (
-          <p role="status" className="mt-3 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-700">
+          <p
+            role="status"
+            className="mt-3 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-700"
+          >
             {retryNote}
           </p>
         ) : null}

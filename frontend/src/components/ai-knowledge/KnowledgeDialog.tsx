@@ -5,6 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { AI_KNOWLEDGE_CATEGORIES, AI_KNOWLEDGE_CATEGORY_HINTS } from '../../lib/ai-knowledge';
 import { type AiKnowledgeCategory } from '../../types';
 import { type AuthValue, errorMessage } from '../types';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 
 /**
  * How the owner programs the agent.
@@ -33,6 +34,9 @@ type Props = {
 const EXAMPLE = 'always greet the customer when u r chatting with a new customer';
 
 const KnowledgeDialog = ({ onClose, onSaved }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest } = useAuth() as AuthValue;
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
@@ -154,6 +158,7 @@ const KnowledgeDialog = ({ onClose, onSaved }: Props) => {
 
   return (
     <div
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/80 p-4 backdrop-blur-sm sm:items-center"
       // Clicking the backdrop dismisses; clicks inside the panel must not, hence the stopPropagation.
       onClick={onClose}
@@ -162,6 +167,7 @@ const KnowledgeDialog = ({ onClose, onSaved }: Props) => {
         role="dialog"
         aria-modal="true"
         aria-label="Tell the AI what to do"
+        data-mobile-sheet
         onClick={(event) => event.stopPropagation()}
         className="surface glow-key w-full max-w-xl rounded-xl p-5"
       >
@@ -173,7 +179,10 @@ const KnowledgeDialog = ({ onClose, onSaved }: Props) => {
               reply.
             </p>
 
-            <label htmlFor="knowledge-note" className="mt-4 mb-1 block text-xs font-medium text-slate-600">
+            <label
+              htmlFor="knowledge-note"
+              className="mt-4 mb-1 block text-xs font-medium text-slate-600"
+            >
               Your instruction
             </label>
             <textarea
@@ -227,9 +236,7 @@ const KnowledgeDialog = ({ onClose, onSaved }: Props) => {
 
             {/* What the model changed and what it could not resolve. Shown because the owner is
                 approving a rewrite of his own words and deserves to know what moved. */}
-            {notes ? (
-              <p className="chip chip-fill mt-3 inline-block text-xs">{notes}</p>
-            ) : null}
+            {notes ? <p className="chip chip-fill mt-3 inline-block text-xs">{notes}</p> : null}
 
             <div className="mt-4 space-y-3">
               <div>

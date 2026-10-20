@@ -3,6 +3,7 @@ import { type ChangeEvent, type FormEvent, useState } from 'react';
 import { changePassword } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { type AuthUser, type AuthValue, errorMessage } from './types';
+import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 
 /** Mirrors PASSWORD_POLICY.MIN_LENGTH in the backend's password.service.ts - change both together. */
 const MIN_PASSWORD_LENGTH = 8;
@@ -32,6 +33,9 @@ type PasswordField = keyof PasswordForm;
  * your own credential, so it needs no permission beyond being signed in.
  */
 const ChangePasswordDialog = ({ onClose }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest, applyUser } = useAuth() as AuthValue;
   const [form, setForm] = useState<PasswordForm>({
     currentPassword: '',
@@ -89,9 +93,10 @@ const ChangePasswordDialog = ({ onClose }: Props) => {
       <div
         role="dialog"
         aria-label="Password changed"
+        data-mobile-sheet-backdrop
         className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4"
       >
-        <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div data-mobile-sheet className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
           <h3 className="text-base font-semibold text-slate-900">Password changed</h3>
           <p className="mt-2 text-sm text-slate-600">
             Use the new one next time you sign in. Sessions already open elsewhere are not signed
@@ -113,9 +118,14 @@ const ChangePasswordDialog = ({ onClose }: Props) => {
     <div
       role="dialog"
       aria-label="Change your password"
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4"
     >
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+      <form
+        onSubmit={handleSubmit}
+        data-mobile-sheet
+        className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+      >
         <h3 className="text-base font-semibold text-slate-900">Change your password</h3>
 
         <div className="mt-4 space-y-3">
@@ -150,7 +160,9 @@ const ChangePasswordDialog = ({ onClose }: Props) => {
               disabled={saving}
               className={inputClass}
             />
-            <p className="mt-1 text-xs text-slate-500">At least {MIN_PASSWORD_LENGTH} characters.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              At least {MIN_PASSWORD_LENGTH} characters.
+            </p>
             {reused ? (
               <p className="mt-1 text-xs text-red-600">
                 That is your current password. Choose a different one.

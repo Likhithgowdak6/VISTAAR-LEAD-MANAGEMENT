@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 
 /**
  * Moves a reminder to a new time.
@@ -38,6 +39,9 @@ export const toLocalInputValue = (iso: string): string => {
 };
 
 const RescheduleReminderDialog = ({ title, dueAt, busy, error, onCancel, onSave }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onCancel });
   const [value, setValue] = useState(() => toLocalInputValue(dueAt));
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -70,16 +74,19 @@ const RescheduleReminderDialog = ({ title, dueAt, busy, error, onCancel, onSave 
     <div
       role="dialog"
       aria-label={`Reschedule ${title}`}
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-10 flex items-center justify-center bg-ink/70 p-4"
     >
-      <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-line bg-panel p-6">
+      <form
+        onSubmit={submit}
+        data-mobile-sheet
+        className="w-full max-w-sm rounded-2xl border border-line bg-panel p-6"
+      >
         <h3 className="text-base font-semibold text-bone">Reschedule</h3>
         <p className="mt-1 truncate text-sm text-muted">{title}</p>
 
         <label className="mt-4 block">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-            New time
-          </span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">New time</span>
           <input
             type="datetime-local"
             aria-label="New reminder time"
@@ -92,7 +99,7 @@ const RescheduleReminderDialog = ({ title, dueAt, busy, error, onCancel, onSave 
           />
         </label>
 
-        {localError ?? error ? (
+        {(localError ?? error) ? (
           <p role="alert" className="mt-2 text-xs text-key">
             {localError ?? error}
           </p>

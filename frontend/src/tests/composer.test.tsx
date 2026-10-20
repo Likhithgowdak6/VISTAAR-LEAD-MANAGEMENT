@@ -5,7 +5,7 @@ import MessageComposer from '../components/MessageComposer';
 
 describe('MessageComposer', () => {
   it('disables Send when the input is empty and enables it with text', () => {
-    render(<MessageComposer onSend={vi.fn()} onSuggest={vi.fn() as any} />);
+    render(<MessageComposer onSend={vi.fn()} />);
 
     const sendButton = screen.getByRole('button', { name: 'Send' });
     expect(sendButton).toBeDisabled();
@@ -16,7 +16,7 @@ describe('MessageComposer', () => {
 
   it('calls onSend with a unique idempotency key and clears the input on success', async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
-    render(<MessageComposer onSend={onSend} onSuggest={vi.fn() as any} />);
+    render(<MessageComposer onSend={onSend} />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.change(input, { target: { value: 'Hello there' } });
@@ -33,7 +33,7 @@ describe('MessageComposer', () => {
 
   it('surfaces an error and keeps the text when sending fails', async () => {
     const onSend = vi.fn().mockRejectedValue(new Error('Network down'));
-    render(<MessageComposer onSend={onSend} onSuggest={vi.fn() as any} />);
+    render(<MessageComposer onSend={onSend} />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.change(input, { target: { value: 'Keep me' } });
@@ -85,25 +85,4 @@ describe('MessageComposer — templates', () => {
     confirm.mockRestore();
   });
 
-  it('does not report an inserted template as an approved AI draft', async () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    const onSuggest = vi.fn().mockResolvedValue({ draftId: 'd1', draftText: 'An AI draft' });
-    render(
-      <MessageComposer onSend={onSend} onSuggest={onSuggest} canSuggest templates={TEMPLATES} />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '✨ Suggest reply' }));
-    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('An AI draft'));
-
-    // Replacing the draft with a template must clear the draft id, or the feedback metadata
-    // records a template as the draft having been approved-with-edits.
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.change(screen.getByLabelText('Insert a template'), { target: { value: 't1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-
-    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(onSend.mock.calls[0][0].draftId).toBeNull();
-
-    vi.restoreAllMocks();
-  });
 });

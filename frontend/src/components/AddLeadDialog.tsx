@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { createManualLead, listAiCategories, listSendableAccounts } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
+import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import ToggleSwitch from './ToggleSwitch';
 import { type AuthValue, errorMessage, type SendableAccount } from './types';
 
@@ -31,6 +32,10 @@ const labelFor = (key: string): string => {
  * instead of spending three turns working out what the job is.
  */
 const AddLeadDialog = ({ onClose, onCreated }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture now dismisses the dialog instead of the app, the same as every other layer.
+  useMobileBackLayer({ active: true, onBack: onClose });
+
   const { authedRequest } = useAuth() as AuthValue;
   const [accounts, setAccounts] = useState<SendableAccount[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -121,9 +126,13 @@ const AddLeadDialog = ({ onClose, onCreated }: Props) => {
     <div
       role="dialog"
       aria-label="Add a lead"
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div
+        data-mobile-sheet
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+      >
         <h3 className="text-base font-semibold text-slate-900">Add a lead</h3>
         <p className="mt-1 text-xs text-slate-500">
           For someone who reached you off WhatsApp — a call, an expo, a referral.

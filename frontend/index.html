@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `viewport-fit=cover` lets the page paint under a notch and the gesture bar, which is what
+      makes `env(safe-area-inset-*)` report anything other than 0. Without it the Android shell
+      letterboxes the app and the masthead sits in a grey band. The insets are then applied in
+      index.css so nothing interactive ends up underneath the system UI.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#0b0e13" />
 
     <!--

@@ -60,12 +60,20 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!--
+          windowSoftInputMode=adjustResize: the keyboard must RESIZE the window, not slide it
+          up over the content. The dashboard is a full-height flex column whose last child is
+          the message composer. Panned (the alternative), the keyboard covers the very input
+          that was just tapped, and `100dvh` never changes because the viewport did not.
+          Resized, dvh shrinks, the thread above gets shorter and the composer stays on screen.
+        -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
 
             <intent-filter>

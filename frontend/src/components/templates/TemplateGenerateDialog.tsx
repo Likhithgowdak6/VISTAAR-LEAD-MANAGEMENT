@@ -4,6 +4,7 @@ import { createTemplate, generateTemplates } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { type GeneratedTemplate } from '../../types';
 import { type AuthValue, errorMessage } from '../types';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 
 /**
  * Four ways of saying the same prices, and the owner keeps one.
@@ -27,6 +28,9 @@ const EXAMPLE =
   '300 edited photos one day 45k\nphoto + video one day 85k, includes a reel and full edit\nextra day 20k';
 
 const TemplateGenerateDialog = ({ onClose, onSaved, initialDetails = '' }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest } = useAuth() as AuthValue;
   const detailsRef = useRef<HTMLTextAreaElement>(null);
 
@@ -116,6 +120,7 @@ const TemplateGenerateDialog = ({ onClose, onSaved, initialDetails = '' }: Props
 
   return (
     <div
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/80 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
@@ -123,6 +128,7 @@ const TemplateGenerateDialog = ({ onClose, onSaved, initialDetails = '' }: Props
         role="dialog"
         aria-modal="true"
         aria-label="Write a price template"
+        data-mobile-sheet
         onClick={(event) => event.stopPropagation()}
         className="surface glow-key my-4 w-full max-w-2xl rounded-xl p-5"
       >
@@ -147,8 +153,8 @@ const TemplateGenerateDialog = ({ onClose, onSaved, initialDetails = '' }: Props
           className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
         />
         <p className="mt-1 text-xs text-slate-500">
-          Your figures are used exactly as written — nothing is rounded, and no package, discount
-          or offer is added.
+          Your figures are used exactly as written — nothing is rounded, and no package, discount or
+          offer is added.
         </p>
 
         {error ? (
@@ -197,9 +203,7 @@ const TemplateGenerateDialog = ({ onClose, onSaved, initialDetails = '' }: Props
                       onClick={() => setChosen(index)}
                       aria-pressed={isChosen}
                       className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                        isChosen
-                          ? 'border-key/60 bg-key/5'
-                          : 'border-slate-300 hover:border-key/30'
+                        isChosen ? 'border-key/60 bg-key/5' : 'border-slate-300 hover:border-key/30'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">

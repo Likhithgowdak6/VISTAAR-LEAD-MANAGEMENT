@@ -449,3 +449,340 @@
     animation: pulse-key 3.2s ease-in-out infinite;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * PHONES. Everything below this line is inside a max-width query or a utility
+ * that only mobile markup opts into, so the desktop layout the studio already
+ * works in is byte-for-byte what it was.
+ *
+ * 1024px is `lg` - the same breakpoint the shell uses to switch the inbox from
+ * a drill-down to two panes, and the one useMobileBackLayer gates on. One
+ * number, three places, so they cannot drift.
+ * ------------------------------------------------------------------------ */
+
+/* SAFE AREAS ARE APPLIED AT THE CALL SITE, not by a utility class here, and the
+   first attempt at the opposite is worth recording. A `.safe-top { padding-top:
+   env(...) }` class lands in the cascade after Tailwind's `py-2.5` and REPLACES
+   it, so on a desktop - where every inset is 0 - the header silently lost its
+   padding and the wordmark sat flush against the edge. The insets have to add to
+   the spacing the design already has, which means one value:
+   `pt-[calc(0.625rem+env(safe-area-inset-top))]`. Tailwind emits `pt-*` after
+   `py-*`, so the single-side utility wins without !important. */
+
+@media (max-width: 1023.98px) {
+  /* The masthead is one line on a phone - wordmark, the two live sections, the menu. At 360px
+     that is about 13px too wide at the desktop tracking and the menu button wraps onto a line
+     of its own, costing a whole row for one control. Tightening the letterspacing and a step
+     of size buys the room without touching the desktop masthead, where the generous tracking
+     is the point. */
+  .wordmark {
+    font-size: 1.1875rem;
+    letter-spacing: 0.16em;
+  }
+
+  /* THE SMALLEST PHONES STILL IN USE. At 320px the masthead needs 332px for one
+     row and the menu button wrapped onto a second, costing 37px of height on the
+     screen with the least of it. One more step down on the wordmark buys the
+     12px rather than dropping a section or the brand itself. */
+  @media (max-width: 359.98px) {
+    .wordmark {
+      font-size: 1rem;
+      letter-spacing: 0.1em;
+    }
+  }
+
+  /* THE URL BAR. `h-screen` is `100vh`, which on mobile Safari and Chrome means
+     the viewport with the address bar RETRACTED - taller than what is actually
+     visible. The app is a full-height flex column, so the overflow lands on the
+     last child: the message composer, pushed under the browser chrome exactly
+     when the keyboard is open and you need it. `100dvh` is the live height. */
+  .app-shell {
+    height: 100dvh;
+  }
+
+  /* Momentum scrolling inside panes instead of the whole document rubber-banding,
+     which on a drill-down reads as the page coming unstuck. */
+  .app-shell :where(.overflow-y-auto) {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* A 44px minimum on the controls that are genuinely small on a phone: the
+     masthead's letterspaced caps and the icon-sized buttons beside them. Applied
+     by a class rather than to every button, so nothing in a dense desktop-first
+     panel silently grows. */
+  .tap-target {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* SWITCHES. The track is 28x16 at `sm` - deliberate, it is instrument trim
+     rather than a primary control - but 28x16 is a third of a fingertip, and on
+     an inbox row the thing it does when mis-tapped is turn the AI off for a
+     lead. The hit area grows to ~44x44 through a pseudo-element, so the switch
+     still LOOKS identical and only the target changes. ToggleSwitch is already
+     `relative`, which is what the overlay positions against. */
+  [role='switch']::after {
+    content: '';
+    position: absolute;
+    inset: -14px -8px;
+  }
+
+  /* Native selects and inputs render at the font's line height, which lands
+     around 26px - under the 32px anyone can hit reliably while walking. The
+     date and datetime pickers are the worst of them, and the hardest to hit
+     twice if the first tap misses. */
+  select,
+  input:not([type='checkbox']):not([type='radio']) {
+    min-height: 40px;
+  }
+
+  /* Checkboxes are drawn at 14px in the desktop-dense panels. A finger is not
+     14px. The box grows a little and the label around it becomes the real
+     target, which is also where people aim - at the word, not the square. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 18px;
+    height: 18px;
+  }
+
+  label:has(> input[type='checkbox']),
+  label:has(> input[type='radio']) {
+    min-height: var(--m-tap);
+  }
+
+  /* ROW ACTIONS ON THE MANAGEMENT SCREENS - Connect, Remove, Edit, Archive,
+     Reset password, Sync now. All `text-xs` buttons sized by their line height,
+     which lands at 26px: fine beside a mouse, a miss on a phone. A button
+     centres its own content, so a min-height only grows the target.
+
+     `[role=switch]` is excluded because its size is the design and its target
+     is handled above; links are left alone because inline links inside a
+     sentence must not become 40px tall blocks. */
+  /* The primitives are excluded by name, not by luck. `button:not([role='switch'])` scores
+     (0,1,1) - an element plus the attribute inside :not() - which beats a plain `.m-…` class
+     at (0,1,0), so this safety net was silently shrinking the bottom bar from 56px to 40px.
+     Naming them here keeps one rule that is obviously the lower-priority default. */
+  button:not([role='switch']):not(.m-bottomnav-item):not(.m-appbar-action) {
+    min-height: 40px;
+  }
+}
+
+/* Nothing may push the document sideways. A single overflowing row on a phone
+   turns every screen into a horizontal scroller, and the usual cause is one long
+   unbroken string - a lead id, a URL, an email - inside a flex child that has no
+   min-width and therefore refuses to shrink. */
+@media (max-width: 1023.98px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * THE MOBILE DESIGN SYSTEM.
+ *
+ * Tokens first, then the three primitives every mobile screen is built from:
+ * an app bar, a bottom navigation bar, and a sheet. Everything here is either
+ * inside the phone query or an opt-in class that only mobile markup applies, so
+ * the desktop console renders from exactly the rules it did before.
+ *
+ * WHY TOKENS AND NOT PER-COMPONENT CSS. The previous pass fixed real problems
+ * one component at a time, which is how a phone UI ends up with four header
+ * heights and three dialog treatments. These are the numbers every mobile
+ * surface reads from, so "consistent" is the default rather than a review note.
+ * ------------------------------------------------------------------------ */
+
+:root {
+  /* Touch. 44px is the smallest target that is reliably hit one-handed while
+     walking; 48px for the bottom bar, which is hit most and looked at least. */
+  --m-tap: 44px;
+  --m-tap-lg: 48px;
+
+  /* Chrome. Fixed heights so content padding can be derived from them rather
+     than guessed - this is what stops the bottom bar covering the last row. */
+  --m-appbar-h: 52px;
+  --m-bottomnav-h: 56px;
+
+  /* The safe areas, resolved once. Every fixed surface adds these rather than
+     calling env() inline, where a missing fallback silently becomes nothing. */
+  --m-safe-top: env(safe-area-inset-top, 0px);
+  --m-safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Rhythm. A phone screen has one column, so vertical spacing is the only
+     spacing that carries structure - these are the three steps it uses. */
+  --m-gap-tight: 0.5rem;
+  --m-gap: 0.75rem;
+  --m-gap-loose: 1.25rem;
+
+  /* Corners. Cards and sheets differ deliberately: a sheet is a surface that
+     arrived from the bottom edge and reads as one when only its top is round. */
+  --m-radius-card: 0.875rem;
+  --m-radius-sheet: 1.25rem;
+
+  /* How far a fixed surface lifts off the content beneath it. Two steps only -
+     one for resting chrome, one for something overlaying the screen. */
+  --m-shadow-chrome: 0 1px 0 0 var(--color-hairline);
+  --m-shadow-sheet: 0 -12px 32px -12px rgb(0 0 0 / 55%);
+}
+
+/* ---- Primitive 1: the app bar ------------------------------------------ */
+
+.m-appbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--m-gap-tight);
+  min-height: var(--m-appbar-h);
+  padding: 0 var(--m-gap);
+  padding-top: var(--m-safe-top);
+  background: color-mix(in srgb, var(--color-ink-2) 92%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--m-shadow-chrome);
+}
+
+/* The bar's own controls. Square, thumb-sized, and no hover dependency - a
+   phone has no hover, so the only feedback that matters is the pressed state. */
+.m-appbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--m-tap);
+  min-height: var(--m-tap);
+  margin-inline: -0.25rem;
+  border-radius: 0.625rem;
+  color: var(--color-bone-dim);
+}
+
+.m-appbar-action:active {
+  background: var(--color-panel);
+  color: var(--color-bone);
+}
+
+.m-appbar-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--color-bone);
+}
+
+/* ---- Primitive 2: the bottom navigation -------------------------------- */
+
+.m-bottomnav {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--color-hairline);
+  background: color-mix(in srgb, var(--color-ink-2) 96%, transparent);
+  backdrop-filter: blur(12px);
+  padding-bottom: var(--m-safe-bottom);
+}
+
+.m-bottomnav-item {
+  position: relative; /* The active marker below positions against this. */
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--m-bottomnav-h);
+  padding: 0.25rem 0.125rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.m-bottomnav-item[aria-current='true'] {
+  color: var(--color-key);
+}
+
+.m-bottomnav-item:active {
+  background: var(--color-panel);
+}
+
+/* The active marker is a short bar at the TOP edge of the tab, pointing back at
+   the content it belongs to - the same language the masthead underline uses on
+   desktop, so the two read as one product. */
+.m-bottomnav-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 24px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: transparent;
+}
+
+.m-bottomnav-item[aria-current='true']::before {
+  background: var(--color-key);
+}
+
+/* THE TITLE IS SAID ONCE. Every section page opens with its own `<h1>` - "Settings",
+   "Reminders", "Tags" - which on a phone sits directly under an app bar already showing the
+   same word. Two of the same title in 100px of screen is the kind of clutter that makes an
+   app feel unconsidered.
+
+   Visually hidden rather than `display: none`: the page heading is the real one in the
+   document outline, and the app bar renders its title as a paragraph. Removing the `<h1>`
+   outright would leave the screen with no heading at all for a screen reader. */
+@media (max-width: 1023.98px) {
+  /* Any `h1` inside a section screen, not a fixed path: the pages wrap their heading
+     differently (some in a header block, some in a bare div) and matching the nesting exactly
+     meant it silently stopped working on half of them. Every page carries exactly one `h1` -
+     subsections are `h2` - so this cannot hide a second real heading. */
+  .m-has-appbar h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* Content has to clear the bar. Applied to the scroll container rather than the
+   page, so the bar overlaps nothing and the last row is reachable. */
+.m-nav-clearance {
+  padding-bottom: calc(var(--m-bottomnav-h) + var(--m-safe-bottom) + var(--m-gap));
+}
+
+/* ---- Primitive 3: sheets ----------------------------------------------- */
+
+/* Opted into per dialog with `data-mobile-sheet`, so each one keeps its own
+   desktop presentation and only its phone rendering is shared. Attribute
+   specificity matches a class and this block comes after the utilities, so it
+   wins without !important. */
+@media (max-width: 1023.98px) {
+  [data-mobile-sheet] {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - var(--m-safe-top) - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--m-radius-sheet) var(--m-radius-sheet) 0 0;
+    padding-bottom: calc(var(--m-gap-loose) + var(--m-safe-bottom));
+    box-shadow: var(--m-shadow-sheet);
+  }
+
+  /* Bottom-anchored, because the bottom of the screen is where the thumb is
+     and where the sheet's own actions should land. */
+  [data-mobile-sheet-backdrop] {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+}

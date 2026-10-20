@@ -4,6 +4,7 @@ import { connectAccount, getAccount, getAccountQr, resetAccount } from '../../ap
 import { useAuth } from '../../auth/AuthContext';
 import Spinner from '../Spinner';
 import { type AuthValue, errorMessage, type WhatsAppAccount } from '../types';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 
 const POLL_MS = 2000;
 const SLOW_HINT_MS = 15000;
@@ -17,6 +18,9 @@ type Props = {
 };
 
 const ConnectQrModal = ({ account, onClose, onConnected }: Props) => {
+  // Mounted only while open, so `active: true` is the whole condition. On a phone the back
+  // gesture dismisses this layer instead of leaving the app.
+  useMobileBackLayer({ active: true, onBack: onClose });
   const { authedRequest } = useAuth() as AuthValue;
   const [mode, setMode] = useState<ConnectMode>('qr');
   const [phone, setPhone] = useState('');
@@ -210,9 +214,10 @@ const ConnectQrModal = ({ account, onClose, onConnected }: Props) => {
     <div
       role="dialog"
       aria-label={`Connect ${account.name}`}
+      data-mobile-sheet-backdrop
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4"
     >
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+      <div data-mobile-sheet className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-900">Connect {account.name}</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">

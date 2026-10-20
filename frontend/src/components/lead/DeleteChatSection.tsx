@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { deleteConversation } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
+import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { type AuthValue, errorMessage } from '../types';
 
 type Props = {
@@ -25,6 +26,11 @@ const DeleteChatSection = ({ conversationId, displayName, onDeleted }: Props) =>
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The confirmation is a modal layer like any other: on a phone, back cancels it rather than
+  // leaving the app. Deliberately not disabled while `busy` - a delete in flight should still
+  // let the sheet close; the request completes and `onDeleted` clears the selection either way.
+  useMobileBackLayer({ active: confirming, onBack: () => setConfirming(false) });
 
   const handleConfirm = async () => {
     setBusy(true);
@@ -65,9 +71,10 @@ const DeleteChatSection = ({ conversationId, displayName, onDeleted }: Props) =>
         <div
           role="dialog"
           aria-label={`Delete chat with ${displayName ?? 'this lead'}`}
+          data-mobile-sheet-backdrop
           className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div data-mobile-sheet className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="text-base font-semibold text-slate-900">
               Delete chat with {displayName ?? 'this lead'}?
             </h3>

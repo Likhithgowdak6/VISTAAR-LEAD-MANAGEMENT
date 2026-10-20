@@ -121,8 +121,12 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Pro
 
   return (
     <li className="border-b border-slate-100 p-4 last:border-b-0">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      {/* Wraps below sm so the source name keeps a full line. Sharing one row with the status
+          badge, Sync now and Remove left it about 70px wide on a 360px phone - "meta…" - which
+          is no use at all when the whole question is which source you are looking at. From sm
+          it is the single row it has always been. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 sm:flex-nowrap">
+        <div className="min-w-0 basis-full sm:basis-auto">
           <div className="flex items-center gap-2">
             <h3 className="truncate font-semibold text-slate-900">{leadSource.name}</h3>
             <span
@@ -163,14 +167,15 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Pro
               {/* Four characters, so an admin rotating a token can tell which one is stored.
                   The token itself is never sent to the browser. */}
               {leadSource.meta.accessTokenLast4 ? (
-                <span className="text-slate-400"> · token ····{leadSource.meta.accessTokenLast4}</span>
+                <span className="text-slate-400">
+                  {' '}
+                  · token ····{leadSource.meta.accessTokenLast4}
+                </span>
               ) : null}
               {isFacebookLogin ? (
                 <span
                   className={
-                    leadSource.meta.webhookSubscribedAt
-                      ? ' text-emerald-700'
-                      : ' text-amber-700'
+                    leadSource.meta.webhookSubscribedAt ? ' text-emerald-700' : ' text-amber-700'
                   }
                 >
                   {leadSource.meta.webhookSubscribedAt
@@ -231,7 +236,11 @@ const LeadSourceRow = ({ leadSource, accounts, onChanged, onReconnectMeta }: Pro
             size="sm"
             checked={!isPaused}
             disabled={busy !== null}
-            label={isPaused ? `Resume importing from ${leadSource.name}` : `Pause importing from ${leadSource.name}`}
+            label={
+              isPaused
+                ? `Resume importing from ${leadSource.name}`
+                : `Pause importing from ${leadSource.name}`
+            }
             onChange={handleTogglePause}
           />
           <span>Importing</span>

@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  generateAiDraft,
   getConversation,
   getMessages,
   listSendableAccounts,
   listStages,
   listTemplates,
-  recordAiDraftOutcome,
   sendMessage,
 } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
+import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
@@ -18,6 +17,8 @@ import { type MessageTemplate } from '../types';
 import ConversationSummaryPanel from './ConversationSummaryPanel';
 import EmptyState from './EmptyState';
 import LeadPanel from './lead/LeadPanel';
+import MessageTemplatesDialog from './MessageTemplatesDialog';
+import MobileAppBar from './mobile/MobileAppBar';
 import MessageComposer from './MessageComposer';
 import MessageThread from './MessageThread';
 import Spinner from './Spinner';
@@ -72,7 +73,8 @@ type Props = {
 const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
-  const canSuggestReply = hasPermission(permissions, PERMISSIONS.AI_GENERATE);
+  // Same gate the lead panel used for the template writer before it moved here.
+  const canUseTemplates = hasPermission(permissions, PERMISSIONS.AI_GENERATE);
   const canSendMessages = hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -85,6 +87,23 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
   const [stages, setStages] = useState<StageOption[]>(mergeStages());
   const [sendableAccounts, setSendableAccounts] = useState<SendableAccount[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+
+  const isMobile = useIsMobileViewport();
+  /**
+   * The template writer, opened from the composer.
+   *
+   * Owned here rather than inside MessageComposer because the dialog needs the conversation's
+   * `aiCategory` and `aiFacts`, which this component already holds and the composer does not.
+   */
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
+
+  /**
+   * The innermost mobile layer. Below xl the lead panel REPLACES the thread rather than sitting
+   * beside it, so it is a screen you navigated into and back has to return to the messages -
+   * not to the inbox, and certainly not out of the app, which is what it did before.
+   */
+  useMobileBackLayer({ active: detailsOpen, onBack: closeDetails });
 
   useEffect(() => {
     // Needed to resolve a custom stage's label/color for the header badge; built-ins already
@@ -196,14 +215,10 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
     async ({
       body,
       idempotencyKey,
-      draftId,
-      wasEdited,
       whatsappAccountId,
     }: {
       body: string;
       idempotencyKey: string;
-      draftId: string | null;
-      wasEdited: boolean;
       whatsappAccountId: string | null;
     }) => {
       const payload = await authedRequest((token) =>
@@ -228,28 +243,14 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
           .catch(() => {});
       }
 
-      // Best-effort feedback metadata (ADR-005) — never blocks or fails the send itself.
-      if (draftId) {
-        authedRequest((token) =>
-          recordAiDraftOutcome({
-            token,
-            conversationId,
-            draftId,
-            outcome: wasEdited ? 'approved_edited' : 'approved_unedited',
-          }),
-        ).catch(() => {});
-      }
+      // The ADR-005 draft-outcome report went with "Suggest reply". It existed to say whether an
+      // AI draft was sent as written or edited first, and nothing fills this box with an AI
+      // draft any more - the template writer sends its own text through its own call, stamped
+      // and keyed there. Reporting an outcome for a draft that was never generated would be a
+      // fabricated signal, so the call is gone rather than left behind always-false.
     },
     [authedRequest, conversationId, detail?.whatsappAccount?.id],
   );
-
-  const handleSuggest = useCallback(async () => {
-    const payload = await authedRequest((token) => generateAiDraft({ token, conversationId }));
-    return {
-      draftId: (payload?.data?.id as string | undefined) ?? null,
-      draftText: (payload?.data?.draftText as string | undefined) ?? '',
-    };
-  }, [authedRequest, conversationId]);
 
   // Oldest → newest for rendering.
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages]);
@@ -282,46 +283,91 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
       {/* Below xl the thread and the lead panel take turns rather than splitting the width; the
           existing Details / Hide details button is the switch. From xl both are visible. */}
       <section className={`min-w-0 flex-1 flex-col xl:flex ${detailsOpen ? 'hidden' : 'flex'}`}>
-        <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2">
-            {onBack ? (
+        {/* THE ONE HEADER SHAPE, on a phone. The lead's name and who it came in on are the
+            identity; the stage badge and the way into the details are the two actions worth a
+            permanent target. Everything else about this lead is one tap away behind Details,
+            which on a phone is a full screen rather than a side panel. */}
+        {isMobile ? (
+          <MobileAppBar
+            asHeading
+            onBack={onBack}
+            backLabel="Back to inbox"
+            title={conversation?.displayName ?? 'Conversation'}
+            subtitle={
+              whatsappAccount
+                ? `${conversation?.leadId} · via ${whatsappAccount.name}`
+                : conversation?.leadId
+            }
+            actions={
+              <>
+                <StageBadge
+                  stage={effectiveStage}
+                  label={findStageByKey(stages, effectiveStage)?.label}
+                  color={findStageByKey(stages, effectiveStage)?.color}
+                />
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen(true)}
+                  aria-label={`Lead details for ${conversation?.displayName ?? 'this lead'}`}
+                  className="m-appbar-action"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5" fill="none">
+                    <circle cx="10" cy="6.75" r="3" stroke="currentColor" strokeWidth="1.6" />
+                    <path
+                      d="M4 16.25c0-2.9 2.7-4.5 6-4.5s6 1.6 6 4.5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </>
+            }
+          />
+        ) : (
+          <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+                >
+                  ← Inbox
+                </button>
+              ) : null}
+              <div className="min-w-0">
+                <h2 className="truncate font-semibold text-slate-900">
+                  {conversation?.displayName}
+                </h2>
+                <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <span className="truncate">{conversation?.leadId}</span>
+                  {whatsappAccount ? (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="truncate text-slate-500">via {whatsappAccount.name}</span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <StageBadge
+                stage={effectiveStage}
+                label={findStageByKey(stages, effectiveStage)?.label}
+                color={findStageByKey(stages, effectiveStage)?.color}
+              />
               <button
                 type="button"
-                onClick={onBack}
-                className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+                onClick={() => setDetailsOpen((open) => !open)}
+                aria-pressed={detailsOpen}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
-                ← Inbox
+                {detailsOpen ? 'Hide details' : 'Details'}
               </button>
-            ) : null}
-            <div className="min-w-0">
-              <h2 className="truncate font-semibold text-slate-900">{conversation?.displayName}</h2>
-              <p className="flex items-center gap-1.5 text-xs text-slate-400">
-                <span className="truncate">{conversation?.leadId}</span>
-                {whatsappAccount ? (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span className="truncate text-slate-500">via {whatsappAccount.name}</span>
-                  </>
-                ) : null}
-              </p>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <StageBadge
-              stage={effectiveStage}
-              label={findStageByKey(stages, effectiveStage)?.label}
-              color={findStageByKey(stages, effectiveStage)?.color}
-            />
-            <button
-              type="button"
-              onClick={() => setDetailsOpen((open) => !open)}
-              aria-pressed={detailsOpen}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              {detailsOpen ? 'Hide details' : 'Details'}
-            </button>
-          </div>
-        </header>
+          </header>
+        )}
 
         <ConversationSummaryPanel key={conversationId} conversationId={conversationId} />
 
@@ -340,13 +386,26 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
 
         <MessageComposer
           onSend={handleSend}
-          onSuggest={handleSuggest}
-          canSuggest={canSuggestReply}
+          onOpenTemplates={() => setTemplatesOpen(true)}
+          canUseTemplates={canUseTemplates}
           sendableAccounts={sendableAccounts}
           currentAccountId={whatsappAccount?.id ?? null}
           currentAccountName={whatsappAccount?.name ?? null}
           templates={templates}
         />
+
+        {/* Keyed on the thread, so switching leads remounts the writer and one lead's drafts
+            cannot be left on screen looking ready to send to another. The `generatedFor` stamp
+            inside MessageTemplatesSection refuses the send outright if they ever did. */}
+        {templatesOpen && conversation ? (
+          <MessageTemplatesDialog
+            key={conversationId}
+            conversationId={conversationId}
+            aiCategory={conversation.aiCategory ?? null}
+            aiFacts={conversation.aiFacts ?? null}
+            onClose={() => setTemplatesOpen(false)}
+          />
+        ) : null}
       </section>
 
       {detailsOpen && conversation ? (
@@ -358,6 +417,11 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
           contactId={contactId}
           onStageChange={setStageOverride}
           onDeleted={onDeleted}
+          // Below xl this panel is the whole screen and the thread's own "Hide details" button
+          // is inside the hidden half, so without this there was no way back to the messages at
+          // all. Above xl both panes are visible and the panel renders no header.
+          onClose={closeDetails}
+          leadName={conversation.displayName}
         />
       ) : null}
     </div>
