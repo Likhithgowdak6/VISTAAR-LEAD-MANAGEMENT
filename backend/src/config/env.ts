@@ -120,6 +120,32 @@ const envSchema = z.object({
 
   WHATSAPP_OUTBOUND_POLL_INTERVAL_MS: z.coerce.number().int().min(1000).max(60000).default(5000),
 
+  // Where attachment bytes live. Outside the git checkout and outside anything Caddy serves:
+  // media is read back only through an authenticated route, never as a static file.
+  MEDIA_STORAGE_DIR: z.string().trim().min(1).default('var/media'),
+
+  // 16 MB is WhatsApp's own practical ceiling for photo, video and audio; documents can be
+  // larger there, but one number that is never wrong is better than four that sometimes are.
+  MEDIA_MAX_UPLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .max(100 * 1024 * 1024)
+    .default(16 * 1024 * 1024),
+
+  // Inbound attachments are fetched from WhatsApp only below this size. A thread full of long
+  // videos must not be able to fill the disk, and the thread still shows the label either way.
+  MEDIA_INBOUND_MAX_DOWNLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(100 * 1024 * 1024)
+    .default(16 * 1024 * 1024),
+
+  // Off by default: downloading inbound media is a behaviour change for an existing deployment,
+  // and it is the one part of this feature that consumes disk without anybody asking it to.
+  MEDIA_INBOUND_DOWNLOAD_ENABLED: booleanString.default(false),
+
   // Test-phase safety net: CSV of digits-only phone numbers. Empty = unrestricted. When
   // non-empty, every outbound send on every account (AI or human-authored) must match.
   WHATSAPP_TEST_ALLOWED_NUMBERS: z.string().default(''),

@@ -45,3 +45,39 @@ def draft_followup(
         max_tokens=300,
         temperature=0.6,
     )
+
+
+def draft_promise_followup(
+    facts: dict,
+    transcript: list,
+    promise: str,
+    knowledge_text: str = "",
+    style_examples: str = "",
+) -> str:
+    """
+    The message a lead was PROMISED, at the time they were told.
+
+    Deliberately not a mode of draft_followup above: that prompt is built
+    around silence and grades its tone by "step N of M", neither of which
+    applies here. Asking it for a single message makes it sign off - see
+    PROMISE_FOLLOWUP_SYSTEM for why that is the wrong message to send
+    somebody who is waiting for the thing we said we would send.
+
+    `promise` is the caller's one-line description of what was promised and
+    by whom; wam-crm-ai builds it from the commitment it extracted, quoting
+    the lead's own words. Everything else matches draft_followup so the two
+    behave identically on knowledge, style and transcript handling.
+    """
+    system = prompts.PROMISE_FOLLOWUP_SYSTEM.format(
+        promise=promise or "We said we would follow up around now.",
+        knowledge=knowledge_text,
+        style=style_examples,
+        facts=json.dumps(facts or {}, ensure_ascii=False),
+        transcript=_transcript_text(transcript) or "(no messages yet)",
+    )
+    return complete(
+        system=system,
+        user="Write the follow-up message now.",
+        max_tokens=300,
+        temperature=0.6,
+    )

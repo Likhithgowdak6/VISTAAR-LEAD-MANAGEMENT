@@ -24,6 +24,7 @@
 import { env, type Env } from '../../config/env.js';
 import { logger as defaultLogger } from '../../config/logger.js';
 import { FOLLOWUP_STATUSES } from '../../constants/followup-statuses.js';
+import { getNextFollowUpSync } from './next-follow-up.service.js';
 import { FOLLOWUP_TYPES } from '../../constants/followup-types.js';
 import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
 import { type ObjectIdLike } from '../../types/common.js';
@@ -291,6 +292,15 @@ export const createOwnerReminderCommandService = ({
           taskId: target._id,
           organizationId,
           status: FOLLOWUP_STATUSES.CANCELLED,
+        });
+
+        // The owner can cancel from WhatsApp, and `findPendingTasksByUser` returns their LEAD
+        // reminders as well as their personal ones - so this path can close a reminder that a
+        // conversation's next-reminder hint was derived from. `syncQuietly` is a no-op for a
+        // personal reminder, which has no conversation to update.
+        await getNextFollowUpSync().syncQuietly({
+          organizationId,
+          conversationId: target.conversationId,
         });
 
         return await respond(`Cancelled: ${describe(target)}`);

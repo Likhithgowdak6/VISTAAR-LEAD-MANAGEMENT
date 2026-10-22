@@ -58,6 +58,33 @@ export const OPT_OUT_PHRASES: readonly string[] = Object.freeze([
   'band karo',
   'mat bhejo',
   'mujhe nahi chahiye',
+  // ADDED LATER, because the two commonest ways an Indian customer actually writes this both
+  // fell through every rule above. "Please stop messaging me" is not the whole message, so the
+  // `stop` entry does not fire; "don't contact me again" matches none of the `message`
+  // spellings. Both were reaching the sales agent as ordinary enquiries.
+  'stop messaging',
+  'stop contacting',
+  'stop sending me',
+  'dont contact me',
+  'do not contact me',
+  'dont send me',
+  'do not send me',
+]);
+
+/**
+ * Phrases that LOOK like an opt-out only because an opt-out phrase is sitting inside them.
+ *
+ * "Don't stop sending me updates" contains "stop sending me". Silencing a customer who just
+ * asked for MORE messages is the worst failure this module can produce - it is invisible, it
+ * kills a live deal, and the customer's own words say the opposite. Checked before anything
+ * else, so a negated phrase never reaches the matchers below.
+ */
+export const OPT_OUT_NEGATIONS: readonly string[] = Object.freeze([
+  'dont stop',
+  'do not stop',
+  'never stop',
+  'dont remove',
+  'do not remove',
 ]);
 
 /** Every phrase this module recognises, in the spelling a lead would actually type. */
@@ -80,6 +107,13 @@ export const isOptOutRequest = (text: unknown): boolean => {
   const normalized = normalizeOptOutText(text);
 
   if (normalized === '') {
+    return false;
+  }
+
+  // "Don't stop sending me updates" is a request for MORE contact. Precision over recall, as
+  // above: refusing the whole message is cheaper than silencing a customer who asked to hear
+  // from us. See OPT_OUT_NEGATIONS.
+  if (OPT_OUT_NEGATIONS.some((phrase) => normalized.includes(normalizeOptOutText(phrase)))) {
     return false;
   }
 

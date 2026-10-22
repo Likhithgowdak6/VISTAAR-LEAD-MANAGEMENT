@@ -1,4 +1,15 @@
-import { apiFetch } from './client';
+import { apiFetch, apiFetchBlob, apiUpload } from './client';
+import {
+  type AiResponseStatus,
+  type AnalyticsAiPerformance,
+  type AnalyticsAttentionList,
+  type AnalyticsBreakdowns,
+  type AnalyticsOverview,
+  type AnalyticsQuery,
+  type AnalyticsReminders,
+  type AnalyticsTrends,
+  type EnquiryClass,
+} from '../types/analytics';
 import {
   type AccountAccessMode,
   type AccountQrPayload,
@@ -104,6 +115,19 @@ export interface ListConversationsParams extends TokenParams {
   stage?: StageKey | null;
   tagIds?: readonly string[] | null;
   status?: string | null;
+  /**
+   * The derived classification filters. Applied IN THE DATABASE, across every page - not over
+   * the rows the inbox happens to be holding. Null or omitted means "do not filter on it".
+   */
+  enquiryClass?: EnquiryClass | null;
+  aiStatus?: AiResponseStatus | null;
+  /**
+   * Only ever sent as `true`. The server reads an absent value as "do not filter on it", which
+   * is a different request from `false` - asking for the threads that do NOT need attention is
+   * not something the inbox offers, so a falsy value omits the parameter rather than inverting
+   * the filter.
+   */
+  needsAttention?: boolean | null;
   limit?: number;
   skip?: number;
 }
@@ -113,6 +137,9 @@ export const listConversations = ({
   stage,
   tagIds,
   status,
+  enquiryClass,
+  aiStatus,
+  needsAttention,
   limit,
   skip,
 }: ListConversationsParams = {}): Promise<ApiSuccessResponse<Conversation[]>> =>
@@ -122,6 +149,9 @@ export const listConversations = ({
       // Match-ALL on the server; omitted entirely when nothing is selected.
       tagIds: tagIds?.length ? tagIds.join(',') : undefined,
       status,
+      enquiryClass,
+      aiStatus,
+      needsAttention: needsAttention ? 'true' : undefined,
       limit,
       skip,
     })}`,
@@ -185,11 +215,58 @@ export const getMessages = ({
     { token },
   );
 
+/** What the upload route hands back; passed straight to `sendMessage` as `media`. */
+export interface UploadedMedia {
+  objectKey: string;
+  type: 'image' | 'video' | 'audio' | 'document';
+  mimeType: string;
+  fileName: string;
+  sizeBytes: number;
+  isVoiceNote: boolean;
+}
+
+export interface UploadMediaParams extends ConversationIdParams {
+  file: Blob;
+  fileName: string;
+  /** 'voice' asks the server to produce a real WhatsApp voice note; see media/voice-note.ts. */
+  kind?: 'file' | 'voice';
+  signal?: AbortSignal | null;
+}
+
+/**
+ * Stores an attachment against a conversation and returns a key. Nothing is sent to the lead by
+ * this call - the key goes to `sendMessage`, which is the idempotent half.
+ */
+export const uploadConversationMedia = ({
+  token,
+  conversationId,
+  file,
+  fileName,
+  kind = 'file',
+  signal,
+}: UploadMediaParams): Promise<ApiSuccessResponse<UploadedMedia>> =>
+  apiUpload(`/conversations/${conversationId}/media`, file, fileName, {
+    token,
+    fields: { kind },
+    signal,
+  });
+
+/** The bytes of an attachment on a message, fetched with the Bearer token like any other call. */
+export const fetchMessageMedia = ({
+  token,
+  messageId,
+  signal,
+}: TokenParams & { messageId: string; signal?: AbortSignal | null }): Promise<Blob> =>
+  apiFetchBlob(`/messages/${messageId}/media`, { token, signal });
+
 export interface SendMessageParams extends ConversationIdParams {
-  body: string;
+  /** Empty when an attachment travels alone. */
+  body?: string;
   idempotencyKey: string;
   /** Omit to send from the number the thread is already on. */
   whatsappAccountId?: string | null;
+  /** An attachment already uploaded to this conversation. */
+  media?: UploadedMedia | null;
 }
 
 export const sendMessage = ({
@@ -198,13 +275,17 @@ export const sendMessage = ({
   body,
   idempotencyKey,
   whatsappAccountId,
+  media,
 }: SendMessageParams): Promise<ApiSuccessResponse<Message>> =>
   apiFetch(`/conversations/${conversationId}/messages`, {
     method: 'POST',
     token,
-    body: whatsappAccountId
-      ? { body, idempotencyKey, whatsappAccountId }
-      : { body, idempotencyKey },
+    body: {
+      ...(body ? { body } : {}),
+      idempotencyKey,
+      ...(whatsappAccountId ? { whatsappAccountId } : {}),
+      ...(media ? { media } : {}),
+    },
   });
 
 export const listSendableAccounts = ({ token }: TokenParams = {}): Promise<
@@ -1371,3 +1452,71 @@ export const rescheduleFollowUp = ({
     body: { dueAt, timezone },
   });
 
+/**
+ * Analytics. Every endpoint takes the SAME query shape, so a drill-down can hand the inbox
+ * the exact filters a card was computed under and get a matching list back.
+ */
+const analyticsQuery = (query: AnalyticsQuery = {}): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(query).filter(([, value]) => value !== undefined && value !== ''),
+  ) as Record<string, string>;
+
+export const getAnalyticsOverview = ({
+  token,
+  query,
+}: TokenParams & { query?: AnalyticsQuery } = {}): Promise<ApiSuccessResponse<AnalyticsOverview>> =>
+  apiFetch(`/analytics/overview${buildQuery(analyticsQuery(query))}`, { token });
+
+export const getAnalyticsTrends = ({
+  token,
+  query,
+}: TokenParams & { query?: AnalyticsQuery } = {}): Promise<ApiSuccessResponse<AnalyticsTrends>> =>
+  apiFetch(`/analytics/trends${buildQuery(analyticsQuery(query))}`, { token });
+
+export const getAnalyticsAiPerformance = ({
+  token,
+  query,
+}: TokenParams & { query?: AnalyticsQuery } = {}): Promise<
+  ApiSuccessResponse<AnalyticsAiPerformance>
+> => apiFetch(`/analytics/ai-performance${buildQuery(analyticsQuery(query))}`, { token });
+
+export const getAnalyticsBreakdowns = ({
+  token,
+  query,
+}: TokenParams & { query?: AnalyticsQuery } = {}): Promise<
+  ApiSuccessResponse<AnalyticsBreakdowns>
+> => apiFetch(`/analytics/breakdowns${buildQuery(analyticsQuery(query))}`, { token });
+
+/**
+ * The reminders overview. `limit` caps only the next-reminders preview - the counts beside it
+ * are the full outstanding totals and are not affected by it.
+ */
+export const getAnalyticsReminders = ({
+  token,
+  query,
+  limit = 5,
+}: TokenParams & { query?: AnalyticsQuery; limit?: number } = {}): Promise<
+  ApiSuccessResponse<AnalyticsReminders>
+> =>
+  apiFetch(`/analytics/reminders${buildQuery({ ...analyticsQuery(query), limit })}`, {
+    token,
+  });
+
+export const getAnalyticsAttention = ({
+  token,
+  query,
+  limit = 25,
+  skip = 0,
+}: TokenParams & { query?: AnalyticsQuery; limit?: number; skip?: number } = {}): Promise<
+  ApiSuccessResponse<AnalyticsAttentionList>
+> =>
+  apiFetch(`/analytics/attention${buildQuery({ ...analyticsQuery(query), limit, skip })}`, {
+    token,
+  });
+
+/** The attention list as CSV. Same filters, same permissions, streamed as a Blob. */
+export const downloadAttentionCsv = ({
+  token,
+  query,
+}: TokenParams & { query?: AnalyticsQuery } = {}): Promise<Blob> =>
+  apiFetchBlob(`/analytics/attention.csv${buildQuery(analyticsQuery(query))}`, { token });

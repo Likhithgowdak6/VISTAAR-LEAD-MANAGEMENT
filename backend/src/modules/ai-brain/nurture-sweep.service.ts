@@ -50,9 +50,17 @@ import { createOutboundMessageService } from '../messages/outbound-message.servi
 import { type UserDocument } from '../users/user.model.js';
 import * as defaultAiBrainClient from './ai-brain.client.js';
 import { buildAiBrainContext as defaultBuildAiBrainContext } from './ai-brain-context.service.js';
+import {
+  SILENCE_MAX_WINDOW_MS,
+  decideSilenceFollowUp,
+  silenceAnchor,
+} from './silence-schedule.js';
 import { getOrCreateAiSystemUser as defaultGetOrCreateAiSystemUser } from './ai-brain-system-user.service.js';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** The seven-day unknown-event window, in whole days, for the prompt's "step N of M". */
+const SILENCE_WINDOW_DAYS = Math.round(SILENCE_MAX_WINDOW_MS / MS_PER_DAY);
 const NURTURABLE_BATCH_SIZE = 200;
 
 /**
@@ -223,7 +231,9 @@ export const eventPassedPausedReason = (eventDate: Date): string =>
   `Their event on ${formatEventDate(eventDate)} has passed — stopped following up.`;
 
 export const createNurtureSweepService = ({
-  config = env,
+  // Still accepted so every existing caller and test compiles unchanged, but the silence
+  // cadence reads nothing from it - see the note below. Renamed binding, not renamed option.
+  config: _config = env,
   conversationRepository = {
     findNurturableConversations: defaultFindNurturableConversations,
     bumpNurtureStep: defaultBumpNurtureStep,
@@ -240,14 +250,18 @@ export const createNurtureSweepService = ({
   logger = defaultLogger,
   now = () => new Date(),
 }: CreateNurtureSweepServiceOptions = {}) => {
-  const schedule =
-    config.NURTURE_CADENCE === 'daily'
-      ? buildDailySchedule(Number(config.NURTURE_MAX_FOLLOWUPS ?? 30))
-      : parseNurtureFollowupDays(config.NURTURE_FOLLOWUP_DAYS ?? '2,5,9,15');
-  const coldAfterDays = Number(config.NURTURE_COLD_AFTER_DAYS ?? 20);
-  const lowIntentMultiplier = Number(
-    config.NURTURE_LOW_INTENT_MULTIPLIER ?? LOW_INTENT_INTERVAL_MULTIPLIER,
-  );
+  /**
+   * NO LONGER CONSULTED BY THE SILENCE PATH: NURTURE_CADENCE, NURTURE_FOLLOWUP_DAYS,
+   * NURTURE_MAX_FOLLOWUPS, NURTURE_COLD_AFTER_DAYS and NURTURE_LOW_INTENT_MULTIPLIER.
+   *
+   * The cadence is now fixed - 2 hours, then every 24 - and bounded either by the lead's event
+   * day or by a seven-day window, so there is no day-list to configure and no separate cold
+   * threshold. The env vars and the pure helpers below (parseNurtureFollowupDays,
+   * buildDailySchedule, scheduleForBand, compressScheduleForEvent, furthestEarnedBump) are left
+   * in place and still unit-tested rather than deleted in the same change that moves the
+   * cadence: removing them is a separate, wider edit touching env.ts and .env.example, and
+   * keeping them costs nothing while the new schedule settles.
+   */
 
   const daysSince = (date: Date, reference: Date): number =>
     Math.max(0, Math.floor((reference.getTime() - date.getTime()) / MS_PER_DAY));
@@ -260,21 +274,58 @@ export const createNurtureSweepService = ({
   ): Promise<'nudged' | 'cold' | 'skipped'> => {
     const organizationId = conversation.organizationId;
 
-    if (!conversation.lastOutboundAt) {
+    // A LEAD WHO SAID NO IS NEVER NUDGED AGAIN. `findNurturableConversations` already excludes
+    // them, so this is the belt-and-braces check for a conversation handed in by a caller with
+    // its own query - and for the window between a batch being read and this row being reached,
+    // which on a large sweep is minutes, not milliseconds.
+    if (conversation.salesRejectedAt) {
       return 'skipped';
     }
 
-    // The lead replied more recently than we last sent anything - still mid-conversation, no
-    // nudge needed, they are not silent.
-    if (conversation.lastInboundAt && conversation.lastInboundAt > conversation.lastOutboundAt) {
+    // A PROMISE OUTRANKS THE CADENCE. When this lead is already owed a message at a time they
+    // were told - "I'll send the packages at 5" - a silence nudge is at best redundant and at
+    // worst two unprompted messages in one afternoon. Checked before anything else so the step
+    // is not bumped either: the sequence stays exactly where it was and resumes on the next
+    // sweep after the promise has been kept (or dropped), with nothing lost.
+    //
+    // One-directional on purpose. The promise sweep does NOT make the same check in reverse,
+    // because it clears the due time as it claims it - so the overlap can only ever be resolved
+    // here, and resolving it in both places would risk neither side sending.
+    // See followups/promise-follow-up.service.ts.
+    if (conversation.promisedFollowUpAt) {
       return 'skipped';
     }
 
-    const daysSilent = daysSince(conversation.lastOutboundAt, reference);
     const currentStep = conversation.nurtureStep ?? 0;
-
     const eventDate = conversation.eventDate ?? null;
     const daysUntilEvent = eventDate ? daysUntilEventDate(eventDate, reference) : null;
+
+    /**
+     * THE WHOLE CADENCE DECISION, in one pure call.
+     *
+     * Anchored on the CUSTOMER's last message rather than our own last outbound. That is the
+     * substantive change: the old anchor was re-stamped by the nudge itself, so the clock reset
+     * on every touch and `NURTURE_CADENCE=daily` really sent about every two days. Our sends
+     * cannot move this anchor, so the schedule is cumulative - 2h, then 26h, then 50h - and
+     * every due time is a pure function of (anchor, step). See ai-brain/silence-schedule.ts.
+     */
+    const decision = decideSilenceFollowUp({
+      lastInboundAt: conversation.lastInboundAt ?? null,
+      lastOutboundAt: conversation.lastOutboundAt ?? null,
+      createdAt: conversation.createdAt ?? null,
+      nurtureStep: currentStep,
+      eventDate,
+      now: reference,
+    });
+
+    const anchor = silenceAnchor({
+      lastInboundAt: conversation.lastInboundAt ?? null,
+      createdAt: conversation.createdAt ?? null,
+      now: reference,
+    });
+
+    // Kept for the activity log and the follow-up prompt, which both read in days.
+    const daysSilent = anchor ? daysSince(anchor, reference) : 0;
 
     // The event has been and gone. Nothing we could say now is worth anything to them, and a
     // "still interested?" the day after someone's wedding is the worst message this system could
@@ -311,51 +362,44 @@ export const createNurtureSweepService = ({
       return 'skipped';
     }
 
-    // With a known event date the cadence is only allowed to use the days still left before it.
-    // `daysSilent + daysUntilEvent` is the day-of-silence the event itself falls on (both move
-    // with the same clock, so it stays put between ticks); one day earlier is the last day a
-    // nudge may land on. No event date -> the configured schedule, exactly as before.
-    // A LOW INTENT lead is nurtured on a slower version of the same cadence (see
-    // scheduleForBand); every other band gets the configured days untouched.
-    const bandSchedule = scheduleForBand(
-      schedule,
-      conversation.leadScoreBand,
-      lowIntentMultiplier,
+    // THE SEQUENCE HAS RUN ITS COURSE. With no event date to aim at, the window is a fixed
+    // seven days from the anchor - deterministic across retries and restarts, because it is a
+    // function of the anchor alone and not of when a sweep happened to run. This replaces the
+    // old `daysSilent >= coldAfterDays` cold rule for the silence path.
+    if (!decision.send && decision.reason === 'window_expired') {
+      await conversationRepository.markConversationCold({
+        conversationId: conversation._id,
+        organizationId,
+        pausedReason: COLD_PAUSED_REASON,
+      });
+
+      await createActivity({
+        organizationId,
+        whatsappAccountId: conversation.whatsappAccountId,
+        conversationId: conversation._id,
+        eventType: ACTIVITY_EVENTS.AI_BRAIN_NURTURE_MARKED_COLD,
+        summary: `Marked cold after ${daysSilent} day(s) of silence with no event date to aim at.`,
+        metadata: { daysSilent, nurtureStep: currentStep },
+      });
+
+      return 'cold';
+    }
+
+    // Not due, waiting on OUR reply, no anchor, or the event day has arrived. Each is a reason
+    // to stay quiet rather than a reason to close the lead out.
+    if (!decision.send) {
+      return 'skipped';
+    }
+
+    const earnedStep = decision.step;
+
+    // How many touches the sequence can still fit, for the prompt's "step N of M". With an
+    // event date it is the days left; otherwise the seven-day window. Presentational only -
+    // nothing schedules off it.
+    const total = Math.max(
+      earnedStep,
+      daysUntilEvent === null ? SILENCE_WINDOW_DAYS : Math.max(1, daysUntilEvent),
     );
-
-    const activeSchedule =
-      daysUntilEvent === null
-        ? bandSchedule
-        : compressScheduleForEvent(bandSchedule, daysSilent + daysUntilEvent - 1);
-
-    if (currentStep >= activeSchedule.length) {
-      if (daysSilent >= coldAfterDays) {
-        await conversationRepository.markConversationCold({
-          conversationId: conversation._id,
-          organizationId,
-          pausedReason: COLD_PAUSED_REASON,
-        });
-
-        await createActivity({
-          organizationId,
-          whatsappAccountId: conversation.whatsappAccountId,
-          conversationId: conversation._id,
-          eventType: ACTIVITY_EVENTS.AI_BRAIN_NURTURE_MARKED_COLD,
-          summary: `Marked cold after ${daysSilent} day(s) of silence with the full nurture cadence sent.`,
-          metadata: { daysSilent, nurtureStep: currentStep },
-        });
-
-        return 'cold';
-      }
-
-      return 'skipped';
-    }
-
-    const earnedStep = furthestEarnedBump(daysSilent, activeSchedule);
-
-    if (earnedStep <= currentStep) {
-      return 'skipped';
-    }
 
     const recentMessages = await messageRepository.findMessagesByConversationCursor({
       organizationId,
@@ -380,7 +424,7 @@ export const createNurtureSweepService = ({
       facts: conversation.aiFacts ?? {},
       transcript,
       step: earnedStep,
-      total: activeSchedule.length,
+      total,
       daysSilent,
       knowledgeText: context.knowledgeText,
       styleExamples: context.styleExamples,
@@ -393,7 +437,13 @@ export const createNurtureSweepService = ({
       conversation,
       actor: systemUser as HydratedDocument<UserDocument>,
       body: result.message,
-      idempotencyKey: `nurture:${conversation._id.toString()}:${earnedStep}`,
+      // THE ANCHOR IS PART OF THE KEY, and it has to be. `nurtureStep` resets to 0 whenever the
+      // customer writes, so a second sequence reuses step 1 - and with the old
+      // `nurture:<id>:<step>` key that collided with the FIRST sequence's first nudge on the
+      // unique index and was silently swallowed. The lead would write in, go quiet again, and
+      // never be followed up. Keying on the anchor as well makes each sequence its own series
+      // while still making a retry or a competing sweep within one sequence a no-op.
+      idempotencyKey: `nurture:${conversation._id.toString()}:${anchor?.getTime() ?? 0}:${earnedStep}`,
       authoredBy: MESSAGE_AUTHORS.AI,
     });
 
@@ -408,8 +458,8 @@ export const createNurtureSweepService = ({
       whatsappAccountId: conversation.whatsappAccountId,
       conversationId: conversation._id,
       eventType: ACTIVITY_EVENTS.AI_BRAIN_NURTURE_SENT,
-      summary: `AI sent nurture follow-up ${earnedStep} of ${activeSchedule.length} after ${daysSilent} day(s) of silence.`,
-      metadata: { step: earnedStep, total: activeSchedule.length, daysSilent, daysUntilEvent },
+      summary: `AI sent silence follow-up ${earnedStep} after ${daysSilent} day(s) of silence.`,
+      metadata: { step: earnedStep, total, daysSilent, daysUntilEvent },
     });
 
     return 'nudged';

@@ -38,6 +38,28 @@ const inboundMessage = {
  * are about is what ingestion does with a message, and making every one of them wait out a
  * real three-second debounce would buy nothing but a slow suite.
  */
+/**
+ * The flushes this collector has started.
+ *
+ * REAL INGESTION DOES NOT AWAIT THE FLUSH - "the window outlives this request by design" - so
+ * `collect` must not either, or these tests would stop exercising the real control flow. But
+ * that left every assertion below depending on how many microtasks `await run()` happened to
+ * drain, which is not a property anybody meant to rely on: adding one more `await` anywhere
+ * inside the flush silently moved `handleAutomation` past the assertion and broke thirteen
+ * tests that had nothing to do with the change. Tracking the promises and draining them
+ * explicitly is the same timing the production path has, stated out loud.
+ */
+let pendingBurstFlushes: Promise<unknown>[] = [];
+
+/** Lets the fire-and-forget flush finish, so assertions see what it did. */
+const settleBurstFlushes = async () => {
+  while (pendingBurstFlushes.length > 0) {
+    const inFlight = pendingBurstFlushes;
+    pendingBurstFlushes = [];
+    await Promise.allSettled(inFlight);
+  }
+};
+
 const immediateBurstCollector = {
   collect: ({ messageId, text, flush }: {
     conversationId: unknown;
@@ -45,7 +67,7 @@ const immediateBurstCollector = {
     text: string;
     flush: (turn: { text: string; messageCount: number; lastMessageId: string }) => Promise<void>;
   }) => {
-    void flush({ text, messageCount: 1, lastMessageId: String(messageId) });
+    pendingBurstFlushes.push(flush({ text, messageCount: 1, lastMessageId: String(messageId) }));
   },
   flushAll: async () => undefined,
   isPending: () => false,
@@ -75,6 +97,9 @@ const createHarness = (
   const handleAutomation = vi.fn().mockResolvedValue(undefined);
   // Stubbed, or the real service reaches for the AI brain over HTTP during ingestion tests.
   const extractLeadCommitment = vi.fn().mockResolvedValue({ created: false, updated: false });
+  // Injected, or the real service reaches the AI client and the Mongoose model. Defaults to
+  // "no rejection", which is what every pre-existing test in this file assumes.
+  const detectSalesRejection = vi.fn().mockResolvedValue({ rejected: false, reason: 'no_rejection' });
   const markOptedOut = vi.fn().mockResolvedValue(conversation);
   const updateAutomationState = vi.fn().mockResolvedValue(conversation);
   const updateConversationPreview = vi.fn().mockResolvedValue(conversation);
@@ -117,6 +142,7 @@ const createHarness = (
     publishEvent: vi.fn().mockResolvedValue(undefined),
     handleAutomation: handleAutomation as never,
     extractLeadCommitment: extractLeadCommitment as never,
+    detectSalesRejection: detectSalesRejection as never,
     sendNewLeadAlert: sendNewLeadAlert as never,
     sendOptOutAlert: sendOptOutAlert as never,
     recomputeLeadScore: recomputeLeadScore as never,
@@ -131,22 +157,29 @@ const createHarness = (
     recomputeLeadScore,
     handleAutomation,
     extractLeadCommitment,
+    detectSalesRejection,
     markOptedOut,
     updateAutomationState,
     updateConversationPreview,
     createInboundMessage,
     logger,
-    run: (perCall: Record<string, unknown> = {}) =>
-      service.ingestInboundMessage({
+    run: async (perCall: Record<string, unknown> = {}) => {
+      const result = await service.ingestInboundMessage({
         organizationId: 'org-1',
         whatsappAccountId: 'account-1',
         inboundMessage: { ...inboundMessage, ...inboundOverrides, ...perCall } as never,
-      }),
+      });
+
+      await settleBurstFlushes();
+
+      return result;
+    },
   };
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  pendingBurstFlushes = [];
 });
 
 describe('ingestInboundMessage - new-lead alert', () => {
@@ -416,6 +449,9 @@ describe('ingestInboundMessage - inbound media', () => {
           fileName: null,
           sizeBytes: 8321,
           storageStatus: 'not_applicable',
+          // Persisted now, rather than only inferred for the label: the delivery path needs it
+          // to send a reply back as a voice note, and the thread needs it to say which it is.
+          isVoiceNote: true,
         },
       }),
     );
@@ -532,6 +568,7 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
       publishEvent: vi.fn().mockResolvedValue(undefined),
       handleAutomation: handleAutomation as never,
       extractLeadCommitment: vi.fn().mockResolvedValue({ created: false, updated: false }) as never,
+      detectSalesRejection: vi.fn().mockResolvedValue({ rejected: false }) as never,
       sendNewLeadAlert: vi.fn().mockResolvedValue(undefined) as never,
       sendOptOutAlert: vi.fn().mockResolvedValue(undefined) as never,
       recomputeLeadScore: vi.fn().mockResolvedValue(undefined) as never,
@@ -548,12 +585,17 @@ describe('ingestInboundMessage - the pipeline trace (stages 7-9)', () => {
     return {
       lines,
       handleAutomation,
-      run: () =>
-        service.ingestInboundMessage({
+      run: async () => {
+        const result = await service.ingestInboundMessage({
           organizationId: 'org-1',
           whatsappAccountId: 'account-1',
           inboundMessage: { ...inboundMessage, ...inbound } as never,
-        }),
+        });
+
+        await settleBurstFlushes();
+
+        return result;
+      },
     };
   };
 
@@ -676,8 +718,8 @@ describe('ingestInboundMessage - a @lid reply must not fork the contact', () => 
 
     return {
       findOrCreateContactByProviderKey,
-      run: () =>
-        service.ingestInboundMessage({
+      run: async () => {
+        const result = await service.ingestInboundMessage({
           organizationId: 'org-1',
           whatsappAccountId: 'account-1',
           inboundMessage: {
@@ -686,7 +728,12 @@ describe('ingestInboundMessage - a @lid reply must not fork the contact', () => 
             senderJid: '271122334455667@lid',
             ...inboundOverrides,
           } as never,
-        }),
+        });
+
+        await settleBurstFlushes();
+
+        return result;
+      },
     };
   };
 
@@ -1015,5 +1062,109 @@ describe('an unanswered message is kept, not discarded', () => {
     expect(h.updateConversationPreview).toHaveBeenCalledWith(
       expect.objectContaining({ unreadCountIncrement: 1 }),
     );
+  });
+});
+
+/**
+ * Decision 3: what happens to the turn that says "we booked another photographer".
+ *
+ * THE FAILURE THIS BLOCK EXISTS FOR. `handleInboundMessageForAutomation` reads
+ * `aiAutomationEnabled` off the conversation object it is HANDED, not from a fresh query. So
+ * recording the rejection in the database is not enough on its own: without the in-flight copy
+ * being updated too, the sales agent - holding a snapshot loaded seconds earlier - would reply
+ * to the rejection with a qualifying question. That is the single most embarrassing message
+ * this system could send, and it would pass every other guard.
+ */
+describe('ingestInboundMessage - firm rejection', () => {
+  const rejected = { rejected: true } as const;
+
+  it('reads the turn for a rejection, with the lead’s text', async () => {
+    const h = createHarness();
+    h.detectSalesRejection.mockResolvedValue(rejected);
+
+    await h.run({ text: 'We have booked another photographer' });
+
+    expect(h.detectSalesRejection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-1',
+        conversationId: 'conv-1',
+        text: 'We have booked another photographer',
+      }),
+    );
+  });
+
+  it('DOES NOT PITCH BACK: the sales agent sees automation already off', async () => {
+    const h = createHarness();
+    h.detectSalesRejection.mockResolvedValue(rejected);
+
+    await h.run({ text: 'We have booked another photographer' });
+
+    const [[handed]] = h.handleAutomation.mock.calls as [[{ conversation: Record<string, unknown> }]];
+
+    expect(handed.conversation.aiAutomationEnabled).toBe(false);
+    expect(handed.conversation.aiAutomationPausedReason).toContain('no longer going ahead');
+  });
+
+  it('leaves the in-flight copy alone when there was no rejection', async () => {
+    const h = createHarness();
+    h.detectSalesRejection.mockResolvedValue({ rejected: false, reason: 'no_rejection' });
+
+    await h.run({ text: 'I will confirm tomorrow' });
+
+    const [[handed]] = h.handleAutomation.mock.calls as [[{ conversation: Record<string, unknown> }]];
+
+    expect(handed.conversation.aiAutomationEnabled).not.toBe(false);
+  });
+
+  it('still saves the message itself - their "no" is the evidence they said it', async () => {
+    const h = createHarness();
+    h.detectSalesRejection.mockResolvedValue(rejected);
+
+    const result = await h.run({ text: 'We have booked another photographer' });
+
+    expect(h.createInboundMessage).toHaveBeenCalled();
+    expect(result).toMatchObject({ persisted: true });
+  });
+
+  it('runs AFTER reminder extraction, so a rejection cannot lose an owner reminder', async () => {
+    const h = createHarness();
+
+    await h.run({ text: 'We have booked another photographer' });
+
+    expect(h.extractLeadCommitment.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.detectSalesRejection.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('runs BEFORE the sales agent', async () => {
+    const h = createHarness();
+
+    await h.run({ text: 'We have booked another photographer' });
+
+    expect(h.detectSalesRejection.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.handleAutomation.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('never asks a model about a lead who explicitly asked us to stop', async () => {
+    // STRONGER THAN A FLAG: an opted-out turn does not reach the burst flush at all, so the
+    // classifier is not merely told to stand down, it is never called. An explicit instruction
+    // from a customer is never put to a model for a second opinion.
+    const h = createHarness();
+
+    await h.run({ text: 'Please stop messaging me' });
+
+    expect(h.detectSalesRejection).not.toHaveBeenCalled();
+    expect(h.handleAutomation).not.toHaveBeenCalled();
+  });
+
+  it('a lead who asked to stop takes the OPT-OUT path, not the rejection path', async () => {
+    // Requirement: reuse the existing opt-out mechanism rather than inventing a second one.
+    const h = createHarness();
+
+    await h.run({ text: 'Please stop messaging me' });
+
+    expect(h.markOptedOut).toHaveBeenCalled();
+    expect(h.sendOptOutAlert).toHaveBeenCalled();
   });
 });

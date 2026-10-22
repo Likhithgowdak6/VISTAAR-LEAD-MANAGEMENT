@@ -592,6 +592,70 @@ Recent conversation:
 
 
 # --------------------------------------------------------------------------
+# A PROMISE BEING KEPT, which is not the same thing as a nudge and must not
+# read like one.
+#
+# FOLLOWUP_SYSTEM above opens with "this lead has gone quiet" and grades its
+# tone by "follow-up {step} of {total}" - so asking it for a single message
+# selects the FINAL-follow-up branch, which signs off with "I'll leave it
+# here unless I hear back". That is close to the worst possible wording for
+# "here are the packages, as I said I'd send at 5": we promised to turn up,
+# and turning up with a goodbye is a broken promise delivered politely.
+#
+# So this is its own prompt rather than a parameter on that one. The lead is
+# not being chased here - they are being given the thing they were told to
+# expect, at the time they were told to expect it. Nothing is owed BY them.
+# --------------------------------------------------------------------------
+PROMISE_FOLLOWUP_SYSTEM = (
+    BRAND
+    + """
+A specific promise was made in this conversation about this moment, and the
+moment has arrived. Write ONE short WhatsApp message that keeps it.
+
+This is NOT a "still there?" nudge and NOT a new pitch. Nobody has gone
+quiet and nothing has gone wrong - we said we would come back at this time,
+so we are coming back at this time.
+"""
+    + VOICE
+    + """
+THE PROMISE:
+{promise}
+
+RULES:
+- Lead with the promise, not with an apology for messaging. "As promised"
+  or "like I said I would" is the right opening energy - never "sorry to
+  bother you", never "just checking in".
+- If WE owed them something we cannot actually produce here - a quote, a
+  price list, a date we have not been given - say honestly that it is
+  coming and when, rather than inventing it or sending nothing. You may
+  never state a price, package, date or availability that is not in the
+  facts or the conversation below.
+- If THEY owed US an answer, this is the lightest possible reminder that we
+  are here and ready. No pressure, no deadline, no "we need to know by".
+  They are allowed to still be deciding.
+- Never guilt-trip and never imply they are late: no "you said you would",
+  no "I have not heard from you", no passive-aggression.
+- Do not make a NEW promise to fix a kept one. Only commit to something if
+  the conversation below already committed to it.
+- Under 40 words. One message. No links, no bullet points.
+- Match the language of the conversation (English, Hindi or Hinglish).
+
+What we know about this business. You may state these, nothing else:
+{knowledge}
+
+How we write. Match this tone, do not copy the words:
+{style}
+
+What we already know about this lead:
+{facts}
+
+Recent conversation:
+{transcript}
+"""
+)
+
+
+# --------------------------------------------------------------------------
 # The owner's catch-up read. The owner runs this business from WhatsApp and
 # comes back to a thread the AI has been handling for days; he should not
 # have to scroll twenty messages to work out where things stand.
@@ -1051,6 +1115,74 @@ The conversation is in Indian WhatsApp English, Hindi or Hinglish, and is often 
 "confidence" is how sure you are, 0.0 to 1.0. Be honest - a low number is useful, and the business treats anything uncertain as "none".
 
 The conversation so far, oldest first:
+{transcript}
+
+The message to read (the most recent one from them):
+{message}
+"""
+
+
+# --------------------------------------------------------------------------
+# "We've booked another photographer."
+#
+# THE ONLY QUESTION THIS ANSWERS is whether the customer has decided not to
+# go ahead. It is not the outcome classifier (which also judges won, drafts
+# replies and decides when to reopen) and it is not the opt-out matcher
+# (which is deterministic, lives in the backend, and handles "stop messaging
+# me" without ever asking a model).
+#
+# THE ASYMMETRY THAT SHAPES THE WHOLE PROMPT. A missed rejection costs one
+# more follow-up, which the customer ignores. A FALSE rejection silently
+# ends a live deal - the AI goes quiet, both follow-up sweeps skip the
+# thread, and nobody finds out until the enquiry is long dead. Indian
+# customers routinely say "I'll think about it", "let me discuss with
+# family", "your price is high" in the middle of a deal they fully intend to
+# close. Every one of those must return "none".
+# --------------------------------------------------------------------------
+REJECTION_SYSTEM = """You read one WhatsApp message from a customer of a photography studio and decide ONE thing: have they decided not to go ahead?
+
+You never reply to anyone. You never write a customer-facing message. You return one verdict.
+
+"firm_rejection"  They have decided against us, and said so. They booked
+                  somebody else, cancelled, no longer need the service, or
+                  told us plainly they are not interested.
+"none"            Anything else. This is the default and the safe answer.
+
+FIRM REJECTION - these are the shape of it:
+- "We have booked another photographer."
+- "We went with another vendor."
+- "We don't need this service anymore."
+- "The event is cancelled."
+- "Not interested, thanks." (said as a decision, not as a haggle)
+
+NOT A REJECTION, and these are the ones that matter most. Every line below
+is a customer who is STILL DECIDING. Returning "firm_rejection" for any of
+them ends a live deal:
+- "I'll think about it."        -> still deciding
+- "Let me discuss with my family." -> still deciding
+- "I'll confirm tomorrow."      -> a commitment, not a refusal
+- "Your price is high."         -> an objection. They are negotiating, which
+                                   means they are still interested.
+- "That's too expensive."       -> the same. Never a rejection.
+- "Maybe later." / "Not right now." -> timing, not a decision
+- "I'm busy right now."         -> about this moment, not about us
+- "We are checking a few options." -> comparing, not finished
+- Silence, a short "ok", an emoji, or anything you cannot read clearly
+
+RULES THAT MATTER MORE THAN BEING DECISIVE:
+- When in any doubt at all, return "none". A human reads every message
+  anyway; you are only deciding whether to STOP the automation.
+- A rejection must be stated by the customer in this message. Never infer
+  one from a long silence, from frustration, or from a tough negotiation.
+- Annoyance is not rejection. "You keep messaging me the same thing" is a
+  complaint about us, not a decision about the service - return "none".
+- Do not treat a question as a rejection, however sceptical it sounds.
+- If they are asking to stop being MESSAGED rather than deciding about the
+  SERVICE, that is still "none" here - something else handles it.
+- Judge the latest message. Earlier messages are context only, and a
+  rejection that was already clear earlier is not new news.
+
+Earlier messages, for context only:
 {transcript}
 
 The message to read (the most recent one from them):

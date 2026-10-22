@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
-import RemindersPage from './RemindersPage';
 import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useReminderAlarms } from '../hooks/useReminderAlarms';
 import ChangePasswordGate from '../components/ChangePasswordGate';
+import { type AiResponseStatus, type EnquiryClass } from '../types/analytics';
+import AnalyticsPage from './AnalyticsPage';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
@@ -25,7 +26,7 @@ import TeamPage from './TeamPage';
 
 type AppView =
   | 'inbox'
-  | 'reminders'
+  | 'analytics'
   | 'accounts'
   | 'team'
   | 'stages'
@@ -268,16 +269,19 @@ const AppShell = () => {
     enabled: Boolean(isAuthenticated),
     onOpenReminder: useCallback(
       ({ conversationId }: { reminderId: string; conversationId: string | null }) => {
-        // A lead reminder opens its conversation; a personal one - or a lead whose thread has
-        // since been deleted - falls back to the list, which is always reachable.
+        // A lead reminder opens its conversation. A personal one - or a lead whose thread has
+        // since been deleted - has nowhere specific to land now that reminders live inside a
+        // lead's details, so it falls back to the inbox, which is always reachable. The
+        // notification itself still fires and still carries its text; only the destination
+        // changed.
         if (conversationId) {
           openConversation(conversationId);
           return;
         }
 
-        setView('reminders');
+        goToInbox();
       },
-      [openConversation],
+      [openConversation, goToInbox],
     ),
   });
 
@@ -294,9 +298,47 @@ const AppShell = () => {
    * from the same permission flags rather than a second list, so a section can never appear in
    * one and not the other.
    */
+  /**
+   * Filters handed over by an analytics metric card. Bumping `seq` re-keys the inbox list so
+   * the same card can be clicked twice and still re-seed - without it the second click would
+   * leave whatever filters the owner had since set by hand.
+   */
+  const [drillDown, setDrillDown] = useState<{
+    seq: number;
+    filters: { enquiryClass?: string; aiStatus?: string; needsAttention?: boolean };
+  } | null>(null);
+
+  /**
+   * The analytics page hands back plain strings, because it is describing a metric rather than
+   * naming a filter. Narrowed here against the known values instead of cast: a card wired to a
+   * bucket the inbox does not have should drop that filter, not smuggle an unmatchable string
+   * into a query and quietly return nothing.
+   */
+  const asEnquiryClass = (value?: string): EnquiryClass | null =>
+    value === 'enquiry' || value === 'not_enquiry' || value === 'needs_review' ? value : null;
+
+  const asAiStatus = (value?: string): AiResponseStatus | null =>
+    value === 'ai_replied' ||
+    value === 'awaiting_ai_reply' ||
+    value === 'ai_paused' ||
+    value === 'ai_reply_failed' ||
+    value === 'ai_not_needed' ||
+    value === 'needs_review'
+      ? value
+      : null;
+
+  const openInboxWithFilters = useCallback(
+    (filters: { enquiryClass?: string; aiStatus?: string; needsAttention?: boolean }) => {
+      setDrillDown((current) => ({ seq: (current?.seq ?? 0) + 1, filters }));
+      setSelectedId(null);
+      setView('inbox');
+    },
+    [],
+  );
+
   const navItems: MobileNavItem<AppView>[] = [
-    { view: 'reminders', label: 'Reminders' },
     { view: 'inbox', label: 'Inbox' },
+    { view: 'analytics', label: 'Analytics' },
     ...(canReadAccounts ? ([{ view: 'accounts', label: 'Accounts' }] as const) : []),
     ...(canReadUsers ? ([{ view: 'team', label: 'Team' }] as const) : []),
     ...(canManageStages ? ([{ view: 'stages', label: 'Stages' }] as const) : []),
@@ -341,8 +383,8 @@ const AppShell = () => {
               aria-label="Sections"
               className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
             >
-              <NavButton active={view === 'reminders'} onClick={() => setView('reminders')}>
-                Reminders
+              <NavButton active={view === 'analytics'} onClick={() => setView('analytics')}>
+                Analytics
               </NavButton>
               <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
                 Inbox
@@ -447,15 +489,9 @@ const AppShell = () => {
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Lead sources">
           <LeadSourcesPage />
         </SectionScreen>
-      ) : view === 'reminders' ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Reminders" isTab>
-          <RemindersPage
-            onOpenConversation={openConversation}
-            alarmStatus={alarmStatus}
-            onRequestNotificationPermission={requestNotificationPermission}
-            onRequestExactAlarm={requestExactAlarm}
-            onSyncAlarms={syncAlarms}
-          />
+      ) : view === 'analytics' ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Analytics">
+          <AnalyticsPage onOpenConversation={openConversation} onDrillDown={openInboxWithFilters} />
         </SectionScreen>
       ) : view === 'settings' && canManageSettings ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Settings">
@@ -476,9 +512,18 @@ const AppShell = () => {
             } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
             <ConversationList
-              key={`list-${listRefreshKey}`}
+              key={`list-${listRefreshKey}-${drillDown?.seq ?? 0}`}
               selectedId={selectedId}
               onSelect={selectConversation}
+              initialFilters={
+                drillDown
+                  ? {
+                      enquiryClass: asEnquiryClass(drillDown.filters.enquiryClass),
+                      aiStatus: asAiStatus(drillDown.filters.aiStatus),
+                      needsAttention: drillDown.filters.needsAttention === true,
+                    }
+                  : undefined
+              }
             />
           </div>
           {selectedId ? (
@@ -486,6 +531,26 @@ const AppShell = () => {
               key={selectedId}
               conversationId={selectedId}
               onBack={closeConversation}
+              // Reminders are managed inside the lead panel now, so the two things the old
+              // Reminders page owned - re-arming device alarms after a change, and telling the
+              // owner whether this phone will ring - are handed down to it here.
+              onRemindersChanged={syncAlarms}
+              reminderAlarms={
+                alarmStatus
+                  ? {
+                      permission: alarmStatus.permission,
+                      exactAlarm: alarmStatus.exactAlarm,
+                      onRequestExactAlarm: requestExactAlarm,
+                      clockAlarmCount: alarmStatus.clockAlarmCount,
+                      clockAlarmsPending: alarmStatus.clockAlarmsPending,
+                      clockAlarmUnavailable: alarmStatus.clockAlarmUnavailable,
+                      lastSkip: alarmStatus.lastSkip,
+                      lastSyncFailed: alarmStatus.lastSyncFailed,
+                      armedCount: alarmStatus.armedCount,
+                      onRequest: requestNotificationPermission,
+                    }
+                  : undefined
+              }
               onDeleted={() => {
                 // Clear the selection first: the backend now 404s this id, so leaving it selected
                 // would swap the thread for an error message. Then force the list to refetch, or
@@ -512,9 +577,8 @@ const AppShell = () => {
           being typed. Back returns to the list, which brings the bar back with it. */}
       {isMobileViewport && !(view === 'inbox' && selectedId) ? (
         <MobileBottomNav
-          active={view === 'inbox' ? 'inbox' : view === 'reminders' ? 'reminders' : 'more'}
+          active={view === 'inbox' ? 'inbox' : 'more'}
           onInbox={goToInbox}
-          onReminders={() => setView('reminders')}
           onMore={() => setMoreOpen(true)}
         />
       ) : null}

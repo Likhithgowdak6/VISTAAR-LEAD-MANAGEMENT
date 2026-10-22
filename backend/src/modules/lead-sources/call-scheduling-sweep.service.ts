@@ -24,6 +24,7 @@ import { FOLLOWUP_PRIORITIES } from '../../constants/followup-priorities.js';
 import { FOLLOWUP_TYPES } from '../../constants/followup-types.js';
 import { MESSAGE_AUTHORS } from '../../constants/message-authors.js';
 import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
+import { getNextFollowUpSync } from '../followups/next-follow-up.service.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { getOrCreateAiSystemUser as defaultGetAiSystemUser } from '../ai-brain/ai-brain-system-user.service.js';
 import { getOwnerActorForOrganization as defaultGetOwnerActor } from '../ai-brain/owner-actor.service.js';
@@ -234,6 +235,15 @@ export const createCallSchedulingSweepService = ({
               claimToken,
               ownerReminderTaskId: task?._id ?? null,
             });
+
+            // Same treatment as a hand-typed reminder: the conversation's next-reminder hint is
+            // recomputed from its pending tasks. Isolated from the sweep's own bookkeeping -
+            // the reminder exists and will ring whatever happens here.
+            await getNextFollowUpSync().syncQuietly({
+              organizationId: attempt.organizationId,
+              conversationId: attempt.conversationId,
+            });
+
             result.remindersCreated += 1;
           } else {
             logger?.error?.(

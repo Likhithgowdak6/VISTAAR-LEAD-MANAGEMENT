@@ -46,6 +46,7 @@ import {
   mergeConversationAiContext,
   rejectLeadQualification,
   setAiIntent,
+  clearSalesRejection,
   updateAutomationState,
   updateStage as updateConversationStage,
 } from '../conversations/conversation.repository.js';
@@ -889,6 +890,42 @@ export const setAutomationForActor = async ({
       metadata: { enabled },
       session,
     });
+
+    /**
+     * REOPENING A REJECTED LEAD, AND THE ONLY PLACE IT HAPPENS.
+     *
+     * A lead who said "we booked another photographer" stays stopped through everything
+     * automatic - a later message, an approval card resolved with `resumeAutomation`, an owner
+     * instruction in self-chat. None of those are a decision to start selling to them again.
+     * This is: a human, holding `ai.automation.manage` (enforced on the route), deliberately
+     * turning automation back on for this one conversation.
+     *
+     * `enabled` only. Turning automation OFF must never clear a rejection - that would make
+     * off-then-on a way to launder one away.
+     *
+     * DOES NOT TOUCH `optedOutAt`, and that is not an oversight. A lead who asked to stop being
+     * messaged has made a request about contact, not a sales decision, and reopening a deal is
+     * not consent to message them again. The existing precedence - opt-out outranks automation
+     * everywhere - is left exactly as it was.
+     */
+    if (enabled) {
+      const reopened = await clearSalesRejection({ conversationId, organizationId, session });
+
+      // Null means it was not rejected, so this was an ordinary automation toggle and there is
+      // nothing to record.
+      if (reopened) {
+        await createActivity({
+          organizationId,
+          whatsappAccountId: conversation.whatsappAccountId,
+          conversationId,
+          actorId: actor._id,
+          eventType: ACTIVITY_EVENTS.AI_BRAIN_SALES_REJECTION_CLEARED,
+          summary: 'A rejected lead was reopened, so automated follow-ups can resume.',
+          metadata: { reopenedBy: actor._id.toString() },
+          session,
+        });
+      }
+    }
 
     return updated;
   });

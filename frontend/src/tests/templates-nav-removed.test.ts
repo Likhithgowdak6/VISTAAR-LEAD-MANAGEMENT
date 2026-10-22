@@ -35,7 +35,7 @@ describe('the top navigation', () => {
 
   it.each([
     'inbox',
-    'reminders',
+    'analytics',
     'accounts',
     'team',
     'stages',
@@ -47,6 +47,74 @@ describe('the top navigation', () => {
     // The point of removing one item is removing exactly ONE item. Matched on the view key
     // rather than the label, because the label sits on its own JSX line.
     expect(appShell).toContain(`setView('${view}')`);
+  });
+});
+
+/**
+ * Reminders followed Templates out of the top bar, for the same reason and with the same rule:
+ * the destination goes, the feature does not. A reminder is about one conversation, so the list
+ * of them now lives in that lead's Details panel.
+ *
+ * The things that must NOT have gone with it are asserted below - the scheduler, the APIs, the
+ * device-alarm sync - because each is reachable from somewhere other than the page, and
+ * deleting the page is only safe for as long as that stays true.
+ */
+describe('the Reminders destination', () => {
+  it('is gone from both navigations', () => {
+    expect(appShell).not.toContain("setView('reminders')");
+    expect(appShell).not.toContain('<RemindersPage');
+    expect(appShell).not.toContain("from './RemindersPage'");
+  });
+
+  it('is gone from the bottom bar on a phone', () => {
+    const bottomNav = readFileSync(
+      join(process.cwd(), 'src/components/mobile/MobileBottomNav.tsx'),
+      'utf8',
+    );
+
+    // Matched on the affordance, not the word: the file's own comment explains why the tab
+    // went, so asserting the absence of "Reminders" would fail on the explanation.
+    expect(bottomNav).not.toContain('onReminders');
+    expect(bottomNav).not.toContain("active === 'reminders'");
+  });
+
+  it('still arms device alarms, which never depended on the page', () => {
+    // The sync loop lives in a hook mounted by AppShell, so removing the page cannot stop a
+    // reminder ringing. If this ever moves into a page again, this fails.
+    expect(appShell).toContain('useReminderAlarms');
+    expect(appShell).toContain('syncAlarms');
+  });
+
+  it('hands the lead panel what the page used to own', () => {
+    // Re-arming after a change, and the device-permission notice. Without these a reminder
+    // created in Lead Details would not ring until the next app start.
+    expect(appShell).toContain('onRemindersChanged={syncAlarms}');
+    expect(appShell).toContain('reminderAlarms=');
+  });
+});
+
+describe('the reminder feature itself survives', () => {
+  it('still has the page on disk, unrouted', () => {
+    // Same treatment as TemplatesPage: not deleted, just not a destination. It is the only
+    // implementation of the personal-reminder list, which has no lead to live under.
+    const page = readFileSync(join(process.cwd(), 'src/pages/RemindersPage.tsx'), 'utf8');
+
+    expect(page).toContain('RemindersPage');
+  });
+
+  it('still exposes every reminder endpoint the lead panel and Android need', () => {
+    const endpoints = readFileSync(join(process.cwd(), 'src/api/endpoints.ts'), 'utf8');
+
+    for (const name of [
+      'listConversationFollowUps',
+      'createFollowUp',
+      'rescheduleFollowUp',
+      'completeFollowUp',
+      'cancelFollowUp',
+      'syncReminders',
+    ]) {
+      expect(endpoints).toContain(name);
+    }
   });
 });
 

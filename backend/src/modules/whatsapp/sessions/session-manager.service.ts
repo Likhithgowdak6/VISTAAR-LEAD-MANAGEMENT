@@ -19,6 +19,7 @@ import { createBaileysProvider } from '../providers/baileys.provider.js';
 import {
   type NormalizedInboundMessage,
   type PairingCodeInfo,
+  type SendMediaMessageOptions,
   type WhatsAppProvider,
   type WhatsAppSessionHandle,
 } from '../providers/whatsapp-provider.interface.js';
@@ -495,6 +496,32 @@ export const createWhatsAppSessionManager = ({
     return provider.sendTextMessage({ sessionHandle: session.sessionHandle, to, text });
   };
 
+  /**
+   * The attachment counterpart, resolved against the same per-account session map, so a send
+   * always leaves on the number the conversation is actually on.
+   */
+  const sendMediaMessage = async ({
+    accountId,
+    ...options
+  }: Omit<SendMediaMessageOptions, 'sessionHandle'> & { accountId?: ObjectIdLike }) => {
+    const key = keyOf(accountId);
+    const session = key ? sessions.get(key) : undefined;
+
+    if (!session?.sessionHandle) {
+      throw new WhatsAppProviderError('No running session for this account.', {
+        code: 'WHATSAPP_SESSION_NOT_RUNNING',
+      });
+    }
+
+    if (typeof provider.sendMediaMessage !== 'function') {
+      throw new WhatsAppProviderError('This WhatsApp provider cannot send attachments.', {
+        code: 'WHATSAPP_MEDIA_UNSUPPORTED',
+      });
+    }
+
+    return provider.sendMediaMessage({ ...options, sessionHandle: session.sessionHandle });
+  };
+
   const disconnectAccount = async ({
     accountId,
     organizationId,
@@ -602,6 +629,7 @@ export const createWhatsAppSessionManager = ({
     listRuntimeStates,
     reconnectPersistedSessions,
     sendTextMessage,
+    sendMediaMessage,
     stopAll,
   };
 };

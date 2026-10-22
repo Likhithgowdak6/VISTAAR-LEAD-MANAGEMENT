@@ -10,6 +10,7 @@ import { runInTransaction } from '../../config/database.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity } from '../activity/activity-log.repository.js';
 import { loadVisibleConversationForActor } from '../conversations/conversation.service.js';
+import { getNextFollowUpSync } from './next-follow-up.service.js';
 import { type UserDocument } from '../users/user.model.js';
 import {
   createFollowUpTask,
@@ -80,6 +81,14 @@ export const createFollowUpForActor = async ({
     });
 
     return task;
+  });
+
+  // The conversation's "next reminder" hint is derived from its pending tasks, so it is
+  // refreshed here rather than guessed at. Never allowed to fail the create: the reminder is
+  // already saved and will ring regardless - see next-follow-up.service.ts.
+  await getNextFollowUpSync().syncQuietly({
+    organizationId,
+    conversationId: task.conversationId,
   });
 
   return serializeFollowUpTask(task);
@@ -208,6 +217,13 @@ const transitionTask = async ({
     return updated;
   });
 
+  // Closing a reminder can change which one is next, or leave none at all - in which case the
+  // recompute clears the field rather than leaving a completed task's time on the conversation.
+  await getNextFollowUpSync().syncQuietly({
+    organizationId,
+    conversationId: task.conversationId,
+  });
+
   return serializeFollowUpTask(updated);
 };
 
@@ -327,6 +343,12 @@ export const rescheduleFollowUpForActor = async ({
   }
 
   const updated = await rescheduleReminder({ taskId, organizationId, dueAt, timezone });
+
+  // Moving a reminder can promote or demote it relative to the conversation's others.
+  await getNextFollowUpSync().syncQuietly({
+    organizationId,
+    conversationId: existing.conversationId,
+  });
 
   return serializeFollowUpTask(updated);
 };

@@ -50,6 +50,7 @@ const {
   mergeConversationAiContext,
   rejectLeadQualification,
   releaseEventReminderClaim,
+  updateConversationPreview,
   updateConversationSummary,
   updateLeadScore,
 } = await import('./conversation.repository.js');
@@ -870,3 +871,53 @@ describe('markConversationCold cannot affect lead temperature', () => {
   });
 });
 
+
+/**
+ * The silence sequence restarts when the customer speaks.
+ *
+ * This is the invalidation rule for the whole follow-up feature, and it lives in one line of a
+ * `$set` rather than in a scheduler - which is the point: it happens atomically with the
+ * timestamp the schedule is anchored on, so a sweep can never read a new anchor beside a stale
+ * step. The failure it prevents is the quiet one: the lead writes in, and because the step
+ * carried over from the previous sequence the next nudge is owed days later instead of hours.
+ */
+describe('updateConversationPreview and the nurture step', () => {
+  const callArgs = () => mocks.findOneAndUpdate.mock.calls[0];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.findOneAndUpdate.mockReturnValue({ exec: vi.fn().mockResolvedValue({}) });
+  });
+
+  it('resets the step to 0 when the customer writes', async () => {
+    await updateConversationPreview({
+      conversationId: 'conv-1',
+      organizationId: 'org-1',
+      lastInboundAt: new Date('2026-10-21T09:00:00.000Z'),
+    });
+
+    expect(callArgs()?.[1]?.$set).toMatchObject({ nurtureStep: 0 });
+  });
+
+  it('leaves the step ALONE on our own outbound', async () => {
+    // The nudge itself goes through this call. If an outbound reset the step, every nudge
+    // would re-arm the sequence it had just advanced and the cadence would never progress.
+    await updateConversationPreview({
+      conversationId: 'conv-1',
+      organizationId: 'org-1',
+      lastOutboundAt: new Date('2026-10-21T09:05:00.000Z'),
+    });
+
+    expect(callArgs()?.[1]?.$set ?? {}).not.toHaveProperty('nurtureStep');
+  });
+
+  it('is scoped to the organization', async () => {
+    await updateConversationPreview({
+      conversationId: 'conv-1',
+      organizationId: 'org-1',
+      lastInboundAt: new Date('2026-10-21T09:00:00.000Z'),
+    });
+
+    expect(callArgs()?.[0]).toMatchObject({ organizationId: 'org-1' });
+  });
+});

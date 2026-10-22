@@ -1,6 +1,10 @@
 import { type HydratedDocument } from 'mongoose';
 
-import { env } from '../../../config/env.js';
+import { env, type Env } from '../../../config/env.js';
+import {
+  createInboundMediaService,
+  type InboundMediaService,
+} from '../../media/inbound-media.service.js';
 import { logger as defaultLogger } from '../../../config/logger.js';
 import { CONVERSATION_STAGES } from '../../../constants/conversation-stages.js';
 import { MESSAGE_TYPES, type MessageType } from '../../../constants/message-types.js';
@@ -16,6 +20,11 @@ import {
   createLeadCommitmentService,
   type LeadCommitmentService,
 } from '../../followups/lead-commitment.service.js';
+import {
+  getSalesRejectionService,
+  type SalesRejectionService,
+} from '../../followups/sales-rejection.service.js';
+import { SALES_REJECTION_PAUSED_REASON } from '../../../constants/sales-rejection.js';
 import {
   createCallSchedulingService,
   type CallSchedulingService,
@@ -203,6 +212,13 @@ export interface CreateInboundMessageIngestionServiceOptions {
    * Same contract as `handleAutomation`: internally failure-isolated, never throws.
    */
   extractLeadCommitment?: LeadCommitmentService['extractLeadCommitment'];
+  /**
+   * Reads the same turn for a decision not to go ahead ("we booked another photographer") and
+   * stops every automated follow-up. Same contract as the two above: failure-isolated, never
+   * throws. Runs AFTER the opt-out decision and is told about it, so a model can never land on
+   * top of an explicit instruction from a customer.
+   */
+  detectSalesRejection?: SalesRejectionService['detectSalesRejection'];
   /** Cancels a pending call-scheduling chase. No-op unless this thread has one. */
   onInboundMessage?: CallSchedulingService['onInboundMessage'];
   /**
@@ -233,6 +249,9 @@ export interface CreateInboundMessageIngestionServiceOptions {
    * message id the provider and router used.
    */
   createTrace?: (options: { seed?: unknown }) => PipelineTrace;
+  /** Fetches and stores an inbound attachment's bytes; see media/inbound-media.service.ts. */
+  inboundMediaService?: InboundMediaService;
+  config?: Env;
   logger?: { error?: (...args: unknown[]) => void };
   now?: () => Date;
 }
@@ -308,6 +327,7 @@ export const createInboundMessageIngestionService = ({
   handleAutomation = defaultHandleAutomation,
   burstCollector = defaultBurstCollector,
   extractLeadCommitment = (params) => getLeadCommitmentService().extractLeadCommitment(params),
+  detectSalesRejection = (params) => getSalesRejectionService().detectSalesRejection(params),
   onInboundMessage = (params) => getCallSchedulingService().onInboundMessage(params),
   sendNewLeadAlert = defaultSendNewLeadAlert,
   isOptOutRequest = defaultIsOptOutRequest,
@@ -316,6 +336,8 @@ export const createInboundMessageIngestionService = ({
   looksLikeForm = defaultLooksLikeForm,
   readPastedFormFacts = (text: string) => buildLeadFormFacts(parsePastedForm(text)),
   createTrace = createPipelineTrace,
+  inboundMediaService = createInboundMediaService(),
+  config = env,
   logger = defaultLogger,
   now = () => new Date(),
 }: CreateInboundMessageIngestionServiceOptions = {}) => {
@@ -459,15 +481,24 @@ export const createInboundMessageIngestionService = ({
     const messageType = inboundMessage.messageType ?? MESSAGE_TYPES.TEXT;
     const inboundMedia = inboundMessage.media ?? null;
 
-    // `not_applicable` rather than `pending`: nothing was downloaded and, deliberately, nothing
-    // is queued to download it either (see the provider - fetching media bytes is separate work).
-    // `pending` would claim a job exists that would eventually flip this to `stored`.
+    // `pending` only when a download is actually about to be attempted: the provider offered a
+    // way to fetch the bytes and the operator has turned fetching on. Otherwise
+    // `not_applicable`, which is the honest answer - it does not claim a job exists that will
+    // eventually flip this to `stored`.
+    const willFetchMedia =
+      Boolean(inboundMedia) &&
+      typeof inboundMessage.downloadMedia === 'function' &&
+      config.MEDIA_INBOUND_DOWNLOAD_ENABLED === true;
+
     const media: Partial<MessageMedia> | undefined = inboundMedia
       ? {
           mimeType: inboundMedia.mimeType,
           fileName: inboundMedia.fileName,
           sizeBytes: inboundMedia.sizeBytes,
-          storageStatus: 'not_applicable',
+          storageStatus: willFetchMedia ? 'pending' : 'not_applicable',
+          // Persisted so the thread can say "voice note" rather than "audio", and so an owner's
+          // own reply can be sent back as one. Only WhatsApp knows this; it is not in the bytes.
+          isVoiceNote: inboundMedia.isVoiceNote === true,
         }
       : undefined;
 
@@ -522,6 +553,30 @@ export const createInboundMessageIngestionService = ({
       type: messageType,
       body: tracePreview(body),
     }));
+
+    // Awaited rather than left running: the realtime event below is what makes the thread
+    // repaint, and a photo that arrives in the UI a second later as a label and then silently
+    // becomes an image is worse than one that simply appears. The service swallows its own
+    // failures and reports them in the result, so nothing here can fail an ingested message.
+    if (willFetchMedia && inboundMedia) {
+      const outcome = await inboundMediaService.storeInboundMedia({
+        organizationId,
+        conversationId: conversation._id,
+        messageId: message._id,
+        messageType,
+        mimeType: inboundMedia.mimeType,
+        fileName: inboundMedia.fileName,
+        sizeBytes: inboundMedia.sizeBytes,
+        download: inboundMessage.downloadMedia!,
+      });
+
+      trace.pass(PIPELINE_STAGE.INGEST_MESSAGE, () => ({
+        step: 'media',
+        message: message._id.toString(),
+        // Never the filename or the object key - both are customer data.
+        outcome: outcome.stored ? `stored ${outcome.sizeBytes} bytes` : outcome.reason,
+      }));
+    }
 
     // A caption wins over the label - it says more about the message than "📷 Photo" does. Only
     // a media message with nothing written on it falls back to the label, which is the whole
@@ -746,6 +801,41 @@ export const createInboundMessageIngestionService = ({
             messageId: turn.lastMessageId,
             optedOut,
           });
+
+          // THEN: has this lead decided not to go ahead at all?
+          //
+          // Ordered BEFORE handleAutomation deliberately. If the turn is "we booked another
+          // photographer", this turns automation off first, and the eligibility check the sales
+          // agent runs a line below then declines on its own - so the rejection is never
+          // answered with a sales question. Getting this order wrong would send a pitch in
+          // reply to a rejection, which is the single most embarrassing thing this system
+          // could do.
+          //
+          // `optedOut` is false on every path that reaches here - the opt-out branch above
+          // never opens the burst window at all, so an explicit "stop messaging me" is never
+          // put to a model for a second opinion. Passed anyway, so the guarantee survives this
+          // branch being restructured and does not depend on a reader noticing the `else`.
+          const rejection = await detectSalesRejection?.({
+            organizationId,
+            whatsappAccountId,
+            conversationId: conversation._id,
+            text: turn.text,
+            transcript: [],
+            optedOut,
+            alreadyRejected: Boolean(conversation.salesRejectedAt),
+          });
+
+          // THE DATABASE WRITE ALONE WOULD NOT STOP THE PITCH.
+          // `handleInboundMessageForAutomation` reads `aiAutomationEnabled` off the object it
+          // is handed, not from a fresh query - so without these two lines the row would say
+          // "paused" while the sales agent, holding a copy loaded seconds earlier, cheerfully
+          // asked the lead what their budget is. Mutating the in-flight copy is how the owner
+          // self-chat path already keeps the two in step (see ai-brain.service.ts), and the
+          // paused reason is set as well so the trace says why rather than just "off".
+          if (rejection?.rejected) {
+            conversationForAutomation.aiAutomationEnabled = false;
+            conversationForAutomation.aiAutomationPausedReason = SALES_REJECTION_PAUSED_REASON;
+          }
 
           await handleAutomation?.({
             organizationId,

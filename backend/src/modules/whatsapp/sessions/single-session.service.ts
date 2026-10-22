@@ -11,6 +11,7 @@ import { createBaileysProvider } from '../providers/baileys.provider.js';
 import {
   type CreateSessionOptions,
   type NormalizedInboundMessage,
+  type SendMediaMessageOptions,
   type WhatsAppProvider,
   type WhatsAppSessionHandle,
 } from '../providers/whatsapp-provider.interface.js';
@@ -353,12 +354,32 @@ export const createSingleSessionService = ({
     });
   };
 
+  const sendMediaMessage = async (options: Omit<SendMediaMessageOptions, 'sessionHandle'>) => {
+    if (!currentSession) {
+      throw new WhatsAppProviderError('No WhatsApp session is running.', {
+        code: 'WHATSAPP_SESSION_NOT_RUNNING',
+      });
+    }
+
+    if (typeof provider.sendMediaMessage !== 'function') {
+      throw new WhatsAppProviderError('This WhatsApp provider cannot send attachments.', {
+        code: 'WHATSAPP_MEDIA_UNSUPPORTED',
+      });
+    }
+
+    return provider.sendMediaMessage({
+      ...options,
+      sessionHandle: currentSession.sessionHandle,
+    });
+  };
+
   const inspectSingleSession = () => serializeRuntimeSession(currentSession);
 
   return {
     startSingleSession,
     stopSingleSession,
     sendTextMessage,
+    sendMediaMessage,
     inspectSingleSession,
   };
 };

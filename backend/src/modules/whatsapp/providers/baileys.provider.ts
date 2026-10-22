@@ -15,6 +15,7 @@ import {
   WHATSAPP_PROVIDER_NAMES,
   type CreateSessionOptions,
   type NormalizedInboundMessage,
+  type SendMediaMessageOptions,
   type SendTextMessageOptions,
   type WhatsAppSessionHandle,
 } from './whatsapp-provider.interface.js';
@@ -595,6 +596,43 @@ export const normalizeBaileysInboundMessage = (
   };
 };
 
+export interface DownloadBaileysMediaOptions {
+  baileysPackage: BaileysPackage;
+  socket: BaileysSocket;
+  message: BaileysInboundRawMessage;
+}
+
+/**
+ * Fetches and decrypts the bytes behind an inbound media node.
+ *
+ * `reuploadRequest` is what makes this work on anything but a message that has just arrived:
+ * WhatsApp expires media on its servers, and that callback asks the sender's device to put it
+ * back. Without it an older photo fails with a 404 that reads like a bug.
+ */
+export const downloadBaileysMedia = async ({
+  baileysPackage,
+  socket,
+  message,
+}: DownloadBaileysMediaOptions): Promise<Buffer> => {
+  const download = baileysPackage?.downloadMediaMessage;
+
+  if (typeof download !== 'function') {
+    throw new WhatsAppProviderNotReadyError('This Baileys build cannot download media.');
+  }
+
+  return download(
+    message,
+    'buffer',
+    {},
+    {
+      reuploadRequest: socket?.updateMediaMessage,
+      // No logger: Baileys logs the media key and direct path at debug level, and both are
+      // secrets for the message's contents.
+      logger: undefined,
+    },
+  );
+};
+
 export const renderTerminalPairingCode = ({
   pairingCode,
 }: RenderTerminalPairingCodeOptions = {}) => {
@@ -811,11 +849,17 @@ export const createBaileysProvider = ({
           );
         }
 
+        // The raw node is kept alongside the normalized one: downloading the bytes later needs
+        // the original message (its media key and direct path), and normalisation deliberately
+        // throws all of that away.
         const inboundMessages = traceable
-          .map((message) => normalizeBaileysInboundMessage(message, { ownJid, ownLid }))
-          .filter((message): message is NormalizedInboundMessage => Boolean(message));
+          .map((raw) => ({ raw, normalized: normalizeBaileysInboundMessage(raw, { ownJid, ownLid }) }))
+          .filter(
+            (entry): entry is { raw: BaileysInboundRawMessage; normalized: NormalizedInboundMessage } =>
+              Boolean(entry.normalized),
+          );
 
-        for (const inboundMessage of inboundMessages) {
+        for (const { raw, normalized: inboundMessage } of inboundMessages) {
           // `@lid` senders carry no phone in the JID. Two ways to recover it, in this order:
           //
           //  1. Off the message key itself (`remoteJidAlt`), set from the stanza's `sender_pn`.
@@ -831,11 +875,23 @@ export const createBaileysProvider = ({
               jid: inboundMessage.senderJid,
             }));
 
+          const withPhone = senderPhoneJid
+            ? { ...inboundMessage, senderPhoneJid }
+            : inboundMessage;
+
+          // A closure, not the bytes: whether to spend the bandwidth is the ingestion service's
+          // decision (it has the size cap and the feature flag), and most callers never call it.
           await safeCall({
             callback: sessionInput.onInboundMessage,
             logger,
             label: 'Baileys inbound message callback',
-            value: senderPhoneJid ? { ...inboundMessage, senderPhoneJid } : inboundMessage,
+            value: inboundMessage.media
+              ? {
+                  ...withPhone,
+                  downloadMedia: () =>
+                    downloadBaileysMedia({ baileysPackage, socket, message: raw }),
+                }
+              : withPhone,
           });
         }
       });
@@ -882,6 +938,84 @@ export const createBaileysProvider = ({
         provider: WHATSAPP_PROVIDER_NAMES.BAILEYS,
         sent: true,
         recipientType: recipientJid.endsWith('@g.us') ? 'group' : 'direct',
+        providerMessageId: sendResult?.key?.id ?? null,
+      };
+    },
+
+    /**
+     * Sends a stored attachment.
+     *
+     * THE SHAPE IS THE MESSAGE TYPE. Baileys decides what kind of WhatsApp message to build from
+     * which key is present in the content object - `image`, `video`, `audio` or `document` - not
+     * from the mimetype, so the switch below is the whole of the mapping. Verified against the
+     * installed 7.0.0-rc14 typings (Types/Message.d.ts, AnyMediaMessageContent).
+     *
+     * A DOCUMENT MUST CARRY ITS NAME. `fileName` is what the recipient sees and what their phone
+     * uses to pick an app to open it with; without one WhatsApp shows an unnamed blob.
+     *
+     * `ptt: true` IS NOT ENOUGH ON ITS OWN. It marks the bubble as a voice note, but WhatsApp
+     * plays voice notes as Ogg/Opus - the caller converts before reaching here (media/voice-note).
+     */
+    async sendMediaMessage(messageInput: SendMediaMessageOptions) {
+      const socket = messageInput.sessionHandle?.socket ?? messageInput.socket;
+
+      if (!socket || typeof socket.sendMessage !== 'function') {
+        throw new WhatsAppProviderNotReadyError('Baileys socket is not ready for sending.');
+      }
+
+      const { data, mimeType, kind } = messageInput;
+
+      if (!Buffer.isBuffer(data) || data.length === 0) {
+        throw new WhatsAppProviderNotReadyError('Baileys media message has no data.');
+      }
+
+      const caption = String(messageInput.caption ?? '').trim();
+      const recipientJid = resolveDirectMessageJid(messageInput.to ?? messageInput.recipientJid);
+
+      let content;
+
+      switch (kind) {
+        case 'image':
+          content = {
+            image: data,
+            mimetype: mimeType,
+            ...(caption === '' ? {} : { caption }),
+          };
+          break;
+        case 'video':
+          content = {
+            video: data,
+            mimetype: mimeType,
+            ...(caption === '' ? {} : { caption }),
+          };
+          break;
+        case 'audio':
+          // No caption key: WhatsApp drops captions on audio, and passing one would make the
+          // owner think a note went with it.
+          content = {
+            audio: data,
+            mimetype: mimeType,
+            ptt: messageInput.isVoiceNote === true,
+          };
+          break;
+        case 'document':
+          content = {
+            document: data,
+            mimetype: mimeType,
+            fileName: messageInput.fileName ?? 'attachment',
+            ...(caption === '' ? {} : { caption }),
+          };
+          break;
+        default:
+          throw new WhatsAppProviderNotReadyError(`Unsupported media kind: ${String(kind)}`);
+      }
+
+      const sendResult = await socket.sendMessage(recipientJid, content);
+
+      return {
+        provider: WHATSAPP_PROVIDER_NAMES.BAILEYS,
+        sent: true,
+        recipientType: recipientJid.endsWith('@g.us') ? ('group' as const) : ('direct' as const),
         providerMessageId: sendResult?.key?.id ?? null,
       };
     },

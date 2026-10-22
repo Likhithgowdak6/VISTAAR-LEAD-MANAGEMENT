@@ -48,6 +48,10 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
   const createFollowUpTask = vi.fn(async (p: Record<string, unknown>) => ({ _id: 'task-new', ...p }));
   const findTasksByConversation = vi.fn(async (_p?: Record<string, unknown>) => existing);
   const rescheduleReminder = vi.fn(async (_p?: Record<string, unknown>) => null);
+  // Injected for the same reason as enqueueCommitmentRetry below: uninjected, the real
+  // repository reaches the Mongoose model, and recordPromise would swallow the resulting error
+  // into a log line instead of the test seeing it.
+  const setPromisedFollowUp = vi.fn(async (_p?: Record<string, unknown>) => null);
   const logger = { info: vi.fn(), error: vi.fn() };
   // Injected, or a transient failure reaches the real Mongoose model and logs a second error.
   const enqueueCommitmentRetry = vi.fn(async (_p?: Record<string, unknown>) => null);
@@ -58,6 +62,7 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
     createFollowUpTask: createFollowUpTask as never,
     findTasksByConversation: findTasksByConversation as never,
     rescheduleReminder: rescheduleReminder as never,
+    setPromisedFollowUp: setPromisedFollowUp as never,
     enqueueCommitmentRetry: enqueueCommitmentRetry as never,
     now: () => NOW,
     logger,
@@ -83,6 +88,7 @@ const createHarness = ({ existing = [] }: { existing?: Record<string, unknown>[]
     createFollowUpTask,
     findTasksByConversation,
     rescheduleReminder,
+    setPromisedFollowUp,
   };
 };
 
@@ -489,5 +495,136 @@ describe('every extraction outcome says which one it was', () => {
 
     expect(logged).not.toContain('9876543210');
     expect(logged).not.toContain('2 lakhs');
+  });
+});
+
+/**
+ * Decision 2: the lead hears from us at the promised time, and the owner still gets reminded.
+ * Both halves, or the feature is either a broken promise or an owner chased twice.
+ */
+describe('the lead-facing half of the promise', () => {
+  it('records a promised follow-up alongside the owner reminder, not instead of it', async () => {
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm');
+
+    expect(h.createFollowUpTask).toHaveBeenCalledTimes(1);
+    expect(h.setPromisedFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('promises it for the same instant the owner is reminded about', async () => {
+    // Two different times would be two different promises, and the lead only heard one.
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm');
+
+    const [[task]] = h.createFollowUpTask.mock.calls;
+    const [[promise]] = h.setPromisedFollowUp.mock.calls;
+
+    expect((promise as { dueAt: Date }).dueAt).toEqual((task as { dueAt: Date }).dueAt);
+  });
+
+  it('seeds the key from the message, so a replayed webhook cannot double-send', async () => {
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm');
+
+    expect(h.setPromisedFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'lead-commit:msg-1', organizationId, conversationId }),
+    );
+  });
+
+  it('records WHO owed WHOM, so the message can be worded correctly', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(verdict({ action: 'await_lead' }));
+
+    await h.run('I will confirm by tomorrow at 5 pm');
+
+    expect(h.setPromisedFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ direction: 'await_lead' }),
+    );
+  });
+
+  it('carries the lead’s own words through', async () => {
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm');
+
+    expect(h.setPromisedFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ quote: 'contact me tomorrow at 5' }),
+    );
+  });
+
+  it('moves the promise when the lead moves the time', async () => {
+    // "Actually make it 6" reschedules the owner's reminder; the lead-facing half has to move
+    // with it, or they are messaged at a time they already changed.
+    const h = createHarness({
+      existing: [
+        {
+          _id: 'task-old',
+          source: 'lead_commitment',
+          dueAt: new Date('2026-10-12T11:30:00.000Z'),
+        },
+      ],
+    });
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+
+    const result = await h.run('actually make it 6');
+
+    expect(result).toEqual({ created: false, updated: true });
+    expect(h.setPromisedFollowUp).toHaveBeenCalledTimes(1);
+    expect(h.setPromisedFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ dueAt: new Date('2026-10-12T12:30:00.000Z') }),
+    );
+  });
+
+  it('promises nothing when no reminder was created', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(verdict({ action: 'none' }));
+
+    await h.run('thanks, looks good');
+
+    expect(h.setPromisedFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('promises nothing to a lead who opted out', async () => {
+    const h = createHarness();
+
+    await h.run('contact me tomorrow at 5 pm', { optedOut: true });
+
+    expect(h.setPromisedFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('promises nothing when the time could not be pinned down', async () => {
+    const h = createHarness();
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'in the evening' }));
+
+    await h.run('I will get back to you in the evening');
+
+    expect(h.setPromisedFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('THE OWNER REMINDER SURVIVES a failure to record the lead-facing half', async () => {
+    // Ordered task-first for exactly this: the reminder is the safety net, so it must not be
+    // taken down by the newer, less important write.
+    const h = createHarness();
+    h.setPromisedFollowUp.mockRejectedValue(new Error('mongo blew up'));
+
+    const result = await h.run('contact me tomorrow at 5 pm');
+
+    expect(result).toEqual({ created: true, updated: false });
+    expect(h.createFollowUpTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the lead’s words out of the log when that write fails', async () => {
+    const h = createHarness();
+    h.setPromisedFollowUp.mockRejectedValue(new Error('mongo blew up'));
+
+    await h.run('contact me tomorrow at 5 pm on 9876543210');
+
+    const logged = JSON.stringify(h.logger.error.mock.calls);
+
+    expect(logged).toContain('conv-1');
+    expect(logged).not.toContain('9876543210');
   });
 });

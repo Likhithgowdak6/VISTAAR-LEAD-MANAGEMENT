@@ -37,9 +37,12 @@ describe('FollowUpsSection', () => {
 
     renderAuthed(<FollowUpsSection conversationId="c1" />);
 
-    const dueInput = await screen.findByLabelText('Follow-up due date');
+    // The create form is behind a toggle now, so the section opens as a list rather than a form.
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add reminder' }));
+
+    const dueInput = await screen.findByLabelText('Reminder due date');
     fireEvent.change(dueInput, { target: { value: '2026-08-01T10:00' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add follow-up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add reminder' }));
 
     await waitFor(() =>
       expect(endpoints.createFollowUp).toHaveBeenCalledWith(

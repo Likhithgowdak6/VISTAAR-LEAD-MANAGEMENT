@@ -26,11 +26,13 @@ import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import * as defaultAiBrainClient from '../ai-brain/ai-brain.client.js';
 import { getOwnerActorForOrganization as defaultGetOwnerActor } from '../ai-brain/owner-actor.service.js';
+import { setPromisedFollowUp as defaultSetPromisedFollowUp } from '../conversations/conversation.repository.js';
 import {
   createFollowUpTask as defaultCreateFollowUpTask,
   findFollowUpTasksByConversation as defaultFindTasksByConversation,
   rescheduleReminder as defaultRescheduleReminder,
 } from './followup-task.repository.js';
+import { getNextFollowUpSync } from './next-follow-up.service.js';
 import { DEFAULT_REMINDER_TIMEZONE, isUsableDueDate, resolveReminderTime } from './reminder-time.js';
 import { enqueueCommitmentRetry as defaultEnqueueCommitmentRetry } from './commitment-retry.repository.js';
 import { isTransientAiFailure } from './transient-failure.js';
@@ -63,6 +65,8 @@ export interface CreateLeadCommitmentServiceOptions {
   createFollowUpTask?: typeof defaultCreateFollowUpTask;
   findTasksByConversation?: typeof defaultFindTasksByConversation;
   rescheduleReminder?: typeof defaultRescheduleReminder;
+  /** Records the lead-facing half of the promise. See promise-follow-up.service.ts. */
+  setPromisedFollowUp?: typeof defaultSetPromisedFollowUp;
   /** Durable recovery for a classifier that was merely slow. See commitment-retry.model.ts. */
   enqueueCommitmentRetry?: typeof defaultEnqueueCommitmentRetry;
   /** False inside the retry sweep itself, so a failing retry cannot re-enqueue itself. */
@@ -78,12 +82,61 @@ export const createLeadCommitmentService = ({
   createFollowUpTask = defaultCreateFollowUpTask,
   findTasksByConversation = defaultFindTasksByConversation,
   rescheduleReminder = defaultRescheduleReminder,
+  setPromisedFollowUp = defaultSetPromisedFollowUp,
   enqueueCommitmentRetry = defaultEnqueueCommitmentRetry,
   enqueueOnFailure = true,
   now = () => new Date(),
   logger = defaultLogger,
 }: CreateLeadCommitmentServiceOptions = {}) => {
   const timezone = (config.WHATSAPP_BUSINESS_TIMEZONE || '').trim() || DEFAULT_REMINDER_TIMEZONE;
+
+  /**
+   * The lead-facing half of the same promise.
+   *
+   * THE OWNER'S REMINDER IS UNCHANGED AND STILL AUTHORITATIVE. This adds a due time on the
+   * conversation that promise-follow-up.service.ts reads at the promised moment; it enqueues
+   * nothing here, speaks to nobody here, and - exactly like the `nextFollowUpAt` sync below -
+   * is never allowed to fail the extraction. If this write is lost the owner is still reminded
+   * and nothing is sent twice; if the reminder were lost instead, a dropped promise would be
+   * invisible. So the ordering is deliberate: task first, this second.
+   */
+  const recordPromise = async ({
+    organizationId,
+    conversationId,
+    dueAt,
+    action,
+    quote,
+    messageId,
+  }: {
+    organizationId: ObjectIdLike;
+    conversationId: ObjectIdLike;
+    dueAt: Date;
+    action: 'contact_lead' | 'await_lead';
+    quote: string;
+    messageId?: ObjectIdLike | string | null;
+  }) => {
+    try {
+      await setPromisedFollowUp({
+        organizationId,
+        conversationId,
+        dueAt,
+        // Seeded from the message that carried the commitment, the same seed the owner task
+        // uses, so the eventual outbound idempotency key is stable across retries and across a
+        // webhook Meta replays. Falls back to the instant itself when there is no message id.
+        key: messageId
+          ? `lead-commit:${String(messageId)}`
+          : `${String(conversationId)}:${dueAt.getTime()}`,
+        direction: action,
+        quote,
+      });
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown };
+      logger?.error?.(
+        { code: err?.code, name: err?.name, conversationId: String(conversationId) },
+        'REMINDER_EXTRACT: could not record the lead-facing follow-up; the owner reminder stands.',
+      );
+    }
+  };
 
   const extractLeadCommitment = async ({
     organizationId,
@@ -197,10 +250,21 @@ export const createLeadCommitmentService = ({
           timezone: when.timezone,
         });
 
+        // "Make it 6 instead" moves BOTH halves. An unconditional `$set` on the conversation,
+        // so the lead is messaged once, at the time they last named - not twice, at both.
+        await recordPromise({
+          organizationId,
+          conversationId,
+          dueAt: when.dueAt,
+          action: verdict.action,
+          quote: verdict.quote || body.slice(0, 300),
+          messageId,
+        });
+
         return { created: false, updated: true };
       }
 
-      await createFollowUpTask({
+      const createdTask = await createFollowUpTask({
         organizationId,
         whatsappAccountId: whatsappAccountId ?? null,
         conversationId,
@@ -216,6 +280,23 @@ export const createLeadCommitmentService = ({
         // The turn's last message id. A webhook Meta replays, or a reconnect that re-delivers
         // the same burst, hits the unique index instead of creating a second reminder.
         idempotencyKey: messageId ? `lead-commit:${String(messageId)}` : null,
+      });
+
+      // The lead's own reminder now counts towards the conversation's next-reminder hint, the
+      // same as one typed in by hand. Never allowed to fail the extraction: the reminder is
+      // saved and will ring either way.
+      await getNextFollowUpSync().syncQuietly({
+        organizationId,
+        conversationId: createdTask?.conversationId ?? conversationId,
+      });
+
+      await recordPromise({
+        organizationId,
+        conversationId,
+        dueAt: when.dueAt,
+        action: verdict.action,
+        quote: verdict.quote || body.slice(0, 300),
+        messageId,
       });
 
       logger?.info?.(

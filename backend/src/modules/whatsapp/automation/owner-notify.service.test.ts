@@ -200,3 +200,100 @@ describe('notifyOwner - the dashboard-configured owner number', () => {
     );
   });
 });
+
+/**
+ * Test mode and the owner alert.
+ *
+ * WHY THIS BLOCK EXISTS. Owner alerts deliberately skip the allowlist/quiet-hours/human-delay
+ * stack, because those guards protect leads from over-automation and the owner's own alerts
+ * should not be throttled. But WHATSAPP_TEST_ALLOWED_NUMBERS is a different kind of rule - it
+ * says which phones this machine may talk to at all - and nine services funnel into notifyOwner,
+ * several firing automatically on inbound traffic. On a laptop with a real owner number still in
+ * the organization's settings, one test message to the test account would ring a real phone.
+ *
+ * The last test here is the one that matters most: with the allowlist empty, which is every
+ * production deployment, none of this changes anything.
+ */
+describe('notifyOwner under WHATSAPP_TEST_ALLOWED_NUMBERS', () => {
+  const testModeService = (allowed: string, ownerNumber: string) => {
+    const sessionManager = {
+      getOwnJid: vi.fn().mockReturnValue('919000000000@s.whatsapp.net'),
+      sendTextMessage: vi.fn().mockResolvedValue({ providerMessageId: 'wamid-owner' }),
+    };
+
+    const service = createOwnerNotifyService({
+      sessionManager: sessionManager as never,
+      echoGuardService: {
+        remember: vi.fn().mockResolvedValue(undefined),
+        isOwnMessage: vi.fn(),
+      } as never,
+      organizationSettingsService: {
+        getOwnerNumber: vi.fn().mockResolvedValue(ownerNumber),
+      } as never,
+      config: { WHATSAPP_TEST_ALLOWED_NUMBERS: allowed, WHATSAPP_OWNER_NUMBER: ownerNumber } as never,
+    });
+
+    return { service, sessionManager };
+  };
+
+  it('BLOCKS an owner alert to a number that is not on the allowlist', async () => {
+    const { service, sessionManager } = testModeService('918888888888', '919999999999');
+
+    const result = await service.notifyOwner({
+      accountId: 'account-1',
+      organizationId: 'org-1',
+      text: 'New lead: Priya',
+    });
+
+    expect(sessionManager.sendTextMessage).not.toHaveBeenCalled();
+    expect(result).toEqual({ providerMessageId: null, blocked: 'not_on_test_allowlist' });
+  });
+
+  it('allows an owner alert to the number being tested with', async () => {
+    const { service, sessionManager } = testModeService('918888888888', '918888888888');
+
+    const result = await service.notifyOwner({
+      accountId: 'account-1',
+      organizationId: 'org-1',
+      text: 'New lead: Priya',
+    });
+
+    expect(sessionManager.sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(result.providerMessageId).toBe('wamid-owner');
+  });
+
+  it('matches a saved number without its country code, as the allowlist does everywhere else', async () => {
+    const { service, sessionManager } = testModeService('918888888888', '8888888888');
+
+    await service.notifyOwner({ accountId: 'account-1', organizationId: 'org-1', text: 'hi' });
+
+    expect(sessionManager.sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('still uses the self-chat fallback, which is the paired device itself', async () => {
+    // Whoever is running the test scanned that QR, so the agent's own number is theirs by
+    // definition. Blocking it would break owner alerts in exactly the setup test mode is for.
+    const { service, sessionManager } = testModeService('918888888888', '');
+
+    await service.notifyOwner({ accountId: 'account-1', organizationId: 'org-1', text: 'hi' });
+
+    expect(sessionManager.sendTextMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '919000000000@s.whatsapp.net' }),
+    );
+  });
+
+  it('changes nothing when the allowlist is empty, which is every production deployment', async () => {
+    const { service, sessionManager } = testModeService('', '919999999999');
+
+    const result = await service.notifyOwner({
+      accountId: 'account-1',
+      organizationId: 'org-1',
+      text: 'New lead: Priya',
+    });
+
+    expect(sessionManager.sendTextMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '919999999999@s.whatsapp.net' }),
+    );
+    expect(result.blocked).toBeUndefined();
+  });
+});

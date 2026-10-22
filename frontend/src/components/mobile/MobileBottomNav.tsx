@@ -1,11 +1,10 @@
 import { type ReactNode } from 'react';
 
-export type BottomNavKey = 'inbox' | 'reminders' | 'more';
+export type BottomNavKey = 'inbox' | 'more';
 
 interface Props {
   active: BottomNavKey;
   onInbox: () => void;
-  onReminders: () => void;
   onMore: () => void;
 }
 
@@ -25,7 +24,12 @@ const STROKE = {
 /**
  * The phone's primary navigation, at the bottom where the thumb is.
  *
- * WHY THREE TABS AND NOT FIVE. The app has nine sections, but only two are opened daily on a
+ * WHY TWO TABS. Reminders used to have the second one, back when they were a destination of
+ * their own. They now live inside a lead's Details panel - a reminder is about a conversation,
+ * and the list of them belongs with the lead it concerns - so the tab had nothing left to point
+ * at. What remains is the inbox and everything else.
+ *
+ * THE ORIGINAL NOTE, KEPT because it still explains the shape: The app has nine sections, but only two are opened daily on a
  * phone: the inbox, and the reminders telling you who to ring. The other seven - accounts,
  * team, stages, tags, lead sources, knowledge, settings - are configuration, done sitting
  * down, and giving each a permanent tab would spend the most valuable strip of screen on
@@ -46,7 +50,7 @@ const STROKE = {
  * A real badge needs a count the server can answer for, which is an API change and out of
  * scope here.
  */
-const MobileBottomNav = ({ active, onInbox, onReminders, onMore }: Props) => (
+const MobileBottomNav = ({ active, onInbox, onMore }: Props) => (
   <nav aria-label="Primary" className="m-bottomnav lg:hidden">
     <button
       type="button"
@@ -62,19 +66,6 @@ const MobileBottomNav = ({ active, onInbox, onReminders, onMore }: Props) => (
         />
       </Icon>
       Inbox
-    </button>
-
-    <button
-      type="button"
-      onClick={onReminders}
-      aria-current={active === 'reminders'}
-      className="m-bottomnav-item"
-    >
-      <Icon>
-        <circle cx="12" cy="13" r="8" {...STROKE} />
-        <path d="M12 9.5V13l2.25 2.25M9 2.75h6" {...STROKE} />
-      </Icon>
-      Reminders
     </button>
 
     <button

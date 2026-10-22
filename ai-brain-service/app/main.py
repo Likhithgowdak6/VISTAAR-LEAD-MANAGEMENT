@@ -12,6 +12,7 @@ Endpoints:
   GET  /v1/conversations/{id}/pending        - what (if anything) is waiting on a human
   POST /v1/conversations/{id}/outcome        - AI opinion on won/lost/needs-attention
   POST /v1/conversations/{id}/followup       - draft a day-2/5/9/15 "still there?" nudge
+  POST /v1/rejection                         - has this customer decided not to go ahead?
   POST /v1/conversations/{id}/summary        - the owner's catch-up read of the whole thread
   POST /v1/intent                            - is this inbound a prospective customer at all?
   POST /v1/assistant/plan                    - owner's WhatsApp message -> what to look up
@@ -32,7 +33,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import assistant, commitment, followup, intent, knowledge, llm, outcome, proposals, summary, templates
+from app import assistant, commitment, followup, intent, knowledge, llm, outcome, proposals, rejection, summary, templates
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -237,6 +238,11 @@ class FollowupIn(BaseModel):
     days_silent: int = 0
     knowledge_text: str = ""
     style_examples: str = ""
+    # Set only when this follow-up is keeping a promise rather than chasing silence: a
+    # one-line description of what was promised and by whom. Its presence switches prompts
+    # entirely - see draft_promise_followup. Defaulting to "" keeps every existing nurture
+    # caller byte-identical, including ones that never send the field.
+    promise_context: str = ""
 
 
 class FollowupOut(BaseModel):
@@ -245,15 +251,28 @@ class FollowupOut(BaseModel):
 
 @app.post("/v1/conversations/{conversation_id}/followup", dependencies=[Depends(require_service_key)])
 def conversation_followup(conversation_id: str, body: FollowupIn) -> FollowupOut:
-    message = followup.draft_followup(
-        facts=body.facts,
-        transcript=body.transcript,
-        step=body.step,
-        total=body.total,
-        days_silent=body.days_silent,
-        knowledge_text=body.knowledge_text,
-        style_examples=body.style_examples,
-    )
+    # TWO DIFFERENT MESSAGES SHARE THIS ROUTE because they share every input except the
+    # framing: a nurture nudge ("still there?") and a promise being kept ("as promised").
+    # Branching here rather than at a second endpoint keeps the service key, the request
+    # shape and the caller's retry handling in one place.
+    if body.promise_context.strip():
+        message = followup.draft_promise_followup(
+            facts=body.facts,
+            transcript=body.transcript,
+            promise=body.promise_context,
+            knowledge_text=body.knowledge_text,
+            style_examples=body.style_examples,
+        )
+    else:
+        message = followup.draft_followup(
+            facts=body.facts,
+            transcript=body.transcript,
+            step=body.step,
+            total=body.total,
+            days_silent=body.days_silent,
+            knowledge_text=body.knowledge_text,
+            style_examples=body.style_examples,
+        )
     return FollowupOut(message=message)
 
 
@@ -368,6 +387,53 @@ def commitment_gate(body: CommitmentIn) -> CommitmentOut:
         with llm.llm_context("commitment", conversation_id=body.conversation_id or None):
             return CommitmentOut(
                 **commitment.classify(
+                    message=body.message,
+                    transcript=[turn.model_dump() for turn in body.transcript],
+                )
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+# --------------------------------------------------------------------------
+# Has this customer decided not to go ahead? One yes/no question, asked on
+# every inbound message, so it is narrow and very hard to say yes to.
+#
+# NOT the opt-out path. "Stop messaging me" is matched deterministically in
+# the backend with no model involved, because an explicit instruction from a
+# customer must never depend on a guess. This only judges the SERVICE.
+#
+# Nothing this endpoint returns can reach the lead.
+# --------------------------------------------------------------------------
+class RejectionIn(BaseModel):
+    message: str = Field(description="The inbound lead message to read.")
+    transcript: list[IntentTurn] = Field(
+        default_factory=list,
+        description="Bounded recent context, oldest first.",
+    )
+    conversation_id: str = Field("", description="Log correlation only.")
+
+
+class RejectionOut(BaseModel):
+    verdict: Literal["firm_rejection", "none"]
+    quote: str
+    confidence: float
+
+
+@app.post("/v1/rejection", dependencies=[Depends(require_service_key)])
+def rejection_gate(body: RejectionIn) -> RejectionOut:
+    """
+    Whether this message is a decision not to go ahead.
+
+    Classification only. The caller applies its own confidence floor on top of
+    whatever comes back, and a "none" verdict always carries confidence 0.0 so
+    "sure that nothing happened" can never be misread as "sure it was a
+    rejection".
+    """
+    try:
+        with llm.llm_context("rejection", conversation_id=body.conversation_id or None):
+            return RejectionOut(
+                **rejection.classify(
                     message=body.message,
                     transcript=[turn.model_dump() for turn in body.transcript],
                 )

@@ -7,8 +7,14 @@ export interface SerializedFollowUpTask {
   conversationId: string | null;
   assignedTo: string | null;
   createdBy: string | null;
+  /** What the reminder is about. Null on older rows written before titles existed. */
+  title: unknown;
   type: unknown;
   note: unknown;
+  /** manual | lead_commitment | owner_command - who or what created this. */
+  source: unknown;
+  /** The customer's own words that produced a lead_commitment reminder, when there were any. */
+  sourceQuote: unknown;
   dueAt: string | null;
   priority: unknown;
   status: unknown;
@@ -33,8 +39,12 @@ export const serializeFollowUpTask = (task: unknown): SerializedFollowUpTask | n
     conversationId: serializeId(value.conversationId),
     assignedTo: serializeId(value.assignedTo),
     createdBy: serializeId(value.createdBy),
+    title: value.title ?? null,
     type: value.type,
     note: value.note,
+    // Additive: existing consumers ignore unknown fields, so no client has to change in step.
+    source: value.source ?? null,
+    sourceQuote: value.sourceQuote ?? null,
     dueAt: serializeDate(value.dueAt),
     priority: value.priority,
     status: value.status,

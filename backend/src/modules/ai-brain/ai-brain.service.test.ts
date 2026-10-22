@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   mergeConversationAiContext: vi.fn(),
   findConversationById: vi.fn(),
   updateAutomationState: vi.fn(),
+  // Defaults to null = "was not rejected", so an ordinary automation toggle is unchanged.
+  clearSalesRejection: vi.fn().mockResolvedValue(null),
   updateStage: vi.fn(),
   findMessagesByConversationCursor: vi.fn(),
   enqueueOutboundMessage: vi.fn(),
@@ -72,6 +74,7 @@ vi.mock('../conversations/conversation.repository.js', () => ({
   mergeConversationAiContext: mocks.mergeConversationAiContext,
   findConversationById: mocks.findConversationById,
   updateAutomationState: mocks.updateAutomationState,
+  clearSalesRejection: mocks.clearSalesRejection,
   setAiIntent: mocks.setAiIntent,
   rejectLeadQualification: mocks.rejectLeadQualification,
   confirmLeadQualification: mocks.confirmLeadQualification,
@@ -608,6 +611,111 @@ describe('resolveApprovalForActor', () => {
 });
 
 describe('setAutomationForActor', () => {
+  /**
+   * Decision 3: reopening a lead who said no.
+   *
+   * THIS IS THE ONLY PLACE A REJECTION IS EVER CLEARED, and the route that reaches it is behind
+   * `ai.automation.manage` (see ai-brain.routes.ts). Everything else that turns automation back
+   * on - an approval card resolved with resumeAutomation, an owner instruction typed in
+   * self-chat, a later message from the lead - goes through different code and leaves the
+   * sticky fact exactly where it was.
+   */
+  it('clears the rejection when a human turns automation back on', async () => {
+    mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
+    mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: true });
+    mocks.clearSalesRejection.mockResolvedValue({ ...baseConversation(), salesRejectedAt: null });
+
+    await setAutomationForActor({
+      organizationId,
+      conversationId,
+      permissions: [],
+      actor,
+      enabled: true,
+    });
+
+    expect(mocks.clearSalesRejection).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId, conversationId }),
+    );
+  });
+
+  it('logs the reopen so there is a record of who did it', async () => {
+    mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
+    mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: true });
+    mocks.clearSalesRejection.mockResolvedValue({ ...baseConversation(), salesRejectedAt: null });
+
+    await setAutomationForActor({
+      organizationId,
+      conversationId,
+      permissions: [],
+      actor,
+      enabled: true,
+    });
+
+    expect(mocks.createActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'ai_brain.sales_rejection_cleared' }),
+    );
+  });
+
+  it('TURNING AUTOMATION OFF NEVER CLEARS A REJECTION', async () => {
+    // Otherwise off-then-on would be a way to launder a rejection away without anybody
+    // deciding to reopen the lead.
+    mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
+    mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: false });
+
+    await setAutomationForActor({
+      organizationId,
+      conversationId,
+      permissions: [],
+      actor,
+      enabled: false,
+    });
+
+    expect(mocks.clearSalesRejection).not.toHaveBeenCalled();
+  });
+
+  it('logs no reopen for an ordinary automation toggle', async () => {
+    // clearSalesRejection returns null when the lead was not rejected - an ordinary toggle
+    // must not produce a "lead reopened" row in the timeline.
+    mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
+    mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: true });
+    mocks.clearSalesRejection.mockResolvedValue(null);
+
+    await setAutomationForActor({
+      organizationId,
+      conversationId,
+      permissions: [],
+      actor,
+      enabled: true,
+    });
+
+    expect(mocks.createActivity).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'ai_brain.sales_rejection_cleared' }),
+    );
+  });
+
+  it('does NOT clear the opt-out - reopening a deal is not consent to message them', async () => {
+    // The existing precedence is left exactly as it was: opt-out outranks automation
+    // everywhere. A lead who asked to stop being messaged made a request about contact, not a
+    // sales decision.
+    mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
+    mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: true });
+    mocks.clearSalesRejection.mockResolvedValue({ ...baseConversation() });
+
+    await setAutomationForActor({
+      organizationId,
+      conversationId,
+      permissions: [],
+      actor,
+      enabled: true,
+    });
+
+    const written = mocks.updateAutomationState.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(written).not.toHaveProperty('optedOutAt');
+    const cleared = mocks.clearSalesRejection.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(cleared).not.toHaveProperty('optedOutAt');
+  });
+
   it('flips the flag and logs it', async () => {
     mocks.loadVisibleConversationForActor.mockResolvedValue(baseConversation());
     mocks.updateAutomationState.mockResolvedValue({ ...baseConversation(), aiAutomationEnabled: true });

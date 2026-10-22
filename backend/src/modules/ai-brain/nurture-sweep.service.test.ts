@@ -28,11 +28,17 @@ const { LEAD_SCORE_BANDS } = await import('../conversations/lead-score.js');
 
 const NOW = new Date('2026-08-25T10:00:00.000Z');
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
+const hoursAgo = (hours: number) => new Date(NOW.getTime() - hours * 60 * 60 * 1000);
 
 /** An event date: a day-only value (UTC midnight), `days` whole days from today. */
 const eventIn = (days: number) =>
   new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() + days));
 
+/**
+ * The default shape the silence cadence reads: the customer wrote five hours ago, we answered
+ * them, and nothing has come back. The anchor is THEIR message - ours cannot move it - so this
+ * conversation is two steps past due for its first nudge.
+ */
 const baseConversation = (overrides: Record<string, unknown> = {}) => ({
   _id: 'conv-1',
   organizationId: 'org-1',
@@ -40,8 +46,9 @@ const baseConversation = (overrides: Record<string, unknown> = {}) => ({
   aiCategory: 'event_photography',
   aiFacts: {},
   nurtureStep: 0,
-  lastOutboundAt: daysAgo(3),
-  lastInboundAt: daysAgo(10),
+  createdAt: daysAgo(14),
+  lastInboundAt: hoursAgo(5),
+  lastOutboundAt: hoursAgo(4),
   ...overrides,
 });
 
@@ -161,11 +168,15 @@ describe('sweepOnce', () => {
     expect(result).toMatchObject({ scanned: 1, nudged: 0, skipped: 1 });
   });
 
-  it('jumps straight to the furthest earned bump after long silence and fires exactly one nudge', async () => {
+  it('advances ONE step per sweep rather than firing a burst to catch up', async () => {
+    // The old cadence jumped straight to the furthest step a long silence had "earned". The
+    // new one advances one at a time: a conversation that has been quiet for days sends its
+    // next nudge and no more, so a sweep that has not run for a while cannot empty the whole
+    // sequence into somebody's phone at once.
     const conversation = baseConversation({
       nurtureStep: 0,
-      lastOutboundAt: daysAgo(21),
-      lastInboundAt: daysAgo(30),
+      lastInboundAt: daysAgo(3),
+      lastOutboundAt: hoursAgo(71), // we answered an hour after they wrote
     });
     const { service, conversationRepository, outboundMessageService, getFollowup } = createHarness();
     withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
@@ -175,17 +186,17 @@ describe('sweepOnce', () => {
     expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
     expect(getFollowup).toHaveBeenCalledWith(
       'conv-1',
-      expect.objectContaining({ step: 4, total: 4, daysSilent: 21 }),
+      expect.objectContaining({ step: 1, daysSilent: 3 }),
     );
     expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        idempotencyKey: 'nurture:conv-1:4',
+        idempotencyKey: `nurture:conv-1:${daysAgo(3).getTime()}:1`,
         authoredBy: 'ai',
         body: 'Still there? 😊',
       }),
     );
     expect(conversationRepository.bumpNurtureStep).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: 'conv-1', step: 4 }),
+      expect.objectContaining({ conversationId: 'conv-1', step: 1 }),
     );
     expect(result).toMatchObject({ scanned: 1, nudged: 1 });
   });
@@ -228,33 +239,26 @@ describe('sweepOnce', () => {
     expect(result).toMatchObject({ markedCold: 1 });
   });
 
-  it('does not mark cold before the cold threshold even with the full cadence sent', async () => {
+  it('does not mark cold while still inside the seven-day window', async () => {
     const conversation = baseConversation({
-      nurtureStep: 4,
-      lastOutboundAt: daysAgo(16), // full cadence sent, but short of the 20-day cold threshold
-      lastInboundAt: daysAgo(40),
+      // Six nudges in, but still inside the seven-day window measured from the customer's
+      // own message - so the sequence continues rather than closing the lead out.
+      nurtureStep: 6,
+      lastInboundAt: hoursAgo(158), // 6d14h: past step 6's 6d2h, inside the 7-day window
+      lastOutboundAt: hoursAgo(150),
     });
-    const { service, conversationRepository, outboundMessageService } = createHarness();
+    const { service, conversationRepository } = createHarness();
     withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
 
     const result = await service.sweepOnce({});
 
     expect(conversationRepository.markConversationCold).not.toHaveBeenCalled();
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ skipped: 1 });
+    expect(result).toMatchObject({ nudged: 1 });
   });
 
   it('isolates a per-conversation failure so the rest of the sweep still runs', async () => {
-    const failing = baseConversation({
-      _id: 'conv-bad',
-      lastOutboundAt: daysAgo(21),
-      lastInboundAt: daysAgo(40),
-    });
-    const healthy = baseConversation({
-      _id: 'conv-good',
-      lastOutboundAt: daysAgo(21),
-      lastInboundAt: daysAgo(40),
-    });
+    const failing = baseConversation({ _id: 'conv-bad' });
+    const healthy = baseConversation({ _id: 'conv-good' });
 
     const { service, conversationRepository, outboundMessageService, buildAiBrainContext, logger } =
       createHarness();
@@ -359,85 +363,12 @@ describe('sweepOnce — an event date that has passed', () => {
   });
 });
 
-describe('sweepOnce — an event that is still ahead compresses the cadence', () => {
-  it('brings the remaining nudges forward so they all land before the event', async () => {
-    // Event in 6 days, silent for 3. The window is [today-3 .. today+6), so the last day a nudge
-    // may land on is day 8 of silence and [2,5,9,15] becomes [1,3,5,8]: three days of silence has
-    // already earned nudge 2, where the unbounded schedule would still be on nudge 1.
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(3),
-      lastInboundAt: daysAgo(30),
-      eventDate: eventIn(6),
-    });
-    const { service, conversationRepository, outboundMessageService, getFollowup } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    const result = await service.sweepOnce({});
-
-    expect(getFollowup).toHaveBeenCalledWith(
-      'conv-1',
-      expect.objectContaining({ step: 2, total: 4, daysSilent: 3 }),
-    );
-    expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'nurture:conv-1:2' }),
-    );
-    expect(conversationRepository.bumpNurtureStep).toHaveBeenCalledWith(
-      expect.objectContaining({ step: 2 }),
-    );
-    expect(result).toMatchObject({ nudged: 1 });
-  });
-
-  it('sends nothing once there is no day left before the event to send on', async () => {
-    // Event tomorrow, and we messaged them today: the only remaining day IS the event day.
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(0),
-      lastInboundAt: daysAgo(30),
-      eventDate: eventIn(1),
-    });
-    const { service, conversationRepository, outboundMessageService } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    const result = await service.sweepOnce({});
-
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-    expect(conversationRepository.markConversationCold).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ nudged: 0, skipped: 1 });
-  });
-
-  it('never nudges on or after the event date, at any silence level', async () => {
-    // Every combination of "how long silent" and "how far off the event" the sweep could ever
-    // see. A nudge always goes out TODAY, so "before the event" means the event is still at
-    // least one day away: anything the sweep sends must satisfy daysUntilEvent >= 1.
-    for (let daysSilent = 0; daysSilent <= 20; daysSilent += 1) {
-      for (let daysUntilEvent = -2; daysUntilEvent <= 20; daysUntilEvent += 1) {
-        const { service, conversationRepository, outboundMessageService } = createHarness();
-        withOneBatch(conversationRepository.findNurturableConversations, [
-          baseConversation({
-            nurtureStep: 0,
-            lastOutboundAt: daysAgo(daysSilent),
-            lastInboundAt: daysAgo(40),
-            eventDate: eventIn(daysUntilEvent),
-          }),
-        ]);
-
-        await service.sweepOnce({});
-
-        if (outboundMessageService.enqueueOutboundMessage.mock.calls.length > 0) {
-          expect(daysUntilEvent).toBeGreaterThanOrEqual(1);
-        }
-      }
-    }
-  });
-});
-
 describe('sweepOnce — a lead with no event date is untouched by any of this', () => {
-  it('follows the configured schedule exactly, as it did before event dates existed', async () => {
+  it('fires the first nudge two hours after the customer wrote', async () => {
     const conversation = baseConversation({
       nurtureStep: 0,
-      lastOutboundAt: daysAgo(3),
-      lastInboundAt: daysAgo(30),
+      lastInboundAt: hoursAgo(3),
+      lastOutboundAt: hoursAgo(2.5),
       eventDate: null,
     });
     const { service, conversationRepository, outboundMessageService, getFollowup } = createHarness();
@@ -445,13 +376,14 @@ describe('sweepOnce — a lead with no event date is untouched by any of this', 
 
     const result = await service.sweepOnce({});
 
-    // Day 3 of silence: past the day-2 threshold, short of day 5. Nudge 1, out of the full four.
-    expect(getFollowup).toHaveBeenCalledWith(
-      'conv-1',
-      expect.objectContaining({ step: 1, total: 4, daysSilent: 3 }),
-    );
+    // Three hours since their message, so the two-hour mark has passed: step 1.
+    expect(getFollowup).toHaveBeenCalledWith('conv-1', expect.objectContaining({ step: 1 }));
+    // THE KEY CARRIES THE ANCHOR. Without it a restarted sequence would reuse `:1` and collide
+    // with the first sequence's opening nudge on the unique index - silently sending nothing.
     expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotencyKey: 'nurture:conv-1:1' }),
+      expect.objectContaining({
+        idempotencyKey: `nurture:conv-1:${hoursAgo(3).getTime()}:1`,
+      }),
     );
     expect(result).toMatchObject({ nudged: 1 });
   });
@@ -524,207 +456,3 @@ describe('buildDailySchedule', () => {
   });
 });
 
-describe('sweepOnce — the daily cadence', () => {
-  const dailyHarness = (conversation: Record<string, unknown>, config: Record<string, unknown> = {}) => {
-    const harness = createHarness({
-      config: {
-        NURTURE_CADENCE: 'daily',
-        NURTURE_MAX_FOLLOWUPS: 30,
-        NURTURE_COLD_AFTER_DAYS: 20,
-        NURTURE_LOW_INTENT_MULTIPLIER: 1,
-        ...config,
-      } as never,
-    });
-    withOneBatch(harness.conversationRepository.findNurturableConversations, [conversation]);
-
-    return harness;
-  };
-
-  it('nudges after a single day of silence, which the staged cadence would not', async () => {
-    const { service, outboundMessageService, conversationRepository } = dailyHarness(
-      baseConversation({ nurtureStep: 0, lastOutboundAt: daysAgo(1), lastInboundAt: daysAgo(30) }),
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(result.nudged).toBe(1);
-    expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
-    expect(conversationRepository.bumpNurtureStep).toHaveBeenCalledWith(
-      expect.objectContaining({ step: 1 }),
-    );
-  });
-
-  it('sends one per day, not one per sweep — a second tick on the same day does nothing', async () => {
-    const { service, outboundMessageService } = dailyHarness(
-      baseConversation({ nurtureStep: 4, lastOutboundAt: daysAgo(4), lastInboundAt: daysAgo(30) }),
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(result.nudged).toBe(0);
-    expect(result.skipped).toBe(1);
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-  });
-
-  it('stops at the cap instead of chasing a silent lead forever', async () => {
-    const { service, outboundMessageService, conversationRepository } = dailyHarness(
-      baseConversation({ nurtureStep: 3, lastOutboundAt: daysAgo(9), lastInboundAt: daysAgo(40) }),
-      { NURTURE_MAX_FOLLOWUPS: 3, NURTURE_COLD_AFTER_DAYS: 5 },
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-    expect(result.markedCold).toBe(1);
-    expect(conversationRepository.markConversationCold).toHaveBeenCalledTimes(1);
-  });
-
-  it('still refuses to send on the event day itself', async () => {
-    const { service, outboundMessageService } = dailyHarness(
-      baseConversation({
-        nurtureStep: 0,
-        lastOutboundAt: daysAgo(2),
-        lastInboundAt: daysAgo(30),
-        eventDate: eventIn(0),
-      }),
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(result.skipped).toBe(1);
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-  });
-
-  it('still stops dead once the event has passed', async () => {
-    const { service, outboundMessageService, conversationRepository } = dailyHarness(
-      baseConversation({
-        nurtureStep: 2,
-        lastOutboundAt: daysAgo(3),
-        lastInboundAt: daysAgo(30),
-        eventDate: eventIn(-1),
-      }),
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(result.markedCold).toBe(1);
-    expect(conversationRepository.markConversationCold).toHaveBeenCalledTimes(1);
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-  });
-
-  it('chases a LOW INTENT lead daily too when the multiplier is 1', async () => {
-    const { service, outboundMessageService } = dailyHarness(
-      baseConversation({
-        nurtureStep: 0,
-        lastOutboundAt: daysAgo(1),
-        lastInboundAt: daysAgo(30),
-        leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
-      }),
-    );
-
-    const result = await service.sweepOnce();
-
-    expect(result.nudged).toBe(1);
-    expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('sweepOnce — the LOW INTENT band nurtures more slowly', () => {
-  it('sends nothing on day 3, which is a nudge for every other band', async () => {
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(3),
-      lastInboundAt: daysAgo(30),
-      leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
-    });
-    const { service, conversationRepository, outboundMessageService } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    const result = await service.sweepOnce({});
-
-    // Day 3 is past day 2 on the configured schedule (see the no-event-date test above, which
-    // nudges here) but short of the doubled day 4.
-    expect(outboundMessageService.enqueueOutboundMessage).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ scanned: 1, nudged: 0, skipped: 1 });
-  });
-
-  it('sends the first nudge on day 4 instead, out of the same four touches', async () => {
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(4),
-      lastInboundAt: daysAgo(30),
-      leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
-    });
-    const { service, conversationRepository, getFollowup } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    await service.sweepOnce({});
-
-    expect(getFollowup).toHaveBeenCalledWith(
-      'conv-1',
-      expect.objectContaining({ step: 1, total: 4, daysSilent: 4 }),
-    );
-  });
-
-  it('is still only on nudge 2 after 21 days, where every other band has finished', async () => {
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(21),
-      lastInboundAt: daysAgo(30),
-      leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
-    });
-    const { service, conversationRepository, getFollowup } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    await service.sweepOnce({});
-
-    // [4,10,18,30]: day 21 has earned three of the four. The unslowed schedule would have earned
-    // all four by day 15 (see the long-silence test above).
-    expect(getFollowup).toHaveBeenCalledWith(
-      'conv-1',
-      expect.objectContaining({ step: 3, total: 4 }),
-    );
-  });
-
-  it.each([LEAD_SCORE_BANDS.HOT, LEAD_SCORE_BANDS.WARM, LEAD_SCORE_BANDS.COLD])(
-    'leaves a %s lead on the configured day-2 threshold',
-    async (band) => {
-      const conversation = baseConversation({
-        nurtureStep: 0,
-        lastOutboundAt: daysAgo(3),
-        lastInboundAt: daysAgo(30),
-        leadScoreBand: band,
-      });
-      const { service, conversationRepository, getFollowup } = createHarness();
-      withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-      await service.sweepOnce({});
-
-      expect(getFollowup).toHaveBeenCalledWith(
-        'conv-1',
-        expect.objectContaining({ step: 1, total: 4, daysSilent: 3 }),
-      );
-    },
-  );
-
-  it('still lets the event date compress a slowed cadence - nothing goes out after the event', async () => {
-    const conversation = baseConversation({
-      nurtureStep: 0,
-      lastOutboundAt: daysAgo(2),
-      lastInboundAt: daysAgo(30),
-      eventDate: eventIn(4),
-      leadScoreBand: LEAD_SCORE_BANDS.LOW_INTENT,
-    });
-    const { service, conversationRepository, getFollowup } = createHarness();
-    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
-
-    await service.sweepOnce({});
-
-    // The doubled [4,10,18,30] is squeezed into the 5 days of silence still allowed before the
-    // event (2 elapsed + 4 to go - 1), giving [1,2,3,5]: day 2 of silence has earned nudge 2.
-    expect(getFollowup).toHaveBeenCalledWith(
-      'conv-1',
-      expect.objectContaining({ step: 2, total: 4, daysSilent: 2 }),
-    );
-  });
-});

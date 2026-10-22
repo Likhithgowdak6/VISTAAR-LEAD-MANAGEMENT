@@ -28,6 +28,13 @@ export interface MessageMedia {
   fileName: string | null;
   sizeBytes: number | null;
   storageStatus: MediaStorageStatus;
+  /**
+   * A recorded voice note rather than an attached audio file. Persisted because it is not
+   * recoverable from the mimetype - the same Ogg/Opus bytes are a voice note or a music clip
+   * depending only on this - and both the delivery path (WhatsApp's `ptt` flag) and the thread
+   * ("🎤 Voice note" versus "🎵 Audio") need to know which one it is.
+   */
+  isVoiceNote: boolean;
 }
 
 export interface MessageDocument {
@@ -86,6 +93,11 @@ const messageMediaSchema = new mongoose.Schema<MessageMedia>(
       type: String,
       enum: ['not_applicable', 'pending', 'stored', 'failed', 'deleted'],
       default: 'not_applicable',
+    },
+
+    isVoiceNote: {
+      type: Boolean,
+      default: false,
     },
   },
   {

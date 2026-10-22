@@ -13,6 +13,7 @@ import { generateAiDraft, recordAiDraftOutcome } from '../ai/ai-draft.controller
 import { conversationFollowUpRouter } from '../followups/followup.routes.js';
 import noteRouter from '../notes/note.routes.js';
 import { conversationTagRouter } from '../tags/tag.routes.js';
+import { receiveMediaFile, uploadConversationMedia } from '../media/media.controller.js';
 
 import {
   assignConversation,
@@ -36,6 +37,17 @@ const conversationRouter = Router();
 
 conversationRouter.use(authenticateRequest);
 conversationRouter.use(requirePasswordChanged);
+
+// Staging an attachment, before any message exists. Gated on MESSAGES_SEND rather than read:
+// the only reason to upload here is to send, and the bytes land on the server's disk either way.
+// `mediaUpload.single` runs after the auth middleware above, so an unauthenticated request is
+// refused before multer reads a single byte of the body.
+conversationRouter.post(
+  '/:conversationId/media',
+  requireMessagesSend,
+  receiveMediaFile,
+  uploadConversationMedia,
+);
 
 conversationRouter.get('/', requireConversationsRead, listConversations);
 // Adding a lead by hand. Gated on MESSAGES_SEND rather than read: this creates a contact and can

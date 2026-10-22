@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ComponentProps, useState } from 'react';
 
 import { useAuth } from '../../auth/AuthContext';
 import { useIsMobileViewport } from '../../hooks/useMobileBackLayer';
@@ -33,6 +33,10 @@ type Props = {
   onClose?: () => void;
   /** Named in the mobile header, so the panel says which lead it belongs to. */
   leadName?: string | null;
+  /** Re-arms device alarms after a reminder changes. See ConversationView. */
+  onRemindersChanged?: () => void;
+  /** Device-alarm health, shown in the reminder create form. */
+  reminderAlarms?: ComponentProps<typeof FollowUpsSection>['alarms'];
 };
 
 const LeadPanel = ({
@@ -42,6 +46,8 @@ const LeadPanel = ({
   onDeleted,
   onClose,
   leadName,
+  onRemindersChanged,
+  reminderAlarms,
 }: Props) => {
   const { permissions } = useAuth() as AuthValue;
   // Below xl this panel is the whole screen; above it, a reference column beside the thread.
@@ -157,7 +163,11 @@ const LeadPanel = ({
 
           <MobileDisclosure title="Notes & follow-ups">
             <NotesSection conversationId={conversation.id} />
-            <FollowUpsSection conversationId={conversation.id} />
+            <FollowUpsSection
+              conversationId={conversation.id}
+              onRemindersChanged={onRemindersChanged}
+              alarms={reminderAlarms}
+            />
           </MobileDisclosure>
 
           {canAssign ? (
@@ -242,7 +252,11 @@ const LeadPanel = ({
 
           <NotesSection conversationId={conversation.id} />
 
-          <FollowUpsSection conversationId={conversation.id} />
+          <FollowUpsSection
+              conversationId={conversation.id}
+              onRemindersChanged={onRemindersChanged}
+              alarms={reminderAlarms}
+            />
 
           <ActivitySection conversationId={conversation.id} refreshKey={activityKey} />
 

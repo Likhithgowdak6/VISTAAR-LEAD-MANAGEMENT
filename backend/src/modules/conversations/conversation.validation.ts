@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 import { CONVERSATION_STATUS_VALUES } from '../../constants/conversation-statuses.js';
+import { sendMediaSchema } from '../media/media.validation.js';
+import {
+  AI_RESPONSE_STATUS_VALUES,
+  ENQUIRY_CLASS_VALUES,
+} from '../analytics/conversation-classification.js';
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i);
 
@@ -33,6 +38,15 @@ export const listConversationsQuerySchema = z.object({
     .optional(),
   tagIds: tagIdsQuerySchema,
   status: z.enum(CONVERSATION_STATUS_VALUES).optional(),
+  // Derived classification filters. Applied in the database, not over the loaded page - the
+  // inbox pages, so filtering client-side would be wrong about everything after the first 50.
+  enquiryClass: z.enum(ENQUIRY_CLASS_VALUES).optional(),
+  aiStatus: z.enum(AI_RESPONSE_STATUS_VALUES).optional(),
+  // `?needsAttention=true`; absent means "do not filter on it", which is not the same as false.
+  needsAttention: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   skip: z.coerce.number().int().min(0).default(0),
 });
@@ -56,13 +70,23 @@ export const assignConversationBodySchema = z
     message: 'assignedTo or assignedTeam is required.',
   });
 
-export const sendMessageBodySchema = z.object({
-  body: z.string().trim().min(1).max(5000),
-  idempotencyKey: z.string().trim().min(8).max(255),
-  // Optional sender override. Absent means the number the thread is already on, which keeps
-  // every existing client working unchanged.
-  whatsappAccountId: objectIdSchema.optional(),
-});
+export const sendMessageBodySchema = z
+  .object({
+    // Optional only because an attachment may travel with no caption. The refinement below still
+    // refuses a send that carries neither words nor a file, so an empty text send cannot slip
+    // through on the back of this.
+    body: z.string().trim().max(5000).optional(),
+    idempotencyKey: z.string().trim().min(8).max(255),
+    // Optional sender override. Absent means the number the thread is already on, which keeps
+    // every existing client working unchanged.
+    whatsappAccountId: objectIdSchema.optional(),
+    // Points at bytes already uploaded to THIS conversation; the service re-checks that.
+    media: sendMediaSchema.optional(),
+  })
+  .refine((value) => (value.body ?? '') !== '' || value.media !== undefined, {
+    message: 'A message needs either text or an attachment.',
+    path: ['body'],
+  });
 
 // Not a Zod enum: a stage may be a built-in value or an admin-defined custom stage's key.
 // Actual usability (built-in, or an active custom stage for this org) is checked in the

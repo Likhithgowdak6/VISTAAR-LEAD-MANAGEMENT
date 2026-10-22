@@ -263,6 +263,14 @@ export const getFollowup = (
     daysSilent: number;
     knowledgeText?: string;
     styleExamples?: string;
+    /**
+     * Set only when this follow-up KEEPS A PROMISE rather than chasing silence - a one-line
+     * description of what was promised and by whom. Its presence switches the prompt on the
+     * service side, because "still there?" graded as step N of M is the wrong message for
+     * somebody who is waiting for the thing we said we would send. Omitted by the nurture
+     * sweep, so that path is unchanged. See followups/promise-follow-up.service.ts.
+     */
+    promiseContext?: string;
   },
 ): Promise<AiBrainFollowupResult> =>
   request(`/v1/conversations/${conversationId}/followup`, {
@@ -273,6 +281,7 @@ export const getFollowup = (
     days_silent: params.daysSilent,
     knowledge_text: params.knowledgeText ?? '',
     style_examples: params.styleExamples ?? '',
+    promise_context: params.promiseContext ?? '',
   });
 
 export interface AiBrainSummaryResult {
@@ -459,6 +468,38 @@ export const classifyCommitment = (params: {
 }): Promise<AiBrainCommitmentResult> =>
   request<AiBrainCommitmentResult>(
     '/v1/commitment',
+    {
+      message: params.message,
+      transcript: params.transcript,
+      conversation_id: params.conversationId,
+    },
+    env.AI_BRAIN_INTENT_TIMEOUT_MS,
+  );
+
+export interface AiBrainRejectionResult {
+  verdict: 'firm_rejection' | 'none';
+  quote: string;
+  confidence: number;
+}
+
+/**
+ * Has this lead decided not to go ahead?
+ *
+ * Classification only - it cannot produce anything the lead receives, and it cannot write
+ * anything. The caller applies MIN_SALES_REJECTION_CONFIDENCE on top of whatever comes back,
+ * so a model that returns `firm_rejection` with low confidence still closes nobody out.
+ *
+ * NOT the opt-out path. "Stop messaging me" is matched deterministically before this is ever
+ * called - an explicit instruction from a customer must never depend on a model. Same short
+ * inbound-hot-path timeout as the intent and commitment gates beside it.
+ */
+export const classifyRejection = (params: {
+  conversationId: string;
+  message: string;
+  transcript: AiBrainIntentTurn[];
+}): Promise<AiBrainRejectionResult> =>
+  request<AiBrainRejectionResult>(
+    '/v1/rejection',
     {
       message: params.message,
       transcript: params.transcript,

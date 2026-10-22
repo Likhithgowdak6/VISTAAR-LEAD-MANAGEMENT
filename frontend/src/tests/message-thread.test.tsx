@@ -5,10 +5,13 @@ import MessageThread from '../components/MessageThread';
 import { type Message } from '../components/types';
 
 /**
- * Inbound media is never downloaded, so a photo or a voice note arrives with no thumbnail and
- * often no text at all. These cover the one thing the thread has to get right about that: a
- * human must be able to see that something was sent, and what kind of thing, instead of an
- * empty bubble that reads as though the lead said nothing.
+ * The thread's fallback when there are no bytes to show.
+ *
+ * Inbound media is only downloaded when an operator turns it on, and even then a file can be
+ * expired, oversized or refused by the format allowlist. In all of those cases `storageStatus`
+ * is something other than 'stored' and the bubble must still say that something was sent, and
+ * what kind of thing - an empty bubble reads as though the lead said nothing. Everything here
+ * uses a non-stored status on purpose; the stored path is covered in media-attachment.test.tsx.
  */
 const message = (overrides: Partial<Message> = {}): Message =>
   ({
@@ -16,7 +19,13 @@ const message = (overrides: Partial<Message> = {}): Message =>
     direction: 'in',
     type: 'text',
     body: null,
-    media: { mimeType: null, fileName: null, sizeBytes: null, storageStatus: 'not_applicable' },
+    media: {
+      mimeType: null,
+      fileName: null,
+      sizeBytes: null,
+      storageStatus: 'not_applicable',
+      isVoiceNote: false,
+    },
     status: 'received',
     sentAt: '2026-08-25T09:30:00.000Z',
     ...overrides,
@@ -34,7 +43,7 @@ describe('MessageThread — media placeholders', () => {
     expect(screen.getByText('📷 Photo')).toBeInTheDocument();
   });
 
-  it('labels a voice note', () => {
+  it('labels a voice note as one when WhatsApp said it was push-to-talk', () => {
     renderThread([
       message({
         id: 'm2',
@@ -44,11 +53,33 @@ describe('MessageThread — media placeholders', () => {
           fileName: null,
           sizeBytes: 8321,
           storageStatus: 'not_applicable',
+          isVoiceNote: true,
         },
       }),
     ]);
 
     expect(screen.getByText('🎤 Voice note')).toBeInTheDocument();
+  });
+
+  it('calls an attached audio file audio, not a voice note', () => {
+    // This used to be a guess - every `audio` message was labelled a voice note because the
+    // push-to-talk flag was not persisted. It is now, so the label follows the data: calling
+    // somebody's attached music file a voice note is wrong, where "Audio" never is.
+    renderThread([
+      message({
+        id: 'm2b',
+        type: 'audio',
+        media: {
+          mimeType: 'audio/mpeg',
+          fileName: 'reference-track.mp3',
+          sizeBytes: 3_201_144,
+          storageStatus: 'not_applicable',
+          isVoiceNote: false,
+        },
+      }),
+    ]);
+
+    expect(screen.getByText('🎵 Audio')).toBeInTheDocument();
   });
 
   it('labels a document and shows its filename, which is often the whole point', () => {
@@ -61,6 +92,7 @@ describe('MessageThread — media placeholders', () => {
           fileName: 'competitor-quote.pdf',
           sizeBytes: 284913,
           storageStatus: 'not_applicable',
+          isVoiceNote: false,
         },
       }),
     ]);

@@ -574,3 +574,126 @@ describe('confirming a lead once its reply has actually gone out', () => {
     expect(messageRepository.markOutboundMessageSent).toHaveBeenCalled();
   });
 });
+
+/**
+ * Decision 3: a reply drafted and queued in the seconds before the lead said no.
+ *
+ * THE QUEUE IS THE ONE PLACE A MESSAGE CAN OUTLIVE THE DECISION THAT SHOULD HAVE STOPPED IT.
+ * Ingestion turns automation off the moment the rejection is read, and both sweeps skip the
+ * thread from then on - but a message already claimed-or-queued has passed all of those. This
+ * gate is the last thing standing between "we booked another photographer" and a cheerful
+ * follow-up landing ten seconds later.
+ */
+describe('deliverNext sales-rejection gate', () => {
+  const rejectedConversation = {
+    aiAutomationEnabled: false,
+    optedOutAt: null,
+    salesRejectedAt: new Date('2026-08-24T09:00:00.000Z'),
+    aiAutomationPausedReason: 'This lead said they are no longer going ahead — automated follow-ups stopped.',
+    assignedTo: null,
+  };
+
+  it('permanently fails a queued AI message when the lead rejected us first', async () => {
+    const { service, messageRepository, sessionService, findConversationById } = createHarness();
+    findConversationById.mockResolvedValue(rejectedConversation);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).not.toHaveBeenCalled();
+    expect(messageRepository.markOutboundMessageFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'lead_rejected_service', permanent: true }),
+    );
+    expect(result).toMatchObject({
+      delivered: false,
+      failed: true,
+      permanent: true,
+      reason: 'lead_rejected_service',
+    });
+  });
+
+  it('records the rejection, not the automation pause, as the reason', async () => {
+    // A rejected conversation always has automation off too, and "automation_paused_before_send"
+    // would hide the one fact anybody auditing a complaint needs to see.
+    const { service, messageRepository, findConversationById } = createHarness();
+    findConversationById.mockResolvedValue(rejectedConversation);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(messageRepository.markOutboundMessageFailed).not.toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'automation_paused_before_send' }),
+    );
+  });
+
+  it('leaves the opt-out reason alone when the lead did BOTH', async () => {
+    // Opt-out is checked first and stays the recorded reason: it is the stronger statement and
+    // the one a WhatsApp complaint would be about.
+    const { service, messageRepository, findConversationById } = createHarness();
+    findConversationById.mockResolvedValue({
+      ...rejectedConversation,
+      optedOutAt: new Date('2026-08-24T10:00:00.000Z'),
+    });
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(result).toMatchObject({ reason: 'recipient_opted_out' });
+  });
+
+  it('does NOT block a human-authored message to a rejected lead', async () => {
+    // The owner may well want to reply personally - "no problem, all the best". A service
+    // rejection stops the ROBOT, not the business. This is the difference from an opt-out.
+    const { service, sessionService, messageRepository, findConversationById } = createHarness();
+    findConversationById.mockResolvedValue(rejectedConversation);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'human' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true });
+  });
+
+  it('does not fire for a lead who has not rejected us', async () => {
+    // The positive control for this gate specifically: an AI message to an ordinary active
+    // conversation must not be touched by it. Asserted on the reason rather than on delivery,
+    // so this test stays about the rejection gate and not about quiet hours or the allowlist.
+    const { service, messageRepository, findConversationById } = createHarness();
+    findConversationById.mockResolvedValue({
+      aiAutomationEnabled: true,
+      optedOutAt: null,
+      salesRejectedAt: null,
+      assignedTo: null,
+    });
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(messageRepository.markOutboundMessageFailed).not.toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'lead_rejected_service' }),
+    );
+    expect(result).not.toMatchObject({ reason: 'lead_rejected_service' });
+  });
+});

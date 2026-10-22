@@ -16,6 +16,12 @@ import { serializeActivityLog } from '../activity/activity-log.serializer.js';
 import { findContactById } from '../contacts/contact.repository.js';
 import { serializeContact } from '../contacts/contact.serializer.js';
 import { findLeadSubmissionsForConversation } from '../lead-sources/lead-submission.repository.js';
+import { mediaObjectKeyBelongsTo } from '../media/media-storage.service.js';
+import {
+  type AiResponseStatus,
+  type EnquiryClass,
+} from '../analytics/conversation-classification.js';
+import { type SendMediaInput } from '../media/media.validation.js';
 import { serializeLeadSubmission } from '../lead-sources/lead-submission.serializer.js';
 import { createOutboundMessageService } from '../messages/outbound-message.service.js';
 import { findMessagesByConversationCursor } from '../messages/message.repository.js';
@@ -111,6 +117,9 @@ export interface ListConversationsForActorParams {
   stage?: string;
   tagIds?: readonly ObjectIdLike[];
   status?: ConversationStatus;
+  enquiryClass?: EnquiryClass;
+  aiStatus?: AiResponseStatus;
+  needsAttention?: boolean;
   limit?: number;
   skip?: number;
 }
@@ -123,16 +132,24 @@ export const listConversationsForActor = async ({
   stage,
   tagIds,
   status,
+  enquiryClass,
+  aiStatus,
+  needsAttention,
   limit,
   skip,
 }: ListConversationsForActorParams) => {
   const conversations = await listConversations({
     organizationId,
     whatsappAccountId,
+    // Unchanged: a user without read-all only ever sees their own assignments, and the new
+    // classification filters narrow that set rather than widening it.
     assignedTo: canReadAll(permissions) ? undefined : actorId,
     stage,
     tagIds,
     status,
+    enquiryClass,
+    aiStatus,
+    needsAttention,
     limit,
     skip,
   });
@@ -658,10 +675,13 @@ export interface SendMessageForActorParams {
   conversationId: ObjectIdLike;
   permissions: readonly Permission[];
   actor: HydratedDocument<UserDocument>;
-  body: string;
+  /** Empty when an attachment travels alone; one of the two must be present. */
+  body?: string;
   idempotencyKey: string;
   /** Send from a different number than the thread's; omitted means "the one it is already on". */
   whatsappAccountId?: ObjectIdLike;
+  /** An attachment already uploaded to this conversation. See media.controller.ts. */
+  media?: SendMediaInput;
 }
 
 const isDuplicateKeyError = (error: unknown): boolean =>
@@ -771,6 +791,7 @@ export const sendMessageForActor = async ({
   body,
   idempotencyKey,
   whatsappAccountId,
+  media,
 }: SendMessageForActorParams) => {
   const conversation = await loadVisibleConversation({
     organizationId,
@@ -778,6 +799,21 @@ export const sendMessageForActor = async ({
     permissions,
     actorId: actor._id,
   });
+
+  // THE KEY MUST BELONG TO THIS THREAD. It was minted under an organization and a conversation
+  // at upload time, and a client that echoes back somebody else's key - or its own key from a
+  // different lead - gets a 403 rather than a photo sent to the wrong person. Checked against
+  // the conversation loaded above, which has already passed this actor's visibility rule.
+  if (
+    media &&
+    !mediaObjectKeyBelongsTo({
+      objectKey: media.objectKey,
+      organizationId: organizationId.toString(),
+      conversationId: conversation._id.toString(),
+    })
+  ) {
+    throw new Error('MEDIA_NOT_FOR_CONVERSATION');
+  }
 
   const isAccountSwitch =
     whatsappAccountId !== undefined &&
@@ -798,5 +834,6 @@ export const sendMessageForActor = async ({
     actor,
     body,
     idempotencyKey,
+    media,
   });
 };

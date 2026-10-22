@@ -141,3 +141,139 @@ describe('enqueueOutboundMessage - the queued half of pipeline stage 13', () => 
     expect(lines).toHaveLength(0);
   });
 });
+
+/**
+ * Queuing an attachment.
+ *
+ * The row that gets written here is the only record of what should be sent, so the things worth
+ * asserting are the ones a later stage cannot recover: which type it is, where the bytes are,
+ * whether it is a voice note, and what the inbox preview says when there is no caption to show.
+ */
+describe('enqueueOutboundMessage - attachments', () => {
+  const media = {
+    objectKey: 'org/conv/photo.jpg',
+    type: 'image' as const,
+    mimeType: 'image/jpeg',
+    fileName: 'venue.jpg',
+    sizeBytes: 81_234,
+    isVoiceNote: false,
+  };
+
+  it('records the type, the key and the metadata on the message row', async () => {
+    const { service, createOutboundMessageRecord } = createHarness();
+
+    await service.enqueueOutboundMessage({
+      organizationId: 'org-1',
+      conversation,
+      actor: { _id: 'user-1' } as never,
+      body: 'The hall at golden hour',
+      idempotencyKey: 'idem-media-1',
+      media,
+    });
+
+    expect(createOutboundMessageRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'image',
+        mediaObjectKey: 'org/conv/photo.jpg',
+        body: 'The hall at golden hour',
+        media: expect.objectContaining({
+          mimeType: 'image/jpeg',
+          fileName: 'venue.jpg',
+          sizeBytes: 81_234,
+          // The upload route wrote the bytes before this row existed, so there is never a
+          // window where a queued message points at nothing.
+          storageStatus: 'stored',
+          isVoiceNote: false,
+        }),
+      }),
+    );
+  });
+
+  it('stores a null body for an attachment sent with no caption', async () => {
+    // Not an empty string: `body` is the caption, and "" would send a blank line with the file.
+    const { service, createOutboundMessageRecord } = createHarness();
+
+    await service.enqueueOutboundMessage({
+      organizationId: 'org-1',
+      conversation,
+      actor: { _id: 'user-1' } as never,
+      idempotencyKey: 'idem-media-2',
+      media,
+    });
+
+    expect(createOutboundMessageRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ body: null }),
+    );
+  });
+
+  it('keeps the voice-note flag, which decides the push-to-talk bubble', async () => {
+    const { service, createOutboundMessageRecord } = createHarness();
+
+    await service.enqueueOutboundMessage({
+      organizationId: 'org-1',
+      conversation,
+      actor: { _id: 'user-1' } as never,
+      idempotencyKey: 'idem-media-3',
+      media: { ...media, type: 'audio', mimeType: 'audio/ogg', isVoiceNote: true },
+    });
+
+    expect(createOutboundMessageRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ media: expect.objectContaining({ isVoiceNote: true }) }),
+    );
+  });
+
+  it('writes a plain text message exactly as it always did', async () => {
+    // The regression that would matter most: media must be additive.
+    const { service, createOutboundMessageRecord } = createHarness();
+
+    await service.enqueueOutboundMessage({
+      organizationId: 'org-1',
+      conversation,
+      actor: { _id: 'user-1' } as never,
+      body: 'just words',
+      idempotencyKey: 'idem-text-1',
+    });
+
+    const params = createOutboundMessageRecord.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(params.body).toBe('just words');
+    expect(params.type).toBeUndefined();
+    expect(params.mediaObjectKey).toBeUndefined();
+    expect(params.media).toBeUndefined();
+  });
+
+  it('returns the existing message when the same idempotency key is sent twice', async () => {
+    // Unchanged by attachments, and the thing that stops a double-tap on Send from sending a
+    // photo twice: the duplicate key collides and the first message is returned.
+    const duplicate = Object.assign(new Error('duplicate'), { code: 11000 });
+    const findMessageByIdempotencyKey = vi.fn().mockResolvedValue({ _id: 'msg-out-1' });
+
+    const service = createOutboundMessageService({
+      createOutboundMessageRecord: vi.fn().mockRejectedValue(duplicate) as never,
+      findMessageByIdempotencyKey: findMessageByIdempotencyKey as never,
+      updateConversationPreview: vi.fn().mockResolvedValue(undefined) as never,
+      updateAssignment: vi.fn().mockResolvedValue(undefined) as never,
+      createActivity: vi.fn().mockResolvedValue(undefined) as never,
+      publishEvent: vi.fn().mockResolvedValue(undefined) as never,
+      createTrace: ({ seed }) =>
+        createPipelineTrace({
+          seed,
+          config: { WHATSAPP_TRACE_ENABLED: false },
+          write: () => {},
+        }),
+      now: () => new Date(2026, 0, 2, 15, 41, 10),
+    });
+
+    const result = await service.enqueueOutboundMessage({
+      organizationId: 'org-1',
+      conversation,
+      actor: { _id: 'user-1' } as never,
+      idempotencyKey: 'idem-media-1',
+      media,
+    });
+
+    expect(result.created).toBe(false);
+    expect(findMessageByIdempotencyKey).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'idem-media-1' }),
+    );
+  });
+});

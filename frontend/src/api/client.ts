@@ -92,3 +92,90 @@ export const apiFetch = async <T = unknown>(
 
   return payload as T;
 };
+
+export interface ApiUploadOptions {
+  token?: string | null;
+  /** Extra text fields sent alongside the file, e.g. `kind: 'voice'`. */
+  fields?: Record<string, string>;
+  signal?: AbortSignal | null;
+}
+
+/**
+ * Posts one file as multipart/form-data.
+ *
+ * Deliberately NOT apiFetch: that one JSON-encodes its body and sets Content-Type, and both are
+ * wrong here. The Content-Type header is left unset on purpose - the browser has to add it
+ * itself so it can append the multipart boundary, and setting it by hand produces a body the
+ * server cannot parse.
+ */
+export const apiUpload = async <T = unknown>(
+  path: string,
+  file: Blob,
+  fileName: string,
+  { token, fields = {}, signal }: ApiUploadOptions = {},
+): Promise<T> => {
+  const form = new FormData();
+
+  for (const [key, value] of Object.entries(fields)) {
+    form.append(key, value);
+  }
+
+  form.append('file', file, fileName);
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    signal: signal ?? undefined,
+    body: form,
+  });
+
+  const payload = await parseJson(response);
+
+  if (!response.ok) {
+    const { code, message, details } = readErrorParts(payload);
+    throw new ApiError({ status: response.status, code, message, details });
+  }
+
+  return payload as T;
+};
+
+/**
+ * Fetches a protected binary as a Blob.
+ *
+ * WHY NOT JUST PUT THE URL IN AN `<img src>`. This API authenticates with a Bearer token held in
+ * memory, not a cookie the browser would attach on its own, so a plain `src` would arrive
+ * unauthenticated and 401. The alternative - a signed URL carrying a token in the query string -
+ * would put a credential in something that lands in browser history and server logs. So the
+ * bytes are fetched with the header like every other call and handed to the DOM as a blob URL.
+ */
+export const apiFetchBlob = async (
+  path: string,
+  { token, signal }: { token?: string | null; signal?: AbortSignal | null } = {},
+): Promise<Blob> => {
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers,
+    credentials: 'include',
+    signal: signal ?? undefined,
+  });
+
+  if (!response.ok) {
+    const payload = await parseJson(response);
+    const { code, message, details } = readErrorParts(payload);
+    throw new ApiError({ status: response.status, code, message, details });
+  }
+
+  return response.blob();
+};

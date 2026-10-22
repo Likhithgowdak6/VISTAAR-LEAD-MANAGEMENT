@@ -50,6 +50,12 @@ export interface NormalizedInboundMessage {
   messageType?: MessageType;
   /** Cheaply-available media metadata; nothing is ever downloaded to produce it. */
   media?: NormalizedInboundMedia | null;
+  /**
+   * Fetches the bytes behind `media`, when the provider can. Present only on a media message,
+   * and deliberately a function: the decision to spend the bandwidth and the disk belongs to
+   * the ingestion service, which holds the size cap and the feature flag.
+   */
+  downloadMedia?: () => Promise<Buffer>;
   timestamp: unknown;
   senderPhoneJid?: string | null;
   /** True when this message was sent by the linked WhatsApp account itself (Baileys `key.fromMe`). */
@@ -125,6 +131,32 @@ export interface SendTextMessageResult {
   providerMessageId: string | null;
 }
 
+/** The four attachment kinds the CRM can send. Stickers and locations are inbound-only. */
+export type OutboundMediaKind = 'image' | 'video' | 'audio' | 'document';
+
+export interface SendMediaMessageOptions {
+  sessionHandle?: WhatsAppSessionHandle | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- alternate socket injection for tests/POC
+  socket?: any;
+  to?: string;
+  recipientJid?: string;
+  kind: OutboundMediaKind;
+  /** The file itself. Read from disk by the delivery service, never a URL for WhatsApp to fetch. */
+  data: Buffer;
+  mimeType: string;
+  fileName?: string | null;
+  /** Shown under the attachment. WhatsApp ignores it on audio. */
+  caption?: string | null;
+  /**
+   * Sends an audio file as a recorded voice note rather than an attached track. The caller is
+   * responsible for the bytes already being Ogg/Opus - the flag alone does not make a playable
+   * voice note. See media/voice-note.ts.
+   */
+  isVoiceNote?: boolean;
+}
+
+export type SendMediaMessageResult = SendTextMessageResult;
+
 export interface NormalizeEventResult {
   provider: WhatsAppProviderName;
   normalized: boolean;
@@ -141,6 +173,11 @@ export interface WhatsAppProvider {
   createSession: (sessionInput?: CreateSessionOptions) => Promise<WhatsAppSessionHandle>;
   destroySession: (sessionHandle?: WhatsAppSessionHandle | null) => Promise<DestroySessionResult>;
   sendTextMessage: (messageInput?: SendTextMessageOptions) => Promise<SendTextMessageResult>;
+  /**
+   * Optional so an older or stubbed provider still satisfies the interface; the delivery service
+   * checks for it and fails the message cleanly rather than crashing the poller if it is absent.
+   */
+  sendMediaMessage?: (messageInput: SendMediaMessageOptions) => Promise<SendMediaMessageResult>;
   normalizeEvent: (providerEvent?: { type?: string }) => NormalizeEventResult;
   getConnectionStatus: () => ConnectionStatusResult;
 }

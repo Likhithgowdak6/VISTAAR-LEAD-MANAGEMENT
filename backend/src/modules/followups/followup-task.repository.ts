@@ -503,3 +503,37 @@ export const rescheduleReminder = ({
     { returnDocument: 'after', runValidators: true },
   ).exec();
 
+
+export interface FindEarliestPendingDueAtParams {
+  organizationId?: ObjectIdLike;
+  conversationId?: ObjectIdLike;
+  status?: FollowupStatus;
+}
+
+/**
+ * The soonest due time among a conversation's pending reminders, or null if it has none.
+ *
+ * Answered entirely from the `{organizationId, conversationId, status, dueAt}` index - sorted
+ * ascending and limited to one, so MongoDB reads a single index entry and stops. That is what
+ * makes it cheap enough to run on every reminder mutation rather than on a schedule.
+ *
+ * `lean()` because only the date is wanted; hydrating a full document to read one field is
+ * waste on a path this hot.
+ */
+export const findEarliestPendingDueAt = async ({
+  organizationId,
+  conversationId,
+  status = FOLLOWUP_STATUSES.PENDING,
+}: FindEarliestPendingDueAtParams = {}): Promise<Date | null> => {
+  if (!organizationId || !conversationId) {
+    return null;
+  }
+
+  const [next] = await FollowUpTask.find({ organizationId, conversationId, status })
+    .sort({ dueAt: 1 })
+    .limit(1)
+    .select({ dueAt: 1 })
+    .lean();
+
+  return (next?.dueAt as Date | undefined) ?? null;
+};

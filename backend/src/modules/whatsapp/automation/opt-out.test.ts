@@ -115,3 +115,75 @@ describe('normalizeOptOutText', () => {
     expect(normalizeOptOutText(7)).toBe('');
   });
 });
+
+/**
+ * The two spellings that fell through every rule above until Decision 3.
+ *
+ * "Please stop messaging me" is not the WHOLE message, so the `stop` entry never fired, and
+ * "don't contact me again" matched none of the `message` spellings. Both were reaching the sales
+ * agent as ordinary enquiries - the single worst miss this matcher can have, because the
+ * customer could not have been clearer.
+ */
+describe('explicit stop-contact phrases that used to be missed', () => {
+  const explicit = [
+    'Please stop messaging me',
+    'please stop messaging me.',
+    'Stop contacting me',
+    'Please stop contacting me!!',
+    "I'm not interested. Don't contact me again.",
+    'do not contact me again',
+    'stop sending me messages',
+    'Please do not send me any more messages',
+  ];
+
+  for (const message of explicit) {
+    it(`reads "${message}" as an opt-out`, () => {
+      expect(isOptOutRequest(message)).toBe(true);
+    });
+  }
+});
+
+/**
+ * PRECISION OVER RECALL, restated for the phrases added above.
+ *
+ * Widening the list bought a new risk the original set did not have: "stop sending me" sits
+ * inside "don't stop sending me updates". Silencing a customer who asked for MORE contact is
+ * invisible, kills a live deal, and is the exact opposite of what they said.
+ */
+describe('negated phrases are not opt-outs', () => {
+  const keepGoing = [
+    "don't stop sending me updates",
+    'Please dont stop messaging me',
+    'never stop sending me offers',
+    'do not stop contacting me',
+    "don't remove me from the list",
+  ];
+
+  for (const message of keepGoing) {
+    it(`leaves "${message}" alone`, () => {
+      expect(isOptOutRequest(message)).toBe(false);
+    });
+  }
+});
+
+/**
+ * Ordinary sales conversation that happens to contain one of the widened words. Every line here
+ * is a live customer who must keep hearing from us.
+ */
+describe('normal conversation is still untouched by the widened list', () => {
+  const normal = [
+    'we can stop by the venue at 4',
+    'the shoot will stop around 6pm',
+    'can you contact me tomorrow at 5?',
+    'please send me the packages',
+    'messaging on whatsapp is fine',
+    'stop by anytime',
+    'my father will contact me about the date',
+  ];
+
+  for (const message of normal) {
+    it(`leaves "${message}" alone`, () => {
+      expect(isOptOutRequest(message)).toBe(false);
+    });
+  }
+});

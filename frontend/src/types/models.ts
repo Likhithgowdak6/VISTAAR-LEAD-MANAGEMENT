@@ -1,5 +1,6 @@
 /** Shared domain DTOs mirrored from backend serializers for UI consumption. */
 
+import { type AiResponseStatus, type EnquiryClass } from './analytics';
 export type Role = 'super_admin' | 'admin' | 'manager' | 'staff';
 export type AssignableRole = 'admin' | 'manager' | 'staff';
 
@@ -187,6 +188,14 @@ export interface Conversation {
   /** `new` / `hot` / `cold`, from how long ago the CUSTOMER last wrote. Derived server-side on
    *  every read, so it is never stale. */
   leadTemperature: LeadTemperature;
+  /** "Is this a potential customer?" - the established qualification, mapped for the UI.
+   *  Derived server-side on every read, like leadTemperature above. */
+  enquiryClass: EnquiryClass;
+  /** "Do they need a reply right now?" - a different question from the class, and it flips
+   *  back to awaiting the moment the customer sends something new. */
+  aiResponseStatus: AiResponseStatus;
+  /** Whether a human should look at this thread, whatever the AI made of it. */
+  needsAttention: boolean;
   /** The signal keys that fired (see lib/lead-score.ts). The six minus these are what is still
    *  worth asking about. */
   leadScoreSignals: string[];
@@ -211,7 +220,10 @@ export interface MessageMedia {
   mimeType: string | null;
   fileName: string | null;
   sizeBytes: number | null;
+  /** 'stored' is the only value for which the bytes can actually be fetched. */
   storageStatus: string;
+  /** A recorded voice note rather than an attached audio file. */
+  isVoiceNote: boolean;
 }
 
 export interface Message {
@@ -281,6 +293,8 @@ export interface Note {
   updatedAt: string | null;
 }
 
+export type ReminderSource = 'manual' | 'lead_commitment' | 'owner_command';
+
 export interface FollowUpTask {
   id: string;
   organizationId: string | null;
@@ -288,8 +302,14 @@ export interface FollowUpTask {
   conversationId: string | null;
   assignedTo: string | null;
   createdBy: string | null;
+  /** What the reminder is about. Null on rows written before titles existed. */
+  title: string | null;
   type: FollowUpType;
   note: string | null;
+  /** Who or what created it. Null on legacy rows, which is why the UI says "unknown origin". */
+  source: ReminderSource | null;
+  /** The customer's own words behind a lead_commitment reminder, when there were any. */
+  sourceQuote: string | null;
   dueAt: string | null;
   priority: FollowUpPriority;
   status: FollowUpStatus;

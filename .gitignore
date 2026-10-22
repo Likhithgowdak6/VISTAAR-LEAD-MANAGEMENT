@@ -68,3 +68,7 @@ _to_delete/
 backend/npm
 backend/tsx
 backend/wam-crm-ai-backend@*
+
+# Attachment bytes. The database holds the metadata; these are the files themselves.
+backend/var/
+var/media/

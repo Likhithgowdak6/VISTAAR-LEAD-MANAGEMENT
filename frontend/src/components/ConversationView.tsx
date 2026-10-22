@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   getConversation,
@@ -7,6 +7,8 @@ import {
   listStages,
   listTemplates,
   sendMessage,
+  uploadConversationMedia,
+  type UploadedMedia,
 } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
@@ -68,9 +70,23 @@ type Props = {
    * conversation the API now refuses to return, rendering its error branch.
    */
   onDeleted?: () => void;
+  /**
+   * Re-arms device alarms after a reminder is added or moved in the lead panel. Threaded from
+   * AppShell because the alarm sync loop is a single hook instance that lives up there - calling
+   * it again here would start a second loop.
+   */
+  onRemindersChanged?: () => void;
+  /** Device-alarm health, forwarded to the lead panel's reminder section. */
+  reminderAlarms?: ComponentProps<typeof LeadPanel>['reminderAlarms'];
 };
 
-const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
+const ConversationView = ({
+  conversationId,
+  onBack,
+  onDeleted,
+  onRemindersChanged,
+  reminderAlarms,
+}: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
   // Same gate the lead panel used for the template writer before it moved here.
@@ -211,15 +227,36 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
     }
   }, [authedRequest, conversationId, messages]);
 
+  /**
+   * Stores an attachment against this thread and returns the key the send will carry. Separate
+   * from the send so a failed upload never leaves a queued message pointing at nothing.
+   */
+  const handleUploadMedia = useCallback(
+    async ({ blob, fileName, kind }: { blob: Blob; fileName: string; kind: 'file' | 'voice' }) => {
+      const payload = await authedRequest((token) =>
+        uploadConversationMedia({ token, conversationId, file: blob, fileName, kind }),
+      );
+
+      if (!payload?.data) {
+        throw new Error('The attachment could not be stored.');
+      }
+
+      return payload.data;
+    },
+    [authedRequest, conversationId],
+  );
+
   const handleSend = useCallback(
     async ({
       body,
       idempotencyKey,
       whatsappAccountId,
+      media,
     }: {
       body: string;
       idempotencyKey: string;
       whatsappAccountId: string | null;
+      media?: UploadedMedia | null;
     }) => {
       const payload = await authedRequest((token) =>
         sendMessage({
@@ -228,6 +265,7 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
           body,
           idempotencyKey,
           whatsappAccountId,
+          media,
         }),
       );
 
@@ -386,6 +424,7 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
 
         <MessageComposer
           onSend={handleSend}
+          onUploadMedia={handleUploadMedia}
           onOpenTemplates={() => setTemplatesOpen(true)}
           canUseTemplates={canUseTemplates}
           sendableAccounts={sendableAccounts}
@@ -410,6 +449,8 @@ const ConversationView = ({ conversationId, onBack, onDeleted }: Props) => {
 
       {detailsOpen && conversation ? (
         <LeadPanel
+          onRemindersChanged={onRemindersChanged}
+          reminderAlarms={reminderAlarms}
           conversation={{
             ...conversation,
             stage: stageOverride ?? conversation.stage,

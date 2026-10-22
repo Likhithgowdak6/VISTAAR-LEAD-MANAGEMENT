@@ -3,6 +3,10 @@ import mongoose, { type Model, type Types } from 'mongoose';
 import { type AiIntent, DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
+  SALES_REJECTION_SOURCE_VALUES,
+  type SalesRejectionSource,
+} from '../../constants/sales-rejection.js';
+import {
   DEFAULT_LEAD_QUALIFICATION_STATUS,
   type LeadQualificationSource,
   type LeadQualificationStatus,
@@ -50,6 +54,20 @@ export interface ConversationDocument {
   /** Timestamp of the most recent OUTBOUND message (any author), set at enqueue time - the
    *  clock nurture follow-ups measure silence from. */
   lastOutboundAt: Date | null;
+  /**
+   * The last outbound message that actually REACHED WhatsApp, of any author.
+   *
+   * Deliberately separate from `lastOutboundAt` above, which is stamped when a message is
+   * queued. The difference is the whole point: a queued message that never sent would make an
+   * unanswered customer look answered, and "has this customer been replied to" is the question
+   * the attention list is built on. Null on every row written before this field existed, which
+   * reads as "not established" rather than "never replied".
+   */
+  lastDeliveredOutboundAt: Date | null;
+  /** As above, but only AI-authored sends - what "AI replied" means. See analytics/. */
+  lastAiReplyAt: Date | null;
+  /** The last AI send that failed for good (no further attempts). Null if none. */
+  lastAiSendFailedAt: Date | null;
   nextFollowUpAt: Date | null;
   status: ConversationStatus;
   /** Whether ai-brain-service may auto-run the qualifying chat for this conversation. */
@@ -120,6 +138,36 @@ export interface ConversationDocument {
   aiFacts: Record<string, unknown>;
   /** How many nurture follow-ups (day-2/5/9/15 style) have already fired for this conversation. */
   nurtureStep: number;
+  /**
+   * When a follow-up the lead was PROMISED is due to be sent to them. Null means none is owed.
+   *
+   * This is the durable record of a promise - "I'll send the packages tomorrow at 5", or the
+   * lead's own "I'll confirm by Friday" - and it is deliberately a due time rather than a queued
+   * message: nothing is drafted until the moment arrives, so the text is written against the
+   * conversation as it actually stands then. Cleared the instant the lead writes again (see
+   * updateConversationPreview) and claimed atomically by the sweep, so one promise can produce
+   * at most one message. See followups/promise-follow-up.service.ts.
+   */
+  promisedFollowUpAt: Date | null;
+  /** Identity of the promise, seeding the outbound idempotency key so a retry cannot double-send. */
+  promisedFollowUpKey: string | null;
+  /** Who owed whom: `contact_lead` = we promised to reach out, `await_lead` = they promised to. */
+  promisedFollowUpDirection: 'contact_lead' | 'await_lead' | null;
+  /** The lead's own words, quoted back into the prompt so the message references a real promise. */
+  promisedFollowUpQuote: string | null;
+  /**
+   * When this lead said they are not going ahead - "we booked another photographer".
+   *
+   * STICKY. Nothing automatic ever clears it: not a later message, not automation being toggled
+   * back on by an approval card or an owner instruction. Only an authorised human reopening the
+   * lead does (see setAutomationForActor). Distinct from `optedOutAt`, which is a request about
+   * contact rather than a decision about the service - see constants/sales-rejection.ts.
+   */
+  salesRejectedAt: Date | null;
+  /** The lead's own words, so the owner can see what was read as a rejection. */
+  salesRejectionQuote: string | null;
+  /** Classifier or human. See SALES_REJECTION_SOURCES. */
+  salesRejectionSource: SalesRejectionSource | null;
   /** The day the lead's event actually happens, read off `aiFacts` by conversations/event-date.ts
    *  (day-only, anchored at UTC midnight). Null whenever the lead has not given a date we can
    *  read - the common case for a fresh enquiry, and the case where every follow-up behaves
@@ -324,6 +372,21 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       default: null,
     },
 
+    lastDeliveredOutboundAt: {
+      type: Date,
+      default: null,
+    },
+
+    lastAiReplyAt: {
+      type: Date,
+      default: null,
+    },
+
+    lastAiSendFailedAt: {
+      type: Date,
+      default: null,
+    },
+
     nextFollowUpAt: {
       type: Date,
       default: null,
@@ -435,6 +498,49 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       required: true,
       min: 0,
       default: 0,
+    },
+
+    promisedFollowUpAt: {
+      type: Date,
+      default: null,
+    },
+
+    promisedFollowUpKey: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 200,
+    },
+
+    promisedFollowUpDirection: {
+      type: String,
+      enum: ['contact_lead', 'await_lead', null],
+      default: null,
+    },
+
+    promisedFollowUpQuote: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 300,
+    },
+
+    salesRejectedAt: {
+      type: Date,
+      default: null,
+    },
+
+    salesRejectionQuote: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 300,
+    },
+
+    salesRejectionSource: {
+      type: String,
+      enum: [...SALES_REJECTION_SOURCE_VALUES, null],
+      default: null,
     },
 
     eventDate: {
@@ -629,6 +735,14 @@ conversationSchema.index({
   eventDate: 1,
   eventReminderSentAt: 1,
 });
+
+// The promised-follow-up sweep scans across every organization as well (see
+// followups/promise-follow-up.service.ts). Sparse because the overwhelming majority of
+// conversations owe nothing: only the few with a live promise are ever in this index.
+conversationSchema.index(
+  { promisedFollowUpAt: 1 },
+  { partialFilterExpression: { promisedFollowUpAt: { $type: 'date' } } },
+);
 
 // The morning handover read scans across every organization too (see handover-read.service.ts):
 // automation-off conversations the owner last typed into before today.

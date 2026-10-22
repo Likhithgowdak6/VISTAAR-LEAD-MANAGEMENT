@@ -8,9 +8,22 @@ import {
 } from '../../constants/lead-qualification.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import { type ConversationStatus } from '../../constants/conversation-statuses.js';
+import {
+  SALES_REJECTION_PAUSED_REASON,
+  type SalesRejectionSource,
+} from '../../constants/sales-rejection.js';
 import { type DatabaseSession } from '../../config/database.js';
 import { toObjectId } from '../../types/common.js';
 import { isUnansweredValue } from '../lead-sources/lead-field-rules.js';
+import {
+  aiResponseStatusFilter,
+  enquiryClassFilter,
+  needsAttentionFilter,
+} from '../analytics/classification-filters.js';
+import {
+  type AiResponseStatus,
+  type EnquiryClass,
+} from '../analytics/conversation-classification.js';
 import {
   Conversation,
   type ConversationAiSummary,
@@ -69,6 +82,12 @@ export interface ListConversationsParams {
   stage?: string;
   tagIds?: readonly ObjectIdLike[];
   status?: ConversationStatus;
+  /** enquiry / not_enquiry / needs_review - see analytics/conversation-classification.ts. */
+  enquiryClass?: EnquiryClass;
+  /** ai_replied / awaiting_ai_reply / ai_paused / ai_reply_failed / ai_not_needed / needs_review. */
+  aiStatus?: AiResponseStatus;
+  /** Conversations a human should look at, whatever the AI made of them. */
+  needsAttention?: boolean;
   limit?: number;
   skip?: number;
 }
@@ -80,9 +99,13 @@ export const listConversations = ({
   stage,
   tagIds,
   status,
+  enquiryClass,
+  aiStatus,
+  needsAttention,
   limit = 50,
   skip = 0,
-}: ListConversationsParams = {}) => {
+  now = new Date(),
+}: ListConversationsParams & { now?: Date } = {}) => {
   const filter: QueryFilter<ConversationDocument> = {
     ...NOT_DELETED,
     organizationId,
@@ -107,6 +130,19 @@ export const listConversations = ({
 
   if (status) {
     filter.status = status;
+  }
+
+  // The derived filters are ANDed in rather than assigned, because each can contribute its own
+  // `$expr`/`$or` and a second assignment would silently drop the first. Combining "enquiries"
+  // with "awaiting a reply" has to mean both, not whichever was applied last.
+  const derived = [
+    ...(enquiryClass ? [enquiryClassFilter(enquiryClass)] : []),
+    ...(aiStatus ? [aiResponseStatusFilter(aiStatus)] : []),
+    ...(needsAttention ? [needsAttentionFilter(now)] : []),
+  ];
+
+  if (derived.length > 0) {
+    filter.$and = [...((filter.$and as object[] | undefined) ?? []), ...derived];
   }
 
   return Conversation.find(filter)
@@ -216,6 +252,32 @@ export const updateConversationPreview = ({
       // nobody ever learns it arrived. A thread reappearing is visible and takes one click to
       // deal with; a silently swallowed enquiry is neither.
       deletedAt: lastInboundAt ? null : undefined,
+      // THE SILENCE SEQUENCE RESTARTS WHEN THE CUSTOMER SPEAKS, and this is where that happens -
+      // atomically with the very timestamp the schedule is anchored on, so the two can never
+      // disagree. Without it the step carries over: the lead writes in, and the next nudge is
+      // owed step*24h after their new message instead of two hours, which is the quiet failure
+      // rather than the noisy one.
+      //
+      // Keyed on `lastInboundAt` for the same reason as `deletedAt` above - our own outbound
+      // must not reset it, or every nudge would re-arm the sequence it just advanced.
+      // See ai-brain/silence-schedule.ts.
+      nurtureStep: lastInboundAt ? 0 : undefined,
+      // A PROMISED FOLLOW-UP IS OFF THE MOMENT THEY WRITE BACK. The whole point of the message
+      // is to restart a conversation that went quiet; if the lead is already typing, sending
+      // "you said you'd confirm by Friday" on Friday is answering a question nobody asked.
+      //
+      // Clearing it here rather than in the sweep is what makes the cancellation reliable: it
+      // is the same atomic write that records their message, so there is no window in which a
+      // sweep could read a promise the lead has already superseded. Keyed on `lastInboundAt`
+      // for the same reason as the two above - our own outbound must never cancel it.
+      //
+      // Extraction runs AFTER this on the burst flush, so a reply that contains a fresh promise
+      // clears the old one here and writes the new one there, in that order. See
+      // followups/promise-follow-up.service.ts.
+      promisedFollowUpAt: lastInboundAt ? null : undefined,
+      promisedFollowUpKey: lastInboundAt ? null : undefined,
+      promisedFollowUpDirection: lastInboundAt ? null : undefined,
+      promisedFollowUpQuote: lastInboundAt ? null : undefined,
     }),
   };
 
@@ -1148,6 +1210,11 @@ export const findNurturableConversations = ({
     // already covers them the moment they opt out, but this is the guarantee that survives
     // somebody flipping automation back on from the dashboard: opting out outranks the toggle.
     optedOutAt: null,
+    // A LEAD WHO SAID NO IS NEVER NURTURED AGAIN. Sticky and separate from the automation flag
+    // beside it precisely because that flag gets turned back on by paths that are not a decision
+    // to reopen a rejected lead - an owner instruction, an approval card. See
+    // constants/sales-rejection.ts.
+    salesRejectedAt: null,
     // The event has to still be ahead of us. This is an events business: a lead whose wedding was
     // last month is not a slow deal, it is a finished one, and "still looking for a photographer?"
     // arriving after the day is the single clearest sign nobody is reading these. A lead who never
@@ -1197,6 +1264,249 @@ export const bumpNurtureStep = ({
     {
       returnDocument: 'after',
       runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface SetPromisedFollowUpParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  dueAt: Date;
+  key: string;
+  direction: 'contact_lead' | 'await_lead';
+  quote?: string | null;
+  session?: DatabaseSession;
+}
+
+/**
+ * Records that this lead is owed a message at `dueAt`.
+ *
+ * An unconditional `$set`, so a lead who moves the time ("make it 6 instead") moves the promise
+ * rather than accumulating a second one - matching how the owner's reminder is rescheduled in
+ * the same breath. One promise per conversation is the invariant; the conversation IS the
+ * record, which is why no collection was added for this.
+ */
+export const setPromisedFollowUp = ({
+  conversationId,
+  organizationId,
+  dueAt,
+  key,
+  direction,
+  quote = null,
+  session,
+}: SetPromisedFollowUpParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+    },
+    {
+      $set: {
+        promisedFollowUpAt: dueAt,
+        promisedFollowUpKey: key,
+        promisedFollowUpDirection: direction,
+        promisedFollowUpQuote: quote ? quote.slice(0, 300) : null,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface FindDuePromisedFollowUpsParams {
+  organizationId?: ObjectIdLike;
+  afterId?: ObjectIdLike;
+  limit?: number;
+  now?: Date;
+}
+
+/**
+ * Conversations whose promised time has arrived.
+ *
+ * Deliberately NOT filtered on `aiAutomationEnabled`, stage or opt-out the way
+ * `findNurturableConversations` is - the sweep re-reads those per conversation at the moment of
+ * sending, and the outbound pipeline checks them again after that. Filtering here as well would
+ * silently drop promises instead of recording why they were skipped.
+ */
+export const findDuePromisedFollowUps = ({
+  organizationId,
+  afterId,
+  limit = 200,
+  now = new Date(),
+}: FindDuePromisedFollowUpsParams = {}) => {
+  const filter: QueryFilter<ConversationDocument> = {
+    ...NOT_DELETED,
+    // `$type: 'date'` rather than `$ne: null`, and it has to be: the index backing this is
+    // partial on exactly that predicate (see conversation.model.ts), and MongoDB only uses a
+    // partial index when the query provably matches a subset of it. Spelling the same
+    // predicate here makes that implication trivial instead of leaving it to the planner to
+    // infer from a `$lte` on a Date.
+    promisedFollowUpAt: { $type: 'date', $lte: now },
+  };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  if (afterId) {
+    filter._id = { $gt: afterId };
+  }
+
+  return Conversation.find(filter).sort({ _id: 1 }).limit(limit).exec();
+};
+
+export interface ClaimPromisedFollowUpParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  /** The exact due time the caller read. The claim fails if anything has moved it since. */
+  dueAt: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Takes ownership of a due promise, clearing it in the same write.
+ *
+ * COMPARE-AND-SET ON THE DUE TIME, not a plain clear, and that is the whole point: two sweeps
+ * racing on one conversation both read `promisedFollowUpAt`, both try to claim, and exactly one
+ * matches. The loser gets null back and sends nothing. The same match also fails when the lead
+ * replied between the read and the claim - `updateConversationPreview` has already nulled the
+ * field by then - so the cancellation-on-reply rule is enforced a second time, at the latest
+ * possible instant, without a separate check that could go stale.
+ *
+ * Cleared BEFORE the message is drafted rather than after it is enqueued. A crash in between
+ * therefore loses the follow-up instead of repeating it, which is the correct way round: a
+ * promise silently not kept is a missed opportunity, the same message twice is a bad experience
+ * the lead actually notices. The outbound idempotency key covers the ordinary retry anyway.
+ */
+export const claimPromisedFollowUp = ({
+  conversationId,
+  organizationId,
+  dueAt,
+  session,
+}: ClaimPromisedFollowUpParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      promisedFollowUpAt: dueAt,
+    },
+    {
+      $set: {
+        promisedFollowUpAt: null,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'before',
+      session,
+    },
+  ).exec();
+
+export interface MarkSalesRejectedParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  quote?: string | null;
+  source: SalesRejectionSource;
+  pausedReason?: string;
+  now?: Date;
+  session?: DatabaseSession;
+}
+
+/**
+ * Records that this lead said they are not going ahead, and stops everything automated.
+ *
+ * ONE WRITE, FIVE EFFECTS, and they have to be atomic. Splitting them would leave a window in
+ * which the rejection is recorded but the pending promise is not yet cancelled - and that window
+ * is exactly when a sweep would send "as promised, here are the packages" to somebody who just
+ * said they booked a different photographer.
+ *
+ *   - `salesRejectedAt` is the sticky fact, which only a human reopen clears.
+ *   - `aiAutomationEnabled: false` makes every EXISTING guard - the send gate, the auto-greet
+ *     filter, the eligibility check - stop this conversation without any of them needing to
+ *     learn about rejection. The sticky field is what survives those being flipped back on.
+ *   - the four `promisedFollowUp*` fields are nulled, which cancels a pending customer-facing
+ *     promise follow-up through the same mechanism an inbound reply uses.
+ *
+ * STICKY ON WRITE TOO: the filter refuses to overwrite an existing rejection, so a second
+ * classifier verdict cannot quietly restate or re-date a decision already recorded - and a
+ * human-sourced rejection cannot be downgraded to a classifier-sourced one. Returns null when
+ * it was already rejected, which the caller reads as "nothing to do".
+ *
+ * NEVER SETS `optedOutAt`. That belongs to the opt-out mechanism alone; conflating them would
+ * mean a service rejection silently triggering the opt-out alert and confirmation flow.
+ */
+export const markSalesRejected = ({
+  conversationId,
+  organizationId,
+  quote = null,
+  source,
+  pausedReason = SALES_REJECTION_PAUSED_REASON,
+  now = new Date(),
+  session,
+}: MarkSalesRejectedParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      salesRejectedAt: null,
+    },
+    {
+      $set: {
+        salesRejectedAt: now,
+        salesRejectionQuote: quote ? quote.slice(0, 300) : null,
+        salesRejectionSource: source,
+        aiAutomationEnabled: false,
+        aiAutomationPausedReason: pausedReason,
+        promisedFollowUpAt: null,
+        promisedFollowUpKey: null,
+        promisedFollowUpDirection: null,
+        promisedFollowUpQuote: null,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      session,
+    },
+  ).exec();
+
+export interface ClearSalesRejectionParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  session?: DatabaseSession;
+}
+
+/**
+ * Reopens a rejected lead. The ONLY thing that clears the sticky fact.
+ *
+ * Deliberately does not touch `aiAutomationEnabled` - its one caller is
+ * `setAutomationForActor`, which is already turning automation on in the same transaction and
+ * is already behind the `ai.automation.manage` permission. Splitting it this way means this
+ * function cannot, by itself, start anything sending.
+ *
+ * Leaves `salesRejectionQuote` and `salesRejectionSource` in place on purpose: the lead did say
+ * it, the CRM history should keep saying they said it, and `salesRejectedAt` being null is what
+ * every guard reads.
+ */
+export const clearSalesRejection = ({
+  conversationId,
+  organizationId,
+  session,
+}: ClearSalesRejectionParams) =>
+  Conversation.findOneAndUpdate(
+    {
+      _id: conversationId,
+      organizationId,
+      salesRejectedAt: { $ne: null },
+    },
+    {
+      $set: {
+        salesRejectedAt: null,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    {
+      returnDocument: 'after',
       session,
     },
   ).exec();
@@ -1836,6 +2146,9 @@ export const findConversationsDueForAutoGreet = ({
     autoGreetDueAt: { $ne: null, $lte: dueBefore },
     autoGreetSentAt: null,
     optedOutAt: null,
+    // Same reason as the nurture filter: `aiAutomationEnabled` alone is a toggle, and an
+    // approval card resolved with resumeAutomation would otherwise auto-greet a rejected lead.
+    salesRejectedAt: null,
     aiAutomationEnabled: true,
   };
 
@@ -2134,6 +2447,86 @@ export interface ConfirmLeadQualificationParams {
  * lead - refusing to record that would leave the gate re-interviewing a customer it is already
  * talking to, which is the whole failure this field exists to end.
  */
+export interface SetConversationNextFollowUpAtParams {
+  organizationId?: ObjectIdLike;
+  conversationId?: ObjectIdLike;
+  /** The earliest pending reminder's due time, or null when none remain. */
+  nextFollowUpAt?: Date | null;
+}
+
+/**
+ * Stores the conversation's next actionable reminder time.
+ *
+ * A derived field with exactly one writer (followups/next-follow-up.service.ts), which always
+ * recomputes it from the FollowUpTask records rather than adjusting what is here. Scoped by
+ * organization in the filter, not checked afterwards, so a conversation id from another tenant
+ * matches nothing.
+ *
+ * Deliberately NOT inside the reminder's transaction: a reminder that saved must not be rolled
+ * back because an inbox hint could not be refreshed, and the value is self-healing anyway.
+ */
+export const setConversationNextFollowUpAt = ({
+  organizationId,
+  conversationId,
+  nextFollowUpAt = null,
+}: SetConversationNextFollowUpAtParams = {}) =>
+  Conversation.updateOne(
+    { _id: conversationId, organizationId },
+    { $set: { nextFollowUpAt } },
+  ).exec();
+
+export interface RecordOutboundDeliveryOutcomeParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  /** True when the message that just settled was written by the AI rather than a person. */
+  authoredByAi?: boolean;
+  /** 'sent' - it reached WhatsApp. 'failed' - it will not be retried. */
+  outcome: 'sent' | 'failed';
+  now?: Date;
+}
+
+/**
+ * Stamps a conversation with what just happened to one of its outbound messages.
+ *
+ * WHY THIS IS SEPARATE FROM `lastOutboundAt`. That field is written when a message is QUEUED,
+ * which is the right clock for "how long since we said anything" but the wrong one for "has
+ * this customer been answered" - a queued message that never left would make an unanswered
+ * enquiry look handled, and that is precisely the mistake the attention list exists to catch.
+ * These three fields are written only once the socket has actually taken the message.
+ *
+ * Writes nothing on a retryable failure: the message is still in flight, and marking a failure
+ * that is about to succeed would flicker the conversation through "AI reply failed" on the
+ * dashboard. Only a permanent failure is recorded.
+ */
+export const recordOutboundDeliveryOutcome = ({
+  conversationId,
+  organizationId,
+  authoredByAi = false,
+  outcome,
+  now = new Date(),
+}: RecordOutboundDeliveryOutcomeParams) => {
+  const update: Record<string, Date> = {};
+
+  if (outcome === 'sent') {
+    update.lastDeliveredOutboundAt = now;
+
+    if (authoredByAi) {
+      update.lastAiReplyAt = now;
+    }
+  } else if (authoredByAi) {
+    update.lastAiSendFailedAt = now;
+  }
+
+  if (Object.keys(update).length === 0) {
+    return Promise.resolve(null);
+  }
+
+  return Conversation.updateOne(
+    { _id: conversationId, organizationId },
+    { $set: update },
+  ).exec();
+};
+
 export const confirmLeadQualification = ({
   conversationId,
   organizationId,

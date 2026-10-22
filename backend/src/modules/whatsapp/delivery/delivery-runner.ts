@@ -38,6 +38,7 @@ export const createDeliveryRunner = ({
       sessionService: {
         sendTextMessage: ({ to, text }) =>
           sessionManager.sendTextMessage({ accountId, to, text: text ?? undefined }),
+        sendMediaMessage: (options) => sessionManager.sendMediaMessage({ accountId, ...options }),
       },
     }),
 }: CreateDeliveryRunnerOptions = {}) => {

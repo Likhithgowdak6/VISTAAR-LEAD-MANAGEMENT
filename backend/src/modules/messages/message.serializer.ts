@@ -5,6 +5,7 @@ export interface SerializedMessageMedia {
   fileName: unknown;
   sizeBytes: unknown;
   storageStatus: unknown;
+  isVoiceNote: boolean;
 }
 
 export interface SerializedMessage {
@@ -60,6 +61,7 @@ export const serializeMessage = (message: unknown): SerializedMessage | null => 
       fileName: media?.fileName ?? null,
       sizeBytes: media?.sizeBytes ?? null,
       storageStatus: media?.storageStatus ?? 'not_applicable',
+      isVoiceNote: media?.isVoiceNote === true,
     },
     sentByUserId: serializeId(value.sentByUserId),
     status: value.status,

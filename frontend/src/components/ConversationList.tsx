@@ -7,8 +7,10 @@ import { useScrollMemory } from '../hooks/useScrollMemory';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
+import { type AiResponseStatus, type EnquiryClass } from '../types/analytics';
 import AddLeadDialog from './AddLeadDialog';
 import EmptyState from './EmptyState';
+import ConversationFilters, { ConversationClassChip } from './inbox/ConversationFilters';
 import InboxFilters from './InboxFilters';
 import MobileAppBar from './mobile/MobileAppBar';
 import LeadScoreBadge from './LeadScoreBadge';
@@ -29,23 +31,62 @@ import UnreadBadge from './UnreadBadge';
 
 const POLL_INTERVAL_MS = 60000;
 
+/**
+ * A row, plus the two derived classifications and the attention flag.
+ *
+ * ALL THREE OPTIONAL, and that is the honest shape rather than a convenience. The shared
+ * `ConversationSummary` pick does not list them yet, and more to the point a build talking to a
+ * server that does not derive them sends rows without them - which is a different thing from
+ * `needs_review`. `needs_review` means "we looked and could not tell"; absent means "we were
+ * never told", and the chip below renders nothing for it instead of inventing a review backlog.
+ */
+type ClassifiedConversation = ConversationSummary & {
+  enquiryClass?: EnquiryClass;
+  aiResponseStatus?: AiResponseStatus;
+  needsAttention?: boolean;
+};
+
 type Props = {
   selectedId?: string | null;
   onSelect: (conversationId: string) => void;
+  /**
+   * Filters to open with, used by the analytics drill-down so a metric card lands on exactly
+   * the conversations it counted.
+   *
+   * SEEDS the state rather than controlling it - once the inbox is open the owner is free to
+   * change or clear these like any other filter. The caller forces a fresh seed by changing
+   * this component's `key`, which is also what makes clicking the same card twice work.
+   */
+  initialFilters?: {
+    enquiryClass?: EnquiryClass | null;
+    aiStatus?: AiResponseStatus | null;
+    needsAttention?: boolean;
+  };
 };
 
-const ConversationList = ({ selectedId, onSelect }: Props) => {
+const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
   // Same gate as the route: adding a lead creates a contact and can send an unsolicited opening
   // message, so it belongs with the permissions that reach a customer, not with reading.
   const canAddLead = hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
   const [addingLead, setAddingLead] = useState(false);
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversations, setConversations] = useState<ClassifiedConversation[]>([]);
   const [stages, setStages] = useState<StageOption[]>(mergeStages());
   const [tags, setTags] = useState<Tag[]>([]);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
+  // The derived classifications. Server-side filters, unlike `query` below - see the note on
+  // the fetch for why that distinction decides how a change to one of them behaves.
+  const [enquiryClassFilter, setEnquiryClassFilter] = useState<EnquiryClass | null>(
+    initialFilters?.enquiryClass ?? null,
+  );
+  const [aiStatusFilter, setAiStatusFilter] = useState<AiResponseStatus | null>(
+    initialFilters?.aiStatus ?? null,
+  );
+  const [needsAttentionFilter, setNeedsAttentionFilter] = useState(
+    initialFilters?.needsAttention === true,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -67,7 +108,26 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   const load = useCallback(async () => {
     try {
       const payload = await authedRequest((token) =>
-        listConversations({ token, limit: 50, stage: stageFilter, tagIds: tagFilterIds }),
+        listConversations({
+          token,
+          limit: 50,
+          /**
+           * PAGE ONE, ALWAYS - and this is where the classification filters differ from the
+           * search box. Every filter in this call is applied by the database over the whole
+           * org, so changing one has to ask for a fresh first page: narrowing the fifty rows
+           * already in hand would silently drop every match sitting at row fifty-one. The
+           * filter values are dependencies of this callback, so a change refetches rather
+           * than re-rendering what is loaded.
+           */
+          skip: 0,
+          stage: stageFilter,
+          tagIds: tagFilterIds,
+          enquiryClass: enquiryClassFilter,
+          aiStatus: aiStatusFilter,
+          // Sent only when switched on; `false` would be a request for the threads that do
+          // NOT need attention, which is not what an unticked box means.
+          needsAttention: needsAttentionFilter ? true : undefined,
+        }),
       );
       setConversations(payload.data ?? []);
       setError(null);
@@ -76,7 +136,14 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
     } finally {
       setLoading(false);
     }
-  }, [authedRequest, stageFilter, tagFilterIds]);
+  }, [
+    authedRequest,
+    stageFilter,
+    tagFilterIds,
+    enquiryClassFilter,
+    aiStatusFilter,
+    needsAttentionFilter,
+  ]);
 
   useEffect(() => {
     // Fetch-on-mount + slow fallback poll: state updates happen after each request resolves.
@@ -100,8 +167,11 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
   // Realtime: refetch the inbox whenever any conversation changes.
   useEffect(() => subscribe(() => load()), [subscribe, load]);
 
-  const hasFilters = Boolean(stageFilter) || tagFilterIds.length > 0;
-  const activeFilterCount = (stageFilter ? 1 : 0) + tagFilterIds.length;
+  const classificationFilterCount =
+    (enquiryClassFilter ? 1 : 0) + (aiStatusFilter ? 1 : 0) + (needsAttentionFilter ? 1 : 0);
+  const hasFilters =
+    Boolean(stageFilter) || tagFilterIds.length > 0 || classificationFilterCount > 0;
+  const activeFilterCount = (stageFilter ? 1 : 0) + tagFilterIds.length + classificationFilterCount;
 
   /**
    * The rows actually rendered.
@@ -305,14 +375,26 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
           once and then take a permanent row away from the leads. On desktop they stay visible,
           exactly as before. */}
       {!isMobile || filtersOpen ? (
-        <InboxFilters
-          stages={stages}
-          tags={tags}
-          stage={stageFilter}
-          tagIds={tagFilterIds}
-          onStageChange={setStageFilter}
-          onTagsChange={setTagFilterIds}
-        />
+        <>
+          <InboxFilters
+            stages={stages}
+            tags={tags}
+            stage={stageFilter}
+            tagIds={tagFilterIds}
+            onStageChange={setStageFilter}
+            onTagsChange={setTagFilterIds}
+          />
+          {/* Folded into the same disclosure rather than given a bar of their own: on a 360px
+              screen a second always-visible filter row costs more leads than it finds. */}
+          <ConversationFilters
+            enquiryClass={enquiryClassFilter}
+            aiStatus={aiStatusFilter}
+            needsAttention={needsAttentionFilter}
+            onEnquiryClassChange={setEnquiryClassFilter}
+            onAiStatusChange={setAiStatusFilter}
+            onNeedsAttentionChange={setNeedsAttentionFilter}
+          />
+        </>
       ) : null}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
@@ -420,6 +502,13 @@ const ConversationList = ({ selectedId, onSelect }: Props) => {
                         score={conversation.leadScore}
                       />
                     ) : null}
+                    {/* Both classifications in ONE chip, and none at all when the server did
+                        not send them - the row already carries three pills and a switch. */}
+                    <ConversationClassChip
+                      enquiryClass={conversation.enquiryClass}
+                      aiResponseStatus={conversation.aiResponseStatus}
+                      needsAttention={conversation.needsAttention}
+                    />
                   </div>
                 </button>
 

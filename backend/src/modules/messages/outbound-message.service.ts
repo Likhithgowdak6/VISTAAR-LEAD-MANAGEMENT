@@ -21,6 +21,7 @@ import {
 import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 import { enqueueConversationChanged as defaultEnqueueConversationChanged } from '../realtime/realtime-outbox.repository.js';
 import { type UserDocument } from '../users/user.model.js';
+import { describeMediaMessage } from './message-media-labels.js';
 import { serializeMessage } from './message.serializer.js';
 import {
   createOutboundMessageRecord as defaultCreateOutboundMessageRecord,
@@ -62,10 +63,24 @@ export interface EnqueueOutboundMessageParams {
   organizationId: ObjectIdLike;
   conversation: HydratedDocument<ConversationDocument> | ConversationDocument;
   actor: HydratedDocument<UserDocument>;
-  body: string;
+  /** The text, or the caption when `media` is present. Empty is allowed only alongside media. */
+  body?: string;
   idempotencyKey: string;
   /** Who authored this message's content. Defaults to 'human' - the staff dashboard send path. */
   authoredBy?: MessageAuthor;
+  /**
+   * An attachment already stored by the upload route, with the key proven to belong to this
+   * conversation by the caller. Bytes are read later, by the delivery service - this records
+   * only where they are and what they are.
+   */
+  media?: {
+    objectKey: string;
+    type: 'image' | 'video' | 'audio' | 'document';
+    mimeType: string;
+    fileName: string;
+    sizeBytes: number;
+    isVoiceNote: boolean;
+  };
 }
 
 /** Picks a uniformly-random delay in [min, max], clamped so a misconfigured max never inverts it. */
@@ -101,9 +116,21 @@ export const createOutboundMessageService = ({
     body,
     idempotencyKey,
     authoredBy = MESSAGE_AUTHORS.HUMAN,
+    media,
   }: EnqueueOutboundMessageParams) => {
     const whatsappAccountId = conversation.whatsappAccountId;
     const sentAt = now();
+    const caption = body ?? '';
+
+    // An attachment with no caption would otherwise write an empty preview over the inbox row,
+    // which reads as "nothing happened". The same vocabulary the inbound side already uses.
+    const preview =
+      caption.trim() !== ''
+        ? caption
+        : (describeMediaMessage({
+            type: media?.type,
+            isVoiceNote: media?.isVoiceNote,
+          }) ?? '');
     // Human/staff dashboard sends must not be delayed - only AI-authored content gets the
     // human-like send delay, so it does not go out the instant the draft is approved.
     const scheduledAt =
@@ -125,13 +152,28 @@ export const createOutboundMessageService = ({
           conversationId: conversation._id,
           contactId: conversation.contactId,
           idempotencyKey,
-          body,
+          body: caption === '' ? null : caption,
           sentByUserId: actor._id,
           status: MESSAGE_STATUSES.QUEUED,
           sentAt,
           authoredBy,
           scheduledAt,
           session,
+          ...(media
+            ? {
+                type: media.type,
+                mediaObjectKey: media.objectKey,
+                media: {
+                  mimeType: media.mimeType,
+                  fileName: media.fileName,
+                  sizeBytes: media.sizeBytes,
+                  isVoiceNote: media.isVoiceNote,
+                  // The bytes are already on disk - the upload route wrote them before this row
+                  // existed, so there is no window where a message points at nothing.
+                  storageStatus: 'stored' as const,
+                },
+              }
+            : {}),
         };
         const message = await createOutboundMessageRecord(createParams);
 
@@ -139,7 +181,7 @@ export const createOutboundMessageService = ({
           conversationId: conversation._id,
           organizationId,
           lastMessageAt: sentAt,
-          lastMessagePreview: body.slice(0, CONVERSATION_PREVIEW_MAX_LENGTH),
+          lastMessagePreview: preview.slice(0, CONVERSATION_PREVIEW_MAX_LENGTH),
           unreadCountIncrement: 0,
           // Set at enqueue time, same as `lastMessageAt` above and Phase 1's existing timing for
           // this call site - not deferred to actual delivery.
@@ -204,7 +246,10 @@ export const createOutboundMessageService = ({
       // purpose, and "nothing happened" has to read as "it goes out at 15:42:10".
       sendAt: scheduledAt ?? 'immediately',
       ...(created ? {} : { note: 'already queued under this idempotency key' }),
-      body: tracePreview(body),
+      // Never the object key or the filename: a filename is customer data and the trace is
+      // printed to the terminal in development.
+      ...(media ? { attachment: media.isVoiceNote ? 'voice-note' : media.type } : {}),
+      body: tracePreview(caption),
     }));
 
     return {

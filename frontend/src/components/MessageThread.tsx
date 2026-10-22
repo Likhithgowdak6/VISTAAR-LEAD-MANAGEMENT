@@ -1,26 +1,6 @@
 import { formatClockTime } from '../lib/format';
-import { type Message, type MessageType } from './types';
-
-/**
- * Inbound media is deliberately never downloaded (see the backend's inbound ingestion), so there
- * is no thumbnail to show and nothing to play. Without a label a photo or a voice note renders as
- * an empty bubble and reads as "nothing happened", which is the one thing it must not read as.
- * The point of these is only that a human can see something was sent, and what kind of thing.
- *
- * WhatsApp inbound audio is a recorded voice note in all but a rare edge case (an attached music
- * file), and the push-to-talk flag is not persisted on the message row, so `audio` is labelled as
- * a voice note here - the wording that is right almost every time.
- */
-const MEDIA_TYPE_LABEL: Partial<Record<MessageType, string>> = {
-  image: '📷 Photo',
-  video: '🎥 Video',
-  audio: '🎤 Voice note',
-  document: '📎 Document',
-  sticker: '🌟 Sticker',
-  contact: '👤 Contact',
-  location: '📍 Location',
-  unsupported: '📄 Attachment',
-};
+import MediaAttachment from './MediaAttachment';
+import { type Message } from './types';
 
 const OUTBOUND_STATUS_LABEL: Record<string, string> = {
   created: 'Pending',
@@ -39,9 +19,10 @@ type MessageBubbleProps = {
 
 const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isOutbound = message.direction === 'out';
-  const mediaLabel = message.type ? MEDIA_TYPE_LABEL[message.type] : undefined;
+  // Anything that is not plain text has an attachment block, which shows the file itself when
+  // the bytes were stored and falls back to a label when they were not. See MediaAttachment.
+  const hasMedia = Boolean(message.type) && message.type !== 'text';
   const body = message.body ?? '';
-  const fileName = message.media?.fileName ?? null;
 
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
@@ -58,16 +39,10 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
             : 'surface rounded-tl-sm text-bone'
         }`}
       >
-        {mediaLabel ? (
-          <p
-            className={`font-mono text-[0.6875rem] uppercase tracking-[0.06em] ${
-              isOutbound ? 'text-key-soft' : 'text-fill-soft'
-            }`}
-            data-testid="media-placeholder"
-          >
-            {mediaLabel}
-            {fileName ? <span className="normal-case tracking-normal"> · {fileName}</span> : null}
-          </p>
+        {hasMedia ? (
+          <div className="mb-1">
+            <MediaAttachment message={message} />
+          </div>
         ) : null}
 
         {/* A caption still shows under its label; a media message with no caption shows only the

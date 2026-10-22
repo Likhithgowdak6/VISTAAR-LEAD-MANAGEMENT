@@ -72,6 +72,12 @@ const conversationErrorMap = {
     statusCode: 409,
     message: 'This contact already has a separate thread on that WhatsApp number.',
   },
+  // A key that was minted for a different conversation, or a different tenant. Refused rather
+  // than sent: this is the error that stops one lead's photo reaching another lead.
+  MEDIA_NOT_FOR_CONVERSATION: {
+    statusCode: 403,
+    message: 'That attachment does not belong to this conversation.',
+  },
 } as const;
 
 type ConversationErrorCode = keyof typeof conversationErrorMap;
@@ -117,6 +123,9 @@ export const listConversations = asyncHandler(async (req, res) => {
     stage: query.stage,
     tagIds: query.tagIds,
     status: query.status,
+    enquiryClass: query.enquiryClass,
+    aiStatus: query.aiStatus,
+    needsAttention: query.needsAttention,
     limit: query.limit,
     skip: query.skip,
   });
@@ -540,6 +549,7 @@ export const sendConversationMessage = asyncHandler(async (req, res) => {
       body: body.body,
       idempotencyKey: body.idempotencyKey,
       whatsappAccountId: body.whatsappAccountId,
+      media: body.media,
     });
 
     res.status(result.created ? 202 : 200).json({

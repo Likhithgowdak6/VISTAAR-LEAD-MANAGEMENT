@@ -22,6 +22,7 @@ import { getOrganizationSettingsService } from '../../organizations/organization
 import { type ObjectIdLike } from '../../../types/common.js';
 import { getSessionManager } from '../sessions/session-manager.instance.js';
 import { WhatsAppProviderError } from '../whatsapp.errors.js';
+import { createNumberAllowlist } from './allowlist.js';
 import {
   createEchoGuardService as defaultCreateEchoGuardService,
   type EchoGuardService,
@@ -39,6 +40,11 @@ export interface NotifyOwnerParams {
 
 export interface NotifyOwnerResult {
   providerMessageId: string | null;
+  /**
+   * Set when test mode refused the send. Callers already handle a null id (no session, no owner
+   * number); this says which of those it was, for the log and for tests.
+   */
+  blocked?: 'not_on_test_allowlist';
 }
 
 /**
@@ -105,6 +111,8 @@ export const createOwnerNotifyService = ({
   organizationSettingsService = getOrganizationSettingsService(),
   config = env,
 }: CreateOwnerNotifyServiceOptions = {}): OwnerNotifyServiceHandle => {
+  const allowlist = createNumberAllowlist(String(config?.WHATSAPP_TEST_ALLOWED_NUMBERS ?? ''));
+
   const notifyOwner = async ({
     accountId,
     organizationId,
@@ -127,6 +135,24 @@ export const createOwnerNotifyService = ({
         "No running WhatsApp session for this account - can't reach the owner.",
         { code: 'WHATSAPP_SESSION_NOT_RUNNING' },
       );
+    }
+
+    // THE ONE CASE WHERE TEST MODE DOES APPLY TO AN OWNER ALERT.
+    //
+    // The guards above are skipped deliberately (see the file header): throttling the owner's
+    // own alerts would only make them late. But WHATSAPP_TEST_ALLOWED_NUMBERS is not a throttle,
+    // it is "this machine may only talk to these phones" - and nine services funnel in here,
+    // several of them firing automatically on inbound traffic. On a developer's laptop, with a
+    // real owner number left in the organization's settings, a single test message to the test
+    // account fires a new-lead alert at whoever that number belongs to.
+    //
+    // Only a CONFIGURED owner number is checked. The self-chat fallback is the paired device
+    // itself - whoever is running the test scanned that QR, so it is theirs by definition.
+    //
+    // Production is unaffected: an empty allowlist makes `permits` always true, and this whole
+    // branch is dead.
+    if (ownerJid && !allowlist.permits(ownerJid, ownerNumber)) {
+      return { providerMessageId: null, blocked: 'not_on_test_allowlist' };
     }
 
     const result = await sessionManager.sendTextMessage({ accountId, to: destination, text });

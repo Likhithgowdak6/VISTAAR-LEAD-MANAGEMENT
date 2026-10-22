@@ -1,6 +1,14 @@
 import { DEFAULT_LEAD_QUALIFICATION_STATUS } from '../../constants/lead-qualification.js';
 import { DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import {
+  classifyEnquiry,
+  needsAttention,
+  resolveAiResponseStatus,
+  type AiResponseStatus,
+  type AttentionInput,
+  type EnquiryClass,
+} from '../analytics/conversation-classification.js';
+import {
   serializeDate,
   serializeId,
   serializeIdArray,
@@ -47,6 +55,12 @@ export interface SerializedConversation {
    * temperature, despite one of its bands being called "cold". See `leadTemperature`.
    */
   leadScoreBand: string;
+  /** "Is this a potential customer?" - the established qualification, mapped for the UI. */
+  enquiryClass: EnquiryClass;
+  /** "Do they need a reply right now?" - a different question; see the classification module. */
+  aiResponseStatus: AiResponseStatus;
+  /** Whether a human should look at this thread, whatever the AI made of it. */
+  needsAttention: boolean;
   /**
    * `new` / `hot` / `cold` - how recently the CUSTOMER last wrote. Derived from `lastInboundAt`
    * on every read, so a lead who replies is hot immediately and nothing can go stale.
@@ -113,12 +127,43 @@ export const serializeConversationSummary = (
   };
 };
 
+/** The subset of fields the classification rules read, coerced out of the loose input shape. */
+const toClassifiable = (value: Record<string, unknown>): AttentionInput => ({
+  leadQualificationStatus: value.leadQualificationStatus as AttentionInput['leadQualificationStatus'],
+  leadQualificationSource: value.leadQualificationSource as AttentionInput['leadQualificationSource'],
+  leadQualifiedAt: toDate(value.leadQualifiedAt),
+  aiAutomationEnabled: value.aiAutomationEnabled === true,
+  optedOutAt: toDate(value.optedOutAt),
+  lastInboundAt: toDate(value.lastInboundAt),
+  lastAiReplyAt: toDate(value.lastAiReplyAt),
+  lastAiSendFailedAt: toDate(value.lastAiSendFailedAt),
+  lastDeliveredOutboundAt: toDate(value.lastDeliveredOutboundAt),
+  nextFollowUpAt: toDate(value.nextFollowUpAt),
+});
+
+/** Mongo hands back Dates; a serialized fixture or a lean() projection can hand back strings. */
+const toDate = (value: unknown): Date | null => {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value !== '') {
+    const parsed = new Date(value);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+};
+
 export const serializeConversation = (conversation: unknown): SerializedConversation | null => {
   const value = toPlainObject(conversation);
 
   if (!value) {
     return null;
   }
+
+  const classifiable = toClassifiable(value);
 
   return {
     id: serializeId(value._id),
@@ -160,6 +205,14 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     // temperature needs a writer, and ingestion, the nurture sweep and the importers all run at
     // once. Derived from a timestamp ingestion already maintains, nothing can race it.
     leadTemperature: leadTemperatureFor({ lastInboundAt: value.lastInboundAt as Date | null }),
+    // Derived here for the same reason as leadTemperature above: these are a reading of fields
+    // the conversation already maintains, so there is no second writer to keep in step and
+    // nothing to backfill. See analytics/conversation-classification.ts for the rules, and note
+    // that the two answer different questions - "is this a customer" versus "do they need a
+    // reply right now".
+    enquiryClass: classifyEnquiry(classifiable),
+    aiResponseStatus: resolveAiResponseStatus(classifiable),
+    needsAttention: needsAttention(classifiable),
     leadScoreSignals: Array.isArray(value.leadScoreSignals)
       ? value.leadScoreSignals.map((signal) => String(signal))
       : [],

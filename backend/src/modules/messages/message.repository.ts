@@ -6,7 +6,12 @@ import { MESSAGE_STATUSES, type MessageStatus } from '../../constants/message-st
 import { MESSAGE_TYPES, type MessageType } from '../../constants/message-types.js';
 import { type DatabaseSession } from '../../config/database.js';
 import { type ObjectIdLike } from '../../types/common.js';
-import { Message, type MessageDocument, type MessageMedia } from './message.model.js';
+import {
+  Message,
+  type MediaStorageStatus,
+  type MessageDocument,
+  type MessageMedia,
+} from './message.model.js';
 
 export interface ResolveMessageTimeParams {
   sentAt?: Date | null;
@@ -164,6 +169,65 @@ export const findMessageByIdempotencyKey = ({
     organizationId,
     whatsappAccountId,
     idempotencyKey,
+  }).exec();
+
+export interface UpdateMessageMediaStorageParams {
+  organizationId?: ObjectIdLike;
+  messageId?: ObjectIdLike;
+  mediaObjectKey?: string | null;
+  storageStatus: MediaStorageStatus;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  fileName?: string | null;
+}
+
+/**
+ * Records the outcome of fetching an inbound attachment's bytes.
+ *
+ * Only the media fields are touched, with `$set` on the nested paths rather than replacing the
+ * subdocument: the row was written by ingestion a moment earlier and nothing else about it -
+ * body, type, the voice-note flag - is this call's business to overwrite.
+ */
+export const updateMessageMediaStorage = ({
+  organizationId,
+  messageId,
+  mediaObjectKey,
+  storageStatus,
+  mimeType,
+  sizeBytes,
+  fileName,
+}: UpdateMessageMediaStorageParams) =>
+  Message.updateOne(
+    { _id: messageId, organizationId },
+    {
+      $set: {
+        'media.storageStatus': storageStatus,
+        ...(mediaObjectKey === undefined ? {} : { mediaObjectKey }),
+        ...(mimeType === undefined ? {} : { 'media.mimeType': mimeType }),
+        ...(sizeBytes === undefined ? {} : { 'media.sizeBytes': sizeBytes }),
+        ...(fileName === undefined ? {} : { 'media.fileName': fileName }),
+      },
+    },
+  ).exec();
+
+export interface FindMessageByIdParams {
+  organizationId?: ObjectIdLike;
+  messageId?: ObjectIdLike;
+}
+
+/**
+ * One message, scoped to the organization in the same query rather than fetched and then
+ * checked. The media download route is the caller: a message id from a URL must never be able to
+ * reach a row belonging to another tenant, and the only way to be sure of that is to make the
+ * organization part of the lookup.
+ */
+export const findMessageByIdForOrganization = ({
+  organizationId,
+  messageId,
+}: FindMessageByIdParams = {}) =>
+  Message.findOne({
+    _id: messageId,
+    organizationId,
   }).exec();
 
 export interface FindMessagesByConversationCursorParams {

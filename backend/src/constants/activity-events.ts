@@ -27,6 +27,16 @@ export const ACTIVITY_EVENTS = Object.freeze({
   AI_BRAIN_PROPOSAL_RENDERED: 'ai_brain.proposal_rendered',
   AI_BRAIN_NURTURE_SENT: 'ai_brain.nurture_sent',
   AI_BRAIN_NURTURE_MARKED_COLD: 'ai_brain.nurture_marked_cold',
+  /** A follow-up the lead was promised, sent at the promised time. Distinct from a nurture
+   *  nudge on purpose: one keeps a commitment, the other chases silence, and an owner reading
+   *  the timeline needs to tell them apart. */
+  AI_BRAIN_PROMISE_FOLLOW_UP_SENT: 'ai_brain.promise_follow_up_sent',
+  /** The promised time arrived but the message was withheld, with the reason in the metadata. */
+  AI_BRAIN_PROMISE_FOLLOW_UP_SKIPPED: 'ai_brain.promise_follow_up_skipped',
+  /** The lead said they are not going ahead. Separate from an opt-out, which is about contact. */
+  AI_BRAIN_SALES_REJECTION_DETECTED: 'ai_brain.sales_rejection_detected',
+  /** An authorised human reopened a rejected lead. The only thing that clears the sticky fact. */
+  AI_BRAIN_SALES_REJECTION_CLEARED: 'ai_brain.sales_rejection_cleared',
   AI_BRAIN_HANDOVER_READ: 'ai_brain.handover_read',
   AI_BRAIN_HANDOVER_RESOLVED: 'ai_brain.handover_resolved',
   AI_BRAIN_NEW_LEAD_ALERTED: 'ai_brain.new_lead_alerted',

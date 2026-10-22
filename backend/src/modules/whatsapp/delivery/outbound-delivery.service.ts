@@ -18,13 +18,20 @@ import {
   rescheduleOutboundMessage as defaultRescheduleOutboundMessage,
 } from '../../messages/message.repository.js';
 import { confirmLeadQualification as defaultConfirmLeadQualification } from '../../conversations/conversation.repository.js';
+import { recordOutboundDeliveryOutcome as defaultRecordOutboundDeliveryOutcome } from '../../conversations/conversation.repository.js';
 import {
   createCallSchedulingService,
   type CallSchedulingService,
 } from '../../lead-sources/call-scheduling.service.js';
 import { REALTIME_REASONS } from '../../realtime/realtime.events.js';
 import { publishConversationChanged as defaultPublishConversationChanged } from '../../realtime/realtime.publisher.js';
-import { type SendTextMessageResult } from '../providers/whatsapp-provider.interface.js';
+import {
+  type OutboundMediaKind,
+  type SendMediaMessageOptions,
+  type SendMediaMessageResult,
+  type SendTextMessageResult,
+} from '../providers/whatsapp-provider.interface.js';
+import { mediaStorage as defaultMediaStorage } from '../../media/media-storage.service.js';
 import { createOutboundAllowlist } from '../automation/allowlist.js';
 import { createEchoGuardService, type EchoGuardService } from '../automation/echo-guard.service.js';
 import { isWithinQuietHours, nextAllowedSendTime } from '../automation/quiet-hours.js';
@@ -56,6 +63,14 @@ export interface DeliverySessionService {
     to: string;
     text?: string | null;
   }) => Promise<SendTextMessageResult | { providerMessageId?: string | null }>;
+  /**
+   * Optional: a session wired before attachments existed, or a test double, simply does not have
+   * it. A media message then fails permanently with `media_unsupported` rather than throwing
+   * somewhere that would retry it forever.
+   */
+  sendMediaMessage?: (
+    options: Omit<SendMediaMessageOptions, 'sessionHandle' | 'socket'>,
+  ) => Promise<SendMediaMessageResult | { providerMessageId?: string | null }>;
 }
 
 export interface ContactRepositoryLike {
@@ -110,6 +125,10 @@ export interface CreateOutboundDeliveryServiceOptions {
   onOutboundMessageSent?: CallSchedulingService['onOutboundMessageSent'];
   contactRepository?: ContactRepositoryLike;
   messageRepository?: MessageRepositoryLike;
+  /** Injected so the tests can assert the media path without touching a filesystem. */
+  mediaStorage?: { readMediaObject: (objectKey: string) => Promise<Buffer> };
+  /** Stamps the delivered/failed timestamps the inbox and analytics read. */
+  recordOutboundDeliveryOutcome?: typeof defaultRecordOutboundDeliveryOutcome;
   findConversationById?: typeof defaultFindConversationById;
   publishEvent?: (options: {
     organizationId?: ObjectIdLike;
@@ -184,6 +203,8 @@ export const createOutboundDeliveryService = ({
     rescheduleOutboundMessage:
       defaultRescheduleOutboundMessage as MessageRepositoryLike['rescheduleOutboundMessage'],
   },
+  mediaStorage = defaultMediaStorage,
+  recordOutboundDeliveryOutcome = defaultRecordOutboundDeliveryOutcome,
   findConversationById = defaultFindConversationById,
   publishEvent = defaultPublishConversationChanged as CreateOutboundDeliveryServiceOptions['publishEvent'],
   computeBackoffMs = defaultComputeBackoffMs,
@@ -212,6 +233,41 @@ export const createOutboundDeliveryService = ({
       assignedTo: conversation?.assignedTo ?? null,
       reason: REALTIME_REASONS.STATUS,
     });
+  };
+
+  /**
+   * Ends a message that can never succeed: the file is gone, or this session cannot carry it.
+   * Separate from the catch below because these are not transport failures - a retry would do
+   * the same thing again in thirty seconds, forever.
+   */
+  const failPermanently = async ({
+    organizationId,
+    message,
+    reason,
+    trace,
+  }: {
+    organizationId?: ObjectIdLike;
+    message: MessageDocument;
+    reason: string;
+    trace: PipelineTrace;
+  }) => {
+    trace.stop(
+      PIPELINE_STAGE.OUTBOUND_DELIVERY,
+      reason === 'media_missing'
+        ? 'the attachment is recorded as stored but is not on disk, so there is nothing to send'
+        : 'this WhatsApp session cannot send attachments',
+      () => ({ step: 'media', message: message._id.toString() }),
+    );
+
+    await messageRepository.markOutboundMessageFailed({
+      messageId: message._id,
+      organizationId,
+      error: reason,
+      permanent: true,
+      now: now(),
+    });
+
+    await publishStatusChange({ organizationId, message });
   };
 
   const deliverNext = async ({ organizationId, whatsappAccountId }: DeliverNextOptions = {}) => {
@@ -358,6 +414,37 @@ export const createOutboundDeliveryService = ({
         };
       }
 
+      // Checked before the automation flag for the same reason the opt-out is: both turn
+      // automation off as well, and "automation_paused" would hide the one fact anybody
+      // auditing a complaint needs to see. THIS IS THE LAST LINE OF DEFENCE for a reply that
+      // was drafted and queued in the seconds before the lead said they had booked somebody
+      // else - the queue is the one place a message can outlive the decision that should have
+      // stopped it.
+      if (conversation?.salesRejectedAt) {
+        trace.stop(
+          PIPELINE_STAGE.OUTBOUND_DELIVERY,
+          'this lead said they are not going ahead after the reply was queued, so it is dropped rather than sent',
+          () => ({ step: 'sales-rejected', message: message._id.toString() }),
+        );
+
+        await messageRepository.markOutboundMessageFailed({
+          messageId: message._id,
+          organizationId,
+          error: 'lead_rejected_service',
+          permanent: true,
+          now: now(),
+        });
+
+        await publishStatusChange({ organizationId, message });
+
+        return {
+          delivered: false,
+          failed: true,
+          permanent: true,
+          reason: 'lead_rejected_service',
+        };
+      }
+
       if (!conversation || conversation.aiAutomationEnabled !== true) {
         trace.stop(
           PIPELINE_STAGE.OUTBOUND_DELIVERY,
@@ -421,6 +508,46 @@ export const createOutboundDeliveryService = ({
         };
       }
 
+      // (c2) SUPERSEDED BY THE CUSTOMER. The draft was written against the conversation as it
+      // stood when it was queued; if the lead has said something since, it is answering a
+      // question they have already moved on from - and for a silence follow-up ("still
+      // there?") it is worse than that, because they plainly are.
+      //
+      // THE WINDOW IS NOT THEORETICAL. Every AI message carries a 60-120s human-like send
+      // delay (WHATSAPP_HUMAN_DELAY_*), and the claim query matches on `scheduledAt <= now`
+      // alone - so a reply arriving inside that window previously went out regardless. The
+      // other direction is already handled: a reply TO this inbound is enqueued after it, so
+      // its createdAt is later and it is not superseded.
+      //
+      // Checked HERE, after the claim, because that is the only point where the row is already
+      // ours and the conversation has just been re-read. A check before the claim would race.
+      const supersededBy = conversation?.lastInboundAt ?? null;
+
+      if (supersededBy && message.createdAt && supersededBy.getTime() > message.createdAt.getTime()) {
+        trace.stop(
+          PIPELINE_STAGE.OUTBOUND_DELIVERY,
+          'the lead sent something after this reply was queued, so the reply is answering a moment that has passed and is dropped rather than sent',
+          () => ({ step: 'superseded', message: message._id.toString() }),
+        );
+
+        await messageRepository.markOutboundMessageFailed({
+          messageId: message._id,
+          organizationId,
+          error: 'superseded_by_inbound',
+          permanent: true,
+          now: now(),
+        });
+
+        await publishStatusChange({ organizationId, message });
+
+        return {
+          delivered: false,
+          failed: true,
+          permanent: true,
+          reason: 'superseded_by_inbound',
+        };
+      }
+
       if (
         isWithinQuietHours(
           now(),
@@ -459,17 +586,81 @@ export const createOutboundDeliveryService = ({
       }
     }
 
+    // (d) An attachment is read off disk here and nowhere earlier: a 12 MB video has no business
+    // sitting in memory while the message waits in the queue, and a row that fails every guard
+    // above should never have caused a disk read at all.
+    let mediaPayload: { bytes: Buffer; kind: OutboundMediaKind } | null = null;
+
+    if (message.mediaObjectKey) {
+      const kind = message.type as OutboundMediaKind;
+
+      if (typeof sessionService.sendMediaMessage !== 'function') {
+        await failPermanently({ organizationId, message, reason: 'media_unsupported', trace });
+
+        return {
+          delivered: false,
+          failed: true,
+          permanent: true,
+          reason: 'media_unsupported',
+        };
+      }
+
+      try {
+        mediaPayload = { bytes: await mediaStorage.readMediaObject(message.mediaObjectKey), kind };
+      } catch {
+        // The row says stored and the disk disagrees. Retrying cannot conjure the file back, so
+        // this is permanent - and the reason is specific enough to diagnose from the inbox.
+        await failPermanently({ organizationId, message, reason: 'media_missing', trace });
+
+        return {
+          delivered: false,
+          failed: true,
+          permanent: true,
+          reason: 'media_missing',
+        };
+      }
+    }
+
     try {
-      const result = await sessionService.sendTextMessage({
-        to: recipient,
-        text: message.body,
-      });
+      const result = mediaPayload
+        ? await sessionService.sendMediaMessage!({
+            to: recipient,
+            kind: mediaPayload.kind,
+            data: mediaPayload.bytes,
+            mimeType: message.media?.mimeType ?? 'application/octet-stream',
+            fileName: message.media?.fileName ?? null,
+            caption: message.body,
+            // Persisted at upload time; `audio` alone would arrive as an attached track.
+            isVoiceNote: message.media?.isVoiceNote === true,
+          })
+        : await sessionService.sendTextMessage({
+            to: recipient,
+            text: message.body,
+          });
 
       await messageRepository.markOutboundMessageSent({
         messageId: message._id,
         organizationId,
         providerMessageId: result?.providerMessageId ?? null,
         now: now(),
+      });
+
+      // Stamped here, at the one moment the message is known to have reached WhatsApp, so the
+      // inbox and the analytics page can tell an answered customer from a queued draft.
+      // Failure-isolated: a bookkeeping error must not turn a delivered message into a failed
+      // one, which would resend it.
+      await recordOutboundDeliveryOutcome({
+        conversationId: message.conversationId,
+        organizationId,
+        authoredByAi: message.authoredBy === MESSAGE_AUTHORS.AI,
+        outcome: 'sent',
+        now: now(),
+      }).catch((error: unknown) => {
+        const err = error as { code?: unknown; name?: unknown };
+        logger?.error?.('Could not record the delivery outcome on the conversation.', {
+          code: err?.code,
+          name: err?.name,
+        });
       });
 
       // Every successful send is remembered so the echo guard can recognize our own message
@@ -564,6 +755,19 @@ export const createOutboundDeliveryService = ({
         nextAttemptAt,
         now: now(),
       });
+
+      // Only a PERMANENT failure is stamped on the conversation. A retryable one is still in
+      // flight, and flickering the dashboard through "AI reply failed" for thirty seconds
+      // would report a problem that is about to resolve itself.
+      if (permanent) {
+        await recordOutboundDeliveryOutcome({
+          conversationId: message.conversationId,
+          organizationId,
+          authoredByAi: message.authoredBy === MESSAGE_AUTHORS.AI,
+          outcome: 'failed',
+          now: now(),
+        }).catch(() => undefined);
+      }
 
       await publishStatusChange({ organizationId, message });
 
