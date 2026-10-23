@@ -72,8 +72,14 @@ class BriefCoversTheWholeBusiness(unittest.TestCase):
 
 class PromptIsTradeAgnostic(unittest.TestCase):
     def test_carries_the_brief_into_the_prompt(self):
-        self.assertIn("multi-service creative", RENDERED)
-        self.assertIn("website design", RENDERED)
+        # Matched case-insensitively, like `test_does_not_assume_a_single_trade` below. The
+        # brief used to be a lowercase prose sentence and is now a bullet list shared with
+        # BRAND, so "website design" became "Website design" - a change in capitalisation, not
+        # in what the classifier is told. The assertion is that the service reaches the prompt.
+        lowered = RENDERED.lower()
+
+        self.assertIn("multi-service creative", lowered)
+        self.assertIn("website design", lowered)
 
     def test_does_not_assume_a_single_trade(self):
         lowered = RENDERED.lower()

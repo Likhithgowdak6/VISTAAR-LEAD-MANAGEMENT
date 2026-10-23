@@ -100,16 +100,19 @@ def _transcript_text(transcript) -> str:
 # SEO, social media - as something other than a customer.
 DEFAULT_BUSINESS_BRIEF = (
     "Vistaar Verse, a multi-service creative, digital and events agency in Bangalore, India. "
-    "It is hired for: content creation and content marketing; photo, video and podcast "
-    "production; corporate, commercial, event and real-estate photography; website design and "
-    "development, and e-commerce builds; social media management, strategy and marketing; "
-    "digital marketing, advertising and SEO; branding, brand marketing and creative media; and "
-    "event marketing. "
+    "It is hired for:\n"
+    + prompts.SERVICES
+    + "\n"
     "Treat that list as a description of the kind of work it takes on, NOT as words to match. "
     "A customer enquiring about any of it is a lead, and so is one describing the problem "
     "rather than the service - \"our website looks dated\", \"nobody finds us on Google\", "
     "\"we are launching next month and need help\" - or asking for something adjacent that an "
-    "agency like this would plausibly take on."
+    "agency like this would plausibly take on. "
+    "A PERSONAL OCCASION IS A JOB LIKE ANY OTHER. \"I need a photographer for my wedding\", "
+    "\"shoot for my daughter's half saree function\", \"birthday party next month\" and "
+    "\"we're taking delivery of a car on Sunday\" are customers hiring this business, exactly "
+    "as a corporate shoot or a website enquiry is. Nothing about an enquiry being personal "
+    "rather than commercial makes it something other than a lead."
 )
 
 

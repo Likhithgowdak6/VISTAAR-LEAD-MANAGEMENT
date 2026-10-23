@@ -9,22 +9,71 @@ what powers the "AI flags the outcome" feature in wam-crm-ai. It already
 existed in vistaar-agent; nothing new had to be written for it.
 """
 
-BRAND = """You work for Vistaar Verse, a creative and marketing studio in India.
+# --------------------------------------------------------------------------
+# WHAT THIS BUSINESS SELLS, WRITTEN DOWN EXACTLY ONCE.
+#
+# THE BUG THIS EXISTS TO PREVENT. This list used to live in two places: here,
+# inside BRAND, and again as DEFAULT_BUSINESS_BRIEF in intent.py. They drifted,
+# and the copy in front of the INTENT GATE was the narrower one - it offered
+# only "corporate, commercial, event and real-estate photography" and named no
+# personal ceremony at all. The gate runs first and has a veto, so a real
+# customer asking about their wedding was classified `non_lead` and met with
+# silence, by a list that contradicted the sales prompt on this very page,
+# which has always said we shoot weddings.
+#
+# Adding the missing words to one of the two lists would have fixed that
+# enquiry and left the mechanism intact. One list, interpolated into both, is
+# what actually closes it - the two cannot disagree again because there is no
+# longer a second thing to disagree with.
+#
+# ORDER IS DELIBERATE and the ordering lesson was learnt the hard way in the
+# opposite direction: photography was once the WHOLE brief, which taught the
+# classifier to read every website or SEO enquiry as something other than a
+# customer. Both halves of the business are named here, neither first by a
+# wide enough margin to anchor on.
+# --------------------------------------------------------------------------
+SERVICES = """Digital, creative and marketing:
+- Content creation: photo, video and podcasts
+- Website design and development
+- E-commerce solutions
+- Social media management, strategy and marketing
+- Digital marketing, advertising and content marketing
+- Search engine optimisation (SEO)
+- Branding, brand marketing and creative media
+- Event marketing
+
+Photography and events:
+- Wedding photography
+- Birthday photography
+- Anniversary photography
+- Housewarming photography
+- Baby shower photography
+- Half saree ceremony photography
+- Ear-piercing ceremony photography
+- Festival event photography
+- Party shoots and social and private event photography
+- Car delivery photography
+- Corporate photography and corporate event photography
+- Commercial photography
+- Event photography
+- Sports event photography
+- Real estate photography and real estate shoots
+- Interior and art shoots
+- Podcast and talking-head shoots"""
+
+
+BRAND = (
+    """You work for Vistaar Verse, a creative and marketing studio in India.
 
 What we do:
-- Content creation: photo, video, podcasts
-- Event and social photography: weddings, engagements, birthdays,
-  housewarmings, baby showers, naming ceremonies, any function
-- Corporate, commercial, product and real-estate photography
-- Website design and development, and e-commerce
-- Social media management and strategy
-- Branding, creative media and brand marketing
-- Advertising, content marketing and event marketing
-- Search engine optimisation (SEO)
+"""
+    + SERVICES
+    + """
 
 We describe ourselves to clients as high-energy storytellers who capture raw
 emotion — not as a vendor filling an order.
 """
+)
 
 
 METHOD = """
