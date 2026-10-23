@@ -25,7 +25,15 @@ const booleanString = z.preprocess((value: unknown) => {
   return value;
 }, z.boolean());
 
-const envSchema = z.object({
+/**
+ * Exported so a default can be asserted without booting the whole config.
+ *
+ * `env` below is parsed at import time against the real process environment, which every test
+ * mocks away - so a default asserted through `env` is really asserting whatever the mock said.
+ * Reaching for `envSchema.shape.X.parse(undefined)` tests the schema itself and needs no other
+ * variable to be set. See reminder-runner.test.ts.
+ */
+export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
   PORT: z.coerce.number().int().positive().default(5001),
@@ -310,10 +318,25 @@ const envSchema = z.object({
   // start it. Turn it on in production or no reminder is ever delivered.
   REMINDERS_ENABLED: booleanString.default(false),
 
-  // How often to look for due reminders. A minute means a reminder is at most a minute late,
-  // which is the right granularity for "5 PM" and cheap: the sweep is one indexed query that
-  // usually matches nothing.
-  REMINDER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).max(900_000).default(60_000),
+  // How often to look for due reminders. This is the ONLY thing standing between a reminder's
+  // due time and the owner's phone: the sweep claims atomically and `notifyOwner` sends
+  // straight down the WhatsApp socket, with no outbound queue, human delay or quiet-hours
+  // stage in between. So the interval IS the latency, uniformly spread across it.
+  //
+  // WHY IT IS NO LONGER A MINUTE. A minute is the right granularity for "5 PM" and that was
+  // the original reasoning. It is the wrong granularity for what customers actually send:
+  // "message me after 5 minutes" is a common turn, and a reminder for it arriving up to a
+  // minute late is a sixth of the way through the thing being remembered. Measured in
+  // production on 2026-10-23, a reminder due at 08:53:18.324 was delivered at 08:54:08.681 -
+  // 50.357s late, which is exactly 60s minus the 9.643s by which the due time missed a tick.
+  //
+  // Five seconds costs one indexed `findOneAndUpdate` every five seconds that returns null and
+  // breaks the loop when nothing is due - roughly twelve queries a minute against
+  // `{status, dueAt, deliveryClaimedAt}`. That is not a cost worth a minute of lateness.
+  //
+  // A per-reminder setTimeout would be tighter still and was rejected: timers do not survive a
+  // restart, so it needs this sweep as a backstop anyway - more moving parts for two seconds.
+  REMINDER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).max(900_000).default(5_000),
 
   // Nurture sweep: the day-2/5/9/15 "still there?" cadence, cold-at-20. Off by default - tests
   // and the plain API server never run it, same gating style as WHATSAPP_OUTBOUND_DELIVERY_ENABLED.

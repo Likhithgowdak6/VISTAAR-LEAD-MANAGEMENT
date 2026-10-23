@@ -701,3 +701,73 @@ describe('a context failure must not duplicate or lose a reminder', () => {
     expect(h.loadReminderLeadContext).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The sweep now runs every five seconds rather than every sixty, so a reminder that stays
+ * `pending` after being announced is re-examined twelve times a minute instead of once. The
+ * guards that make that safe were already here; these pin them against the SEQUENCE rather
+ * than against a task that merely arrives pre-stamped.
+ */
+describe('a second sweep after a successful delivery', () => {
+  it('sends nothing more for a reminder the first sweep already delivered', async () => {
+    // Models the real claim query, whose filter includes `lastNotificationAt: null`: once
+    // delivery stamps it, the task is invisible to every later sweep. Stubbing the claim to
+    // keep returning it would be testing a database that does not exist.
+    const task = baseTask();
+    let announced = false;
+
+    const h = createHarness({ tasks: [] });
+    h.claimDueReminder.mockImplementation(async () => (announced ? null : task));
+    h.recordReminderDelivery.mockImplementation(async (params) => {
+      if (params.status === 'sent') {
+        announced = true;
+      }
+
+      return null;
+    });
+
+    await h.service.sweepOnce({});
+    await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not burn the claim on it either', async () => {
+    // The reason `lastNotificationAt: null` is in the QUERY and not only in the sweep body: a
+    // claim-then-release loop would spend the per-tick budget on work it discards, and at a
+    // five-second interval that is twelve wasted claims a minute per announced reminder.
+    const task = baseTask();
+    let announced = false;
+
+    const h = createHarness({ tasks: [] });
+    h.claimDueReminder.mockImplementation(async () => (announced ? null : task));
+    h.recordReminderDelivery.mockImplementation(async (params) => {
+      if (params.status === 'sent') {
+        announced = true;
+      }
+
+      return null;
+    });
+
+    await h.service.sweepOnce({});
+    h.releaseReminderClaim.mockClear();
+
+    await h.service.sweepOnce({});
+
+    expect(h.releaseReminderClaim).not.toHaveBeenCalled();
+  });
+
+  it('still delivers a DIFFERENT reminder that came due in between', async () => {
+    // The sweep going quiet for the announced one must not mean going quiet altogether.
+    const first = baseTask({ _id: 'task-1' });
+    const second = baseTask({ _id: 'task-2' });
+    const queue = [first, second];
+
+    const h = createHarness({ tasks: [] });
+    h.claimDueReminder.mockImplementation(async () => queue.shift() ?? null);
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledTimes(2);
+  });
+});

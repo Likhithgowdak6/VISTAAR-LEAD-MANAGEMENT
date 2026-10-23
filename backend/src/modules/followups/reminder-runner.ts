@@ -52,7 +52,11 @@ export const createReminderRunner = ({
   let running = false;
 
   const enabled = asBoolean(config.REMINDERS_ENABLED);
-  const intervalMs = Number(config.REMINDER_SWEEP_INTERVAL_MS ?? 60_000);
+  // The real default lives in config/env.ts, which zod guarantees is always set. This
+  // fallback only fires for a hand-built config object, and is kept in step with the schema
+  // deliberately: two numbers that are both "the default" is how one of them silently becomes
+  // wrong.
+  const intervalMs = Number(config.REMINDER_SWEEP_INTERVAL_MS ?? 5_000);
 
   const tick = async () => {
     // A sweep that overran its interval keeps its claims; starting a second one would race it
