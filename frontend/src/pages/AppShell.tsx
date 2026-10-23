@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useReminderAlarms } from '../hooks/useReminderAlarms';
+import { usePushRegistration } from '../hooks/usePushRegistration';
 import ChangePasswordGate from '../components/ChangePasswordGate';
 import { type AiResponseStatus, type EnquiryClass } from '../types/analytics';
 import AnalyticsPage from './AnalyticsPage';
@@ -285,6 +286,54 @@ const AppShell = () => {
     ),
   });
 
+  /**
+   * The OTHER half of making a reminder reach the owner.
+   *
+   * `useReminderAlarms` above arms a LOCAL notification, which this app schedules while it is
+   * running - so a handset whose owner has not opened Vistaar since the reminder was created
+   * never rings. That is what a local notification is. This registers the device with FCM so
+   * the server can reach it through the operating system instead, with the app closed and the
+   * phone locked. The two are complementary and neither reports the other's success.
+   */
+  const { register: registerPush, unregister: unregisterPush } = usePushRegistration({
+    authedRequest,
+    enabled: Boolean(isAuthenticated),
+    onOpenReminder: useCallback(
+      ({ conversationId }: { taskId: string; conversationId?: string }) => {
+        // Same destination rule as a tapped local alarm: a lead reminder opens its thread, a
+        // personal one falls back to the inbox.
+        if (conversationId) {
+          openConversation(conversationId);
+          return;
+        }
+
+        goToInbox();
+      },
+      [openConversation, goToInbox],
+    ),
+  });
+
+  // Asked for once the session exists, not on mount: a permission prompt before sign-in has
+  // no reminder to justify it.
+  useEffect(() => {
+    if (isAuthenticated) {
+      void registerPush();
+    }
+  }, [isAuthenticated, registerPush]);
+
+  /**
+   * Sign-out drops this handset first.
+   *
+   * Without it the device stays registered to the person who just left, and the next
+   * reminder for them arrives on a phone somebody else is now holding. Awaited but never
+   * allowed to block: a failed cleanup must not trap somebody in a session they asked to
+   * leave, and the server retires the token anyway the first time FCM rejects it.
+   */
+  const handleSignOut = useCallback(async () => {
+    await unregisterPush().catch(() => undefined);
+    await logout();
+  }, [unregisterPush, logout]);
+
   const canReadAccounts = hasPermission(permissions, PERMISSIONS.ACCOUNTS_READ);
   const canReadUsers = hasPermission(permissions, PERMISSIONS.USERS_READ);
   const canManageStages = hasPermission(permissions, PERMISSIONS.CRM_STAGE_MANAGE);
@@ -451,7 +500,7 @@ const AppShell = () => {
               </button>
               <button
                 type="button"
-                onClick={logout}
+                onClick={handleSignOut}
                 className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
               >
                 Sign out
@@ -592,7 +641,7 @@ const AppShell = () => {
           userName={user?.name}
           organizationName={organization?.name}
           onChangePassword={() => setChangingPassword(true)}
-          onSignOut={logout}
+          onSignOut={handleSignOut}
         />
       ) : null}
     </div>

@@ -130,6 +130,68 @@ is a drill-down on a phone, the nav scrolls, the lead panel is full width.
 
 ---
 
+## Part 3 — push notifications (optional)
+
+Without this, the phone alarm only fires if the app was opened between the reminder being
+created and falling due. That is what a local notification is — only the OS can wake a closed
+app. The WhatsApp reminder already covers the gap; this makes the handset ring too.
+
+### Firebase, once
+
+1. **Create a project** at <https://console.firebase.google.com> (or reuse one).
+2. **Add an Android app** with package name `com.vistaarverse.leadmanagement` — it must match
+   `capacitor.config.ts` exactly or FCM silently never delivers.
+3. **Download `google-services.json`** and put it at `frontend/android/app/google-services.json`.
+   This is a *client* identifier: it is safe in the APK and carries no authority to send.
+4. **Service account** → Project settings → Service accounts → *Generate new private key*.
+   That JSON is a **server credential**. It must never go in the repo, the APK, or a chat
+   message. Copy three values out of it into the backend `.env`:
+
+```
+PUSH_ENABLED=true
+FIREBASE_PROJECT_ID=<project_id>
+FIREBASE_CLIENT_EMAIL=<client_email>
+FIREBASE_PRIVATE_KEY=<private_key, newlines left escaped as 
+>
+```
+
+5. Restart the backend. On boot it either stays quiet or logs exactly which variable is
+   missing — it never half-starts.
+
+### The Android project
+
+`@capacitor/push-notifications` is already a dependency. Capacitor wires the Gradle plugin on
+`cap sync`, so after dropping in `google-services.json`:
+
+```bash
+cd frontend
+set "VITE_API_BASE_URL=https://crm.yourdomain.com/api/v1" && npm run build
+npx cap sync android
+cd android && set "JAVA_HOME=C:\Program Files\Java\jdk-23" && gradlew.bat assembleDebug
+```
+
+Android 13+ requires the notification permission at runtime; the app asks on first sign-in and
+records a refusal without nagging.
+
+### Checking it works
+
+Sign in on the phone, then on the server:
+
+```bash
+docker exec wam-crm-ai-mongo mongosh wam_crm_ai --quiet --eval 'db.pushdevices.countDocuments({disabledAt:null})'
+```
+
+One or more means the handset registered. Create a reminder a couple of minutes out, lock the
+phone, **force-close Vistaar**, and wait. A notification with a neutral title means the whole
+path works with the app closed — which is the only thing this feature is for.
+
+### What a notification is allowed to say
+
+A fixed title and the reminder's own short line. Never the lead's name, number or message: a
+lock screen is visible to whoever is holding the phone. Tapping opens the lead.
+
+---
+
 ## When something is wrong
 
 | Symptom | Cause |

@@ -318,6 +318,32 @@ export const envSchema = z.object({
   // start it. Turn it on in production or no reminder is ever delivered.
   REMINDERS_ENABLED: booleanString.default(false),
 
+  // --------------------------------------------------------------------------
+  // PUSH NOTIFICATIONS (Firebase Cloud Messaging)
+  //
+  // WHY THIS EXISTS AT ALL. The handset alarm is armed by the APP, through
+  // @capacitor/local-notifications, on startup and on foreground - so a phone whose owner has
+  // not opened Vistaar since the reminder was created never rings. That is not a bug in the
+  // alarm code, it is what a local notification is. Only the operating system can wake a
+  // closed app, and on Android that means FCM.
+  //
+  // OFF BY DEFAULT AND INERT WITHOUT CREDENTIALS. With PUSH_ENABLED false, or with any of the
+  // three service-account values missing, the sender refuses to start and says which one is
+  // absent. It never guesses, never retries against a half-configuration, and never stops a
+  // WhatsApp reminder going out - the two channels are independent by design.
+  // --------------------------------------------------------------------------
+  PUSH_ENABLED: booleanString.default(false),
+
+  // From the Firebase service-account JSON. Kept as three separate values rather than a path
+  // to the file: the file is a secret that must never enter the repo or the APK, and three
+  // environment variables are the one shape that works identically on a laptop, in systemd and
+  // in a container.
+  FIREBASE_PROJECT_ID: z.string().trim().default(''),
+  FIREBASE_CLIENT_EMAIL: z.string().trim().default(''),
+  // The PEM private key. Newlines arrive escaped as \n from most secret stores; the sender
+  // unescapes them. Never logged, never returned by an API, never sent to the client.
+  FIREBASE_PRIVATE_KEY: z.string().default(''),
+
   // How often to look for due reminders. This is the ONLY thing standing between a reminder's
   // due time and the owner's phone: the sweep claims atomically and `notifyOwner` sends
   // straight down the WhatsApp socket, with no outbound queue, human delay or quiet-hours

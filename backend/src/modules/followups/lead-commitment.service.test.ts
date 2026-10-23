@@ -628,3 +628,173 @@ describe('the lead-facing half of the promise', () => {
     expect(logged).not.toContain('9876543210');
   });
 });
+
+/**
+ * Every outcome says what it decided, exactly once.
+ *
+ * THE INCIDENT THIS GUARDS. On 2026-10-23 a lead moved their own reminder - "come back after 5
+ * min" after an earlier "after 2 min" - and extraction handled it perfectly: the existing task
+ * was rescheduled, version went to 2, and the owner was notified 3.5s after the new due time.
+ * But the reschedule branch returned in SILENCE. The only line in the journal for that turn was
+ * the REJECTION_CHECK that runs after it, so a working path looked exactly like extraction
+ * having crashed, and two people went hunting for a bug that was not there.
+ *
+ * Observability is the feature being tested, so the tests are about the LOG, not the write. The
+ * coverage test is the one that matters: it fails for a NEW branch added without a line, which
+ * is how this recurs.
+ */
+describe('every outcome is logged exactly once', () => {
+  /** The REMINDER_EXTRACT lines emitted, as [context, message] pairs. */
+  const extractLines = (h: ReturnType<typeof createHarness>) =>
+    h.logger.info.mock.calls.filter(([, msg]) => String(msg).startsWith('REMINDER_EXTRACT:'));
+
+  it('the reschedule branch logs once, with the task it moved', async () => {
+    const h = createHarness({
+      existing: [
+        {
+          _id: 'task-old',
+          source: 'lead_commitment',
+          dueAt: new Date('2026-10-12T11:30:00.000Z'),
+        },
+      ],
+    });
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+
+    const result = await h.run('actually make it 6');
+    const lines = extractLines(h);
+
+    expect(result).toEqual({ created: false, updated: true });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.[1]).toBe('REMINDER_EXTRACT: commitment moved an existing reminder.');
+    expect(lines[0]?.[0]).toMatchObject({
+      conversationId,
+      action: 'contact_lead',
+      taskId: 'task-old',
+    });
+  });
+
+  it('names the task that MOVED, not a new one', async () => {
+    // The id is the whole point: without it the line cannot be joined to the reminder that
+    // actually changed, which is the question anybody reading these logs is asking.
+    const h = createHarness({
+      existing: [
+        { _id: 'task-abc', source: 'lead_commitment', dueAt: new Date('2026-10-12T11:30:00.000Z') },
+      ],
+    });
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+
+    await h.run('actually make it 6');
+
+    expect(h.createFollowUpTask).not.toHaveBeenCalled();
+    expect(extractLines(h)[0]?.[0]).toMatchObject({ taskId: 'task-abc' });
+  });
+
+  /**
+   * Each outcome, the message it must emit, and how to provoke it. Table-driven so a new
+   * branch is one row - and a new branch with no line fails the coverage test below.
+   */
+  const OUTCOMES: {
+    label: string;
+    message: string;
+    arrange: (h: ReturnType<typeof createHarness>) => void;
+    text: string;
+  }[] = [
+    {
+      label: 'no commitment',
+      message: 'REMINDER_EXTRACT: no commitment in this turn; nothing created.',
+      arrange: (h) => h.classifyCommitment.mockResolvedValue(verdict({ action: 'none' })),
+      text: 'thanks, looks good',
+    },
+    {
+      label: 'below the confidence threshold',
+      message: 'REMINDER_EXTRACT: commitment below the confidence threshold; nothing created.',
+      arrange: (h) => h.classifyCommitment.mockResolvedValue(verdict({ confidence: 0.3 })),
+      text: 'maybe call me sometime tomorrow',
+    },
+    {
+      label: 'no usable time',
+      message: 'REMINDER_EXTRACT: commitment found but no usable time; nothing created.',
+      arrange: (h) => h.classifyCommitment.mockResolvedValue(verdict({ when: 'in the evening' })),
+      text: 'I will get back to you in the evening',
+    },
+    {
+      label: 'created',
+      message: 'REMINDER_EXTRACT: reminder created from a lead commitment.',
+      arrange: () => undefined,
+      text: 'contact me tomorrow at 5 pm',
+    },
+  ];
+
+  for (const outcome of OUTCOMES) {
+    it(`logs exactly once for: ${outcome.label}`, async () => {
+      const h = createHarness();
+      outcome.arrange(h);
+
+      await h.run(outcome.text);
+      const lines = extractLines(h);
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.[1]).toBe(outcome.message);
+    });
+  }
+
+  it('EVERY outcome branch emits a line - including reschedule', async () => {
+    // THE COVERAGE TEST. The four above plus reschedule, asserted as a set: a branch added
+    // later without a log makes this fail, which is the only thing that stops the silence
+    // coming back somewhere else.
+    const seen: string[] = [];
+
+    for (const outcome of OUTCOMES) {
+      const h = createHarness();
+      outcome.arrange(h);
+      await h.run(outcome.text);
+      seen.push(...extractLines(h).map(([, msg]) => String(msg)));
+    }
+
+    const rescheduleHarness = createHarness({
+      existing: [
+        { _id: 'task-old', source: 'lead_commitment', dueAt: new Date('2026-10-12T11:30:00.000Z') },
+      ],
+    });
+    rescheduleHarness.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+    await rescheduleHarness.run('actually make it 6');
+    seen.push(...extractLines(rescheduleHarness).map(([, msg]) => String(msg)));
+
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+  });
+
+  it('logs ids and a verdict, never the lead’s words or number', async () => {
+    const h = createHarness({
+      existing: [
+        { _id: 'task-old', source: 'lead_commitment', dueAt: new Date('2026-10-12T11:30:00.000Z') },
+      ],
+    });
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+
+    await h.run('actually make it 6, my number is 9876543210');
+
+    const logged = JSON.stringify(h.logger.info.mock.calls);
+
+    expect(logged).toContain('task-old');
+    expect(logged).not.toContain('9876543210');
+    expect(logged).not.toContain('actually make it 6');
+  });
+
+  it('rescheduling still moves the reminder rather than adding one', async () => {
+    // The log must not have changed the behaviour it describes.
+    const h = createHarness({
+      existing: [
+        { _id: 'task-old', source: 'lead_commitment', dueAt: new Date('2026-10-12T11:30:00.000Z') },
+      ],
+    });
+    h.classifyCommitment.mockResolvedValue(verdict({ when: 'tomorrow at 6 pm' }));
+
+    await h.run('actually make it 6');
+
+    expect(h.rescheduleReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-old', dueAt: new Date('2026-10-12T12:30:00.000Z') }),
+    );
+    expect(h.createFollowUpTask).not.toHaveBeenCalled();
+  });
+});

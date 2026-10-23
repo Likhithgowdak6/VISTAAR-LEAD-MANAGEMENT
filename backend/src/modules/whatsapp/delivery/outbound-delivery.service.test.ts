@@ -697,3 +697,106 @@ describe('deliverNext sales-rejection gate', () => {
     expect(result).not.toMatchObject({ reason: 'lead_rejected_service' });
   });
 });
+
+/**
+ * The allowlist as the safety net for a CONTROLLED nurture test.
+ *
+ * Before NURTURE_ENABLED is turned on in production, the plan is to restrict sending to one
+ * test handset and watch a single conversation. That plan is only worth anything if a nurture
+ * message to anybody else is stopped BEFORE it reaches the socket - not logged, not retried,
+ * not queued for later. These pin exactly that, on an AI-authored message, which is what the
+ * nurture sweep produces.
+ */
+describe('the test allowlist during a controlled nurture rollout', () => {
+  const allowlisted = (numbers: string) => ({
+    config: {
+      WHATSAPP_OUTBOUND_MAX_ATTEMPTS: 3,
+      WHATSAPP_OUTBOUND_LEASE_MS: 120000,
+      WHATSAPP_MAX_OUTBOUND_PER_MINUTE: 5,
+      WHATSAPP_SEND_TEXT_POC_ENABLED: true,
+      WHATSAPP_TEST_ALLOWED_NUMBERS: numbers,
+      WHATSAPP_QUIET_HOURS_START: 0,
+      WHATSAPP_QUIET_HOURS_END: 0,
+      WHATSAPP_BUSINESS_TIMEZONE: 'Asia/Kolkata',
+    },
+  });
+
+  it('a nurture message to a NON-test recipient never reaches the socket', async () => {
+    // The harness's contact is 919999999999; the allowlist names only the test handset.
+    const { service, sessionService, messageRepository } = createHarness(
+      allowlisted('911111111111'),
+    );
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    // The assertion that makes a controlled rollout safe: the send function was never called.
+    expect(sessionService.sendTextMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      reason: 'blocked_by_test_allowlist',
+      permanent: true,
+    });
+  });
+
+  it('is PERMANENT, so a blocked message is not retried all night', async () => {
+    const { service, messageRepository } = createHarness(allowlisted('911111111111'));
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(messageRepository.markOutboundMessageFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'blocked_by_test_allowlist', permanent: true }),
+    );
+  });
+
+  it('blocks when the allowlist names other numbers entirely', async () => {
+    // The shape of the real risk: the allowlist is set, but to somebody else's numbers. The
+    // harness's own contact is 919999999999, so neither of these can match it - including on
+    // the trailing-digit rule the matcher uses.
+    const { service, sessionService, messageRepository } = createHarness(
+      allowlisted('917777777777,916666666666'),
+    );
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(sessionService.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('the TEST handset itself still receives, which is what makes the test possible', async () => {
+    // The positive control. An allowlist that blocked everything would pass every test above
+    // and make the controlled rollout useless.
+    const { service, sessionService, messageRepository } = createHarness(
+      allowlisted('919999999999'),
+    );
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('an EMPTY allowlist allows everyone - which is why it must be set before a rollout', async () => {
+    // Stated as a test because it is the failure mode of forgetting: empty does not mean
+    // "block everything", it means "no restriction".
+    const { service, sessionService, messageRepository } = createHarness(allowlisted(''));
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai' }),
+    );
+
+    await service.deliverNext({ organizationId: 'org-1', whatsappAccountId: 'account-1' });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalled();
+  });
+});

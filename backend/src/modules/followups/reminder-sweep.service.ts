@@ -34,6 +34,10 @@ import {
   createOwnerNotifyService,
   type OwnerNotifyServiceHandle,
 } from '../whatsapp/automation/owner-notify.service.js';
+import {
+  getPushNotifyService,
+  type PushNotifyService,
+} from '../push/push-notify.service.js';
 import { findAccountsByOrganization as defaultFindAccountsByOrganization } from '../whatsapp-accounts/whatsapp-account.repository.js';
 import { loadReminderLeadContext as defaultLoadReminderLeadContext } from './reminder-lead-context.js';
 import {
@@ -63,6 +67,11 @@ export interface CreateReminderSweepOptions {
   /** Who the reminder is about. Injected so tests can describe a lead without a database. */
   loadReminderLeadContext?: typeof defaultLoadReminderLeadContext;
   notifyOwner?: OwnerNotifyServiceHandle['notifyOwner'];
+  /**
+   * Pushes the owner's handsets. Must never throw and must never report a WhatsApp outcome -
+   * see push/push-notify.service.ts. Injected so the sweep's tests need no Firebase.
+   */
+  notifyReminderDuePush?: PushNotifyService['notifyReminderDueQuietly'];
   /** Injected so tests can drive the clock instead of waiting for one. */
   now?: () => Date;
   logger?: Logger;
@@ -77,6 +86,9 @@ export interface ReminderSweepResult {
   whatsappFailed: number;
   /** Failed this pass but still inside its attempt budget. */
   whatsappRetrying: number;
+  /** The owner's handsets. Counted separately because the channel fails separately. */
+  pushSent: number;
+  pushFailed: number;
 }
 
 export const createReminderSweepService = ({
@@ -91,6 +103,7 @@ export const createReminderSweepService = ({
   // it at import time would pull the WhatsApp session manager into any module that merely
   // imports this one.
   notifyOwner = ((params) => getOwnerNotifyService().notifyOwner(params)) as OwnerNotifyServiceHandle['notifyOwner'],
+  notifyReminderDuePush = (task) => getPushNotifyService().notifyReminderDueQuietly(task),
   now = () => new Date(),
   logger = defaultLogger,
 }: CreateReminderSweepOptions = {}) => {
@@ -276,6 +289,8 @@ export const createReminderSweepService = ({
       whatsappSent: 0,
       whatsappFailed: 0,
       whatsappRetrying: 0,
+      pushSent: 0,
+      pushFailed: 0,
     };
 
     // Belt-and-braces against re-handling one reminder inside a single sweep. The claim/lease
@@ -312,6 +327,19 @@ export const createReminderSweepService = ({
         await releaseReminderClaim({ taskId: task._id });
         continue;
       }
+
+      // THE SECOND CHANNEL, AND IT RUNS WHATEVER WHATSAPP DOES.
+      //
+      // Deliberately before the branch below: the `retry` path `continue`s, so a push placed
+      // after it would never fire on exactly the occasion the owner most needs it - WhatsApp
+      // down and the reminder going nowhere. `notifyReminderDueQuietly` never throws and
+      // returns nothing the sweep reads, so a Firebase outage cannot change a WhatsApp
+      // outcome. Its own `pushNotifiedAt` stamp is what stops a WhatsApp retry re-buzzing the
+      // handset. See push/push-notify.service.ts.
+      const push = await notifyReminderDuePush(task);
+
+      result.pushSent += push.sent;
+      result.pushFailed += push.failed;
 
       const outcome = await deliverWhatsApp(task, resolveAccountId);
 
@@ -353,6 +381,8 @@ export const createReminderSweepService = ({
           whatsappSent: result.whatsappSent,
           whatsappFailed: result.whatsappFailed,
           whatsappRetrying: result.whatsappRetrying,
+          pushSent: result.pushSent,
+          pushFailed: result.pushFailed,
         },
         'REMINDER_SWEEP',
       );

@@ -537,3 +537,23 @@ export const findEarliestPendingDueAt = async ({
 
   return (next?.dueAt as Date | undefined) ?? null;
 };
+
+export interface MarkReminderPushedParams {
+  taskId?: ObjectIdLike;
+  now?: Date;
+}
+
+/**
+ * Records that the owner's handsets were told about this reminder.
+ *
+ * Its own field and its own write, separate from `recordReminderDelivery`: push and WhatsApp
+ * retry independently, and a WhatsApp attempt that is still in its budget must not carry the
+ * push stamp with it. Not organization-scoped for the same reason `disablePushDevice` is not -
+ * this is the delivery path stamping a task it has already claimed, by id.
+ */
+export const markReminderPushed = ({ taskId, now = new Date() }: MarkReminderPushedParams = {}) =>
+  FollowUpTask.findOneAndUpdate(
+    { _id: taskId },
+    { $set: { pushNotifiedAt: now } },
+    { returnDocument: 'after' },
+  ).exec();

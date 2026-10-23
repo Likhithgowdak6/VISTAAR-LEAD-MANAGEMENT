@@ -261,6 +261,20 @@ export const createLeadCommitmentService = ({
           messageId,
         });
 
+        // SAID SO, LIKE EVERY OTHER OUTCOME. This branch used to return in silence, and the
+        // cost was real: on 2026-10-23 a lead moved their own reminder and the only trace in
+        // the logs was the REJECTION_CHECK line that runs after this one. A working path was
+        // indistinguishable from extraction having crashed, and two people went looking for a
+        // bug that did not exist. Ids only - the lead's words are already on the task.
+        logger?.info?.(
+          {
+            conversationId: String(conversationId),
+            action: verdict.action,
+            taskId: String(supersedable._id),
+          },
+          'REMINDER_EXTRACT: commitment moved an existing reminder.',
+        );
+
         return { created: false, updated: true };
       }
 

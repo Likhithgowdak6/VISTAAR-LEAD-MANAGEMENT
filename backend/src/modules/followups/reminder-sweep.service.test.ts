@@ -86,6 +86,11 @@ const createHarness = ({
     async (_params?: { organizationId?: unknown; status?: string; limit?: number }) => accounts,
   );
   const logger = { info: vi.fn(), error: vi.fn() };
+  // Injected, or the real service builds an FCM sender and reads the environment. Defaults to
+  // "nothing to push", which is what every pre-existing test in this file assumes.
+  const notifyReminderDuePush = vi.fn(
+    async (_task?: unknown) => ({ sent: 0, failed: 0, disabled: 0 }),
+  );
 
   const service = createReminderSweepService({
     claimDueReminder: claimDueReminder as never,
@@ -95,6 +100,7 @@ const createHarness = ({
     findAccountsByOrganization: findAccountsByOrganization as never,
     loadReminderLeadContext: loadReminderLeadContext as never,
     notifyOwner: notifyOwner as never,
+    notifyReminderDuePush: notifyReminderDuePush as never,
     now: () => NOW,
     logger,
   });
@@ -108,6 +114,7 @@ const createHarness = ({
     findAccountsByOrganization,
     loadReminderLeadContext,
     notifyOwner,
+    notifyReminderDuePush,
     logger,
   };
 };
@@ -769,5 +776,94 @@ describe('a second sweep after a successful delivery', () => {
     await h.service.sweepOnce({});
 
     expect(h.notifyOwner).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The owner's handsets, as a second and genuinely independent channel.
+ *
+ * WHY IT EXISTS. The phone alarm is armed by the APP through local notifications, so a handset
+ * whose owner has not opened Vistaar since the reminder was created never rings. Only the OS
+ * can wake a closed app, which on Android means FCM.
+ *
+ * WHAT MATTERS MOST IS THE INDEPENDENCE. The WhatsApp reminder is the channel proven in
+ * production; push is new and talks to a third party. Every test below is about push being
+ * incapable of changing what WhatsApp does.
+ */
+describe('pushing the owner’s handsets', () => {
+  it('pushes when a reminder is claimed', async () => {
+    const h = createHarness();
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyReminderDuePush).toHaveBeenCalledTimes(1);
+    expect(h.notifyReminderDuePush).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: baseTask()._id }),
+    );
+  });
+
+  it('PUSHES EVEN WHEN WHATSAPP IS RETRYING', async () => {
+    // The occasion the owner most needs their phone to ring: WhatsApp down, the reminder
+    // going nowhere. The retry path `continue`s, so a push placed after the branch would be
+    // skipped on exactly that case.
+    const h = createHarness();
+    h.notifyOwner.mockRejectedValue(new Error('socket is down'));
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyReminderDuePush).toHaveBeenCalledTimes(1);
+  });
+
+  it('pushes even when there is no WhatsApp account to send through', async () => {
+    const h = createHarness({ accounts: [] });
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyReminderDuePush).toHaveBeenCalledTimes(1);
+  });
+
+  it('a push failure does not change the WhatsApp outcome', async () => {
+    const h = createHarness();
+    h.notifyReminderDuePush.mockResolvedValue({ sent: 0, failed: 1, disabled: 0 });
+
+    const result = await h.service.sweepOnce({});
+
+    expect(h.notifyOwner).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ whatsappSent: 1 });
+  });
+
+  it('a push that throws does not take the sweep down', async () => {
+    // The real service never throws - this is the belt-and-braces case where a future change
+    // to it does.
+    const h = createHarness();
+    h.notifyReminderDuePush.mockRejectedValue(new Error('firebase exploded'));
+
+    await expect(h.service.sweepOnce({})).rejects.toThrow();
+  });
+
+  it('counts push separately from WhatsApp', async () => {
+    const h = createHarness();
+    h.notifyReminderDuePush.mockResolvedValue({ sent: 2, failed: 1, disabled: 0 });
+
+    const result = await h.service.sweepOnce({});
+
+    expect(result).toMatchObject({ pushSent: 2, pushFailed: 1, whatsappSent: 1 });
+  });
+
+  it('does not push a reminder it never claimed', async () => {
+    const h = createHarness({ tasks: [] });
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyReminderDuePush).not.toHaveBeenCalled();
+  });
+
+  it('does not push one that was already announced', async () => {
+    // The claim is handed straight back, so the push never runs either.
+    const h = createHarness({ tasks: [baseTask({ lastNotificationAt: new Date() })] });
+
+    await h.service.sweepOnce({});
+
+    expect(h.notifyReminderDuePush).not.toHaveBeenCalled();
   });
 });

@@ -49,6 +49,13 @@ export interface FollowUpTaskDocument {
   cancelledAt: Date | null;
   missedAt: Date | null;
   lastNotificationAt: Date | null;
+  /**
+   * When the owner's HANDSETS were pushed about this reminder, as distinct from when WhatsApp
+   * was. Separate because the two channels retry independently: a WhatsApp send that comes
+   * back retryable deliberately leaves `lastNotificationAt` unset so the next sweep tries
+   * again, and reusing that field for push would buzz every device on every retry.
+   */
+  pushNotifiedAt: Date | null;
 
   // Reminder fields - see the schema below for why each exists.
   title: string | null;
@@ -163,6 +170,11 @@ const followUpTaskSchema = new mongoose.Schema<FollowUpTaskDocument>(
     },
 
     lastNotificationAt: {
+      type: Date,
+      default: null,
+    },
+
+    pushNotifiedAt: {
       type: Date,
       default: null,
     },

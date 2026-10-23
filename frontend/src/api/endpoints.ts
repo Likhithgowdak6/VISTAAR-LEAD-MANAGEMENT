@@ -1520,3 +1520,41 @@ export const downloadAttentionCsv = ({
   query,
 }: TokenParams & { query?: AnalyticsQuery } = {}): Promise<Blob> =>
   apiFetchBlob(`/analytics/attention.csv${buildQuery(analyticsQuery(query))}`, { token });
+
+// ---------------------------------------------------------------------------
+// Push notifications.
+//
+// The handset's FCM token, registered against the signed-in session. The body carries only
+// the token and the platform: who owns a device is decided by the server from the session,
+// never by the client, so there is nothing here to get wrong.
+// ---------------------------------------------------------------------------
+export interface RegisterPushDeviceParams {
+  token?: string | null;
+  deviceToken: string;
+  platform?: 'android' | 'ios' | 'web';
+}
+
+export const registerPushDevice = ({
+  token,
+  deviceToken,
+  platform = 'android',
+}: RegisterPushDeviceParams): Promise<ApiSuccessResponse<{ registered: boolean }>> =>
+  apiFetch('/push/devices', {
+    method: 'POST',
+    token,
+    body: { token: deviceToken, platform },
+  });
+
+/** Sign-out, or the owner removing this handset. Scoped server-side to the caller. */
+export const removePushDevice = ({
+  token,
+  deviceToken,
+}: {
+  token?: string | null;
+  deviceToken: string;
+}): Promise<ApiSuccessResponse<{ removed: boolean }>> =>
+  apiFetch('/push/devices', {
+    method: 'DELETE',
+    token,
+    body: { token: deviceToken },
+  });

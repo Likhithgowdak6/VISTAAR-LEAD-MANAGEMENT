@@ -72,3 +72,18 @@ backend/wam-crm-ai-backend@*
 # Attachment bytes. The database holds the metadata; these are the files themselves.
 backend/var/
 var/media/
+
+# Firebase / push notifications
+#
+# THE SERVICE ACCOUNT IS THE DANGEROUS ONE. `*-firebase-adminsdk-*.json` grants authority to
+# send to every device ever registered, and to far more besides; in a public repository it is
+# a full compromise. It is read from three environment variables instead - see
+# backend/.env.example - so it never needs to exist inside the checkout at all.
+*firebase-adminsdk*.json
+serviceAccount*.json
+*-service-account.json
+
+# `google-services.json` is a CLIENT identifier and carries no authority to send, but it is
+# per-project and DEPLOY.md has you place it by hand. Ignored so a build machine cannot
+# quietly ship somebody else's project id in an APK.
+google-services.json

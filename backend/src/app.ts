@@ -14,6 +14,7 @@ import conversationRouter from './modules/conversations/conversation.routes.js';
 import messageRouter from './modules/media/media.routes.js';
 import testDataRouter from './modules/dev-tools/test-data.routes.js';
 import followUpRouter from './modules/followups/followup.routes.js';
+import pushRouter from './modules/push/push.routes.js';
 import healthRouter from './modules/health/health.routes.js';
 import leadSourceRouter from './modules/lead-sources/lead-source.routes.js';
 import metaPublicRouter from './modules/lead-sources/meta-public.routes.js';
@@ -96,6 +97,7 @@ app.use('/api/v1/ai/knowledge', aiKnowledgeRouter);
 app.use('/api/v1/templates', messageTemplateRouter);
 app.use('/api/v1/ai-brain', aiBrainRouter);
 app.use('/api/v1/follow-ups', followUpRouter);
+app.use('/api/v1/push', pushRouter);
 app.use('/api/v1/lead-sources', leadSourceRouter);
 // Meta calls these two itself, so they carry no session and cannot sit behind authenticateRequest.
 // Mounted on their own path rather than inside the router above, so the separation survives
