@@ -58,6 +58,7 @@ export type {
   MessageStatus,
   MessageTemplate,
   MessageTemplateKind,
+  StarredMessage,
   MessageType,
   MetaActivationResult,
   MetaConnectedPage,

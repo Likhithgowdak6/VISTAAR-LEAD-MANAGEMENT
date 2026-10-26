@@ -95,6 +95,26 @@ export interface MessageTemplate {
   updatedAt: string | null;
 }
 
+/**
+ * A message ONE USER kept for themselves, to send again without retyping it.
+ *
+ * Deliberately not a MessageTemplate. A template is the studio's - shared, approved, gated on
+ * TEMPLATES_MANAGE because it goes out verbatim under the business's name. This is personal:
+ * invisible to colleagues, editable by its owner alone, and available to anyone who can send.
+ *
+ * `sourceMessageId` is set when it was starred from a bubble rather than typed, and is what
+ * lets that bubble show a filled star. The body is a COPY - editing this never touches history.
+ */
+export interface StarredMessage {
+  id: string;
+  title: string;
+  body: string;
+  sourceMessageId: string | null;
+  sourceConversationId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 /** One of the four the AI proposed. Not stored until the owner picks it. */
 export interface GeneratedTemplate {
   title: string;

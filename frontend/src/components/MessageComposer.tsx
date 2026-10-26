@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { type UploadedMedia } from '../api/endpoints';
 import { formatFileSize } from '../lib/format';
@@ -74,6 +74,22 @@ type Props = {
    * a quote goes out under the studio's name, so it gets the same human look as an AI draft.
    */
   templates?: readonly MessageTemplate[];
+  /** Opens the user's own saved messages. Absent hides the button entirely. */
+  onOpenStarred?: () => void;
+  /**
+   * Text to drop into the box, pushed down from the Starred panel.
+   *
+   * A PROP RATHER THAN LIFTED STATE. The composer owns `body` and a lot of behaviour hanging
+   * off it - staged attachments, the sending lock, clearing after a send. Hoisting all of that
+   * into ConversationView so an outside panel could write one string would be a large change
+   * to the most load-bearing component here, for no other benefit.
+   *
+   * Each insert carries a `nonce` so that choosing the SAME saved message twice in a row still
+   * registers: comparing the text alone would make the second pick a no-op.
+   */
+  starredInsert?: { body: string; nonce: number } | null;
+  /** Called once an insert has been applied or declined, so the parent can clear it. */
+  onStarredInsertHandled?: () => void;
 };
 
 const MessageComposer = ({
@@ -85,6 +101,9 @@ const MessageComposer = ({
   currentAccountId = null,
   currentAccountName = null,
   templates = [],
+  onOpenStarred,
+  starredInsert = null,
+  onStarredInsertHandled,
 }: Props) => {
   const [body, setBody] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -185,6 +204,41 @@ const MessageComposer = ({
     setBody(template.body);
   };
 
+  /**
+   * Applies a saved message pushed down from the Starred panel.
+   *
+   * SAME OVERWRITE RULE AS A TEMPLATE, for the same reason: a half-typed reply is work and a
+   * textarea has no undo. Declining still reports the insert as handled, so the parent clears
+   * it and the next pick is not swallowed by a stale value.
+   *
+   * INSERTS, NEVER SENDS. This only ever calls setBody. The user presses Send.
+   */
+  const lastInsertNonce = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!starredInsert || starredInsert.nonce === lastInsertNonce.current) {
+      return;
+    }
+
+    lastInsertNonce.current = starredInsert.nonce;
+
+    const accepted =
+      body.trim() === '' ||
+      window.confirm('Replace what you have typed with this saved message?');
+
+    if (accepted) {
+      // The insert itself. Synchronous by nature: the parent has handed down a one-shot
+      // instruction to fill the box, and the nonce guard above means it runs once per pick.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBody(starredInsert.body);
+    }
+
+    onStarredInsertHandled?.();
+    // `body` is read for the confirm but must NOT retrigger this - the nonce decides when an
+    // insert runs, and depending on body would re-prompt on every keystroke after one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starredInsert, onStarredInsertHandled]);
+
   // Falls back to the thread's own number until the agent picks something else, so a stale
   // selection can never survive switching to a different lead.
   const activeAccountId = selectedAccountId ?? currentAccountId ?? null;
@@ -269,7 +323,7 @@ const MessageComposer = ({
           {error}
         </p>
       ) : null}
-      {canUseTemplates || showAccountPicker || templates.length > 0 ? (
+      {canUseTemplates || showAccountPicker || templates.length > 0 || onOpenStarred ? (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {templates.length > 0 ? (
@@ -289,6 +343,16 @@ const MessageComposer = ({
                   </option>
                 ))}
               </select>
+            ) : null}
+            {onOpenStarred ? (
+              <button
+                type="button"
+                onClick={onOpenStarred}
+                disabled={sending}
+                className="rounded-lg border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                ★ Starred
+              </button>
             ) : null}
             {canUseTemplates && onOpenTemplates ? (
               <button

@@ -42,6 +42,7 @@ import {
   type Message,
   type MessageTemplate,
   type MessageTemplateKind,
+  type StarredMessage,
   type MetaActivationResult,
   type MetaConnectedPage,
   type MetaConnectionState,
@@ -1371,6 +1372,73 @@ export const deleteTemplate = ({
   templateId,
 }: DeleteTemplateParams): Promise<ApiSuccessResponse<MessageTemplate>> =>
   apiFetch(`/templates/${templateId}`, { method: 'DELETE', token });
+
+/**
+ * Starred messages: one user's own saved replies.
+ *
+ * Note there is no userId anywhere in this surface. The server takes the owner from the token
+ * and never from the request, so there is no shape in which this client can ask for somebody
+ * else's saved messages - see starred-message.controller.ts.
+ */
+export interface ListStarredMessagesParams extends TokenParams {
+  /** Free text over title and body. The server escapes it before it becomes a RegExp. */
+  search?: string;
+}
+
+export const listStarredMessages = ({
+  token,
+  search,
+}: ListStarredMessagesParams = {}): Promise<ApiSuccessResponse<StarredMessage[]>> =>
+  apiFetch(`/starred-messages${buildQuery({ search })}`, { token });
+
+export interface CreateStarredMessageParams extends TokenParams {
+  title: string;
+  body: string;
+  /** Set when starring an existing bubble; omitted when typing a new one. */
+  sourceMessageId?: string;
+  sourceConversationId?: string;
+}
+
+export const createStarredMessage = ({
+  token,
+  title,
+  body,
+  sourceMessageId,
+  sourceConversationId,
+}: CreateStarredMessageParams): Promise<ApiSuccessResponse<StarredMessage>> =>
+  apiFetch('/starred-messages', {
+    method: 'POST',
+    token,
+    body: { title, body, sourceMessageId, sourceConversationId },
+  });
+
+export interface UpdateStarredMessageParams extends TokenParams {
+  starredMessageId: string;
+  title?: string;
+  body?: string;
+}
+
+export const updateStarredMessage = ({
+  token,
+  starredMessageId,
+  title,
+  body,
+}: UpdateStarredMessageParams): Promise<ApiSuccessResponse<StarredMessage>> =>
+  apiFetch(`/starred-messages/${starredMessageId}`, {
+    method: 'PATCH',
+    token,
+    body: { title, body },
+  });
+
+export interface DeleteStarredMessageParams extends TokenParams {
+  starredMessageId: string;
+}
+
+export const deleteStarredMessage = ({
+  token,
+  starredMessageId,
+}: DeleteStarredMessageParams): Promise<ApiSuccessResponse<StarredMessage>> =>
+  apiFetch(`/starred-messages/${starredMessageId}`, { method: 'DELETE', token });
 
 export interface DeviceReminderPayload {
   id: string;

@@ -1,10 +1,13 @@
 import { type ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  createStarredMessage,
+  deleteStarredMessage,
   getConversation,
   getMessages,
   listSendableAccounts,
   listStages,
+  listStarredMessages,
   listTemplates,
   sendMessage,
   uploadConversationMedia,
@@ -24,6 +27,7 @@ import MobileAppBar from './mobile/MobileAppBar';
 import MessageComposer from './MessageComposer';
 import MessageThread from './MessageThread';
 import Spinner from './Spinner';
+import StarredMessagesDialog from './StarredMessagesDialog';
 import StageBadge from './StageBadge';
 import {
   type AuthValue,
@@ -112,6 +116,23 @@ const ConversationView = ({
    * `aiCategory` and `aiFacts`, which this component already holds and the composer does not.
    */
   const [templatesOpen, setTemplatesOpen] = useState(false);
+
+  /**
+   * The user's own saved messages.
+   *
+   * `starredSources` is the set of MESSAGE ids that have a saved copy, which is what draws the
+   * filled star on a bubble - not the ids of the saved records themselves. Kept here rather
+   * than in MessageThread because the Starred panel can delete an entry, and the thread has to
+   * notice.
+   */
+  const [starredOpen, setStarredOpen] = useState(false);
+  const [starredSources, setStarredSources] = useState<ReadonlySet<string>>(new Set());
+  const [starPendingId, setStarPendingId] = useState<string | null>(null);
+  /**
+   * The pending insert for the composer. The nonce is what makes picking the same saved
+   * message twice in a row work - the text alone would compare equal and be ignored.
+   */
+  const [starredInsert, setStarredInsert] = useState<{ body: string; nonce: number } | null>(null);
   const closeDetails = useCallback(() => setDetailsOpen(false), []);
 
   /**
@@ -146,6 +167,91 @@ const ConversationView = ({
       .then((payload) => setTemplates(payload.data ?? []))
       .catch(() => {});
   }, [authedRequest, canSendMessages]);
+
+  /**
+   * Which messages this user has already starred, so the bubbles can show it.
+   *
+   * Failing silently on purpose: an unreachable list means no stars are drawn, which is a
+   * missing adornment rather than a broken thread.
+   */
+  const refreshStarred = useCallback(() => {
+    if (!canSendMessages) {
+      return;
+    }
+
+    authedRequest((token) => listStarredMessages({ token }))
+      .then((payload) =>
+        setStarredSources(
+          new Set(
+            (payload.data ?? [])
+              .map((entry) => entry.sourceMessageId)
+              .filter((id): id is string => typeof id === 'string'),
+          ),
+        ),
+      )
+      .catch(() => {});
+  }, [authedRequest, canSendMessages]);
+
+  useEffect(() => {
+    refreshStarred();
+  }, [refreshStarred]);
+
+  /**
+   * Saves a message's text, or removes the save if it is already there.
+   *
+   * THE TITLE IS DERIVED, NOT ASKED FOR. Interrupting a star with a naming dialog would make a
+   * one-tap action a three-step one; the user can rename it in the Starred panel, where they
+   * are already editing. First line, trimmed to the field's limit.
+   */
+  const handleToggleStar = useCallback(
+    async (message: Message) => {
+      const body = (message.body ?? '').trim();
+
+      if (body === '' || starPendingId) {
+        return;
+      }
+
+      setStarPendingId(message.id);
+
+      try {
+        if (starredSources.has(message.id)) {
+          // Find the saved record for this bubble. The thread knows the message id; only the
+          // server knows which saved row points at it.
+          const payload = await authedRequest((token) => listStarredMessages({ token }));
+          const match = (payload.data ?? []).find(
+            (entry) => entry.sourceMessageId === message.id,
+          );
+
+          if (match) {
+            await authedRequest((token) =>
+              deleteStarredMessage({ token, starredMessageId: match.id }),
+            );
+          }
+        } else {
+          const firstLine = body.split('\n')[0] ?? body;
+
+          await authedRequest((token) =>
+            createStarredMessage({
+              token,
+              title: firstLine.slice(0, 120),
+              body,
+              sourceMessageId: message.id,
+              sourceConversationId: conversationId,
+            }),
+          );
+        }
+
+        refreshStarred();
+      } catch {
+        // Leave the star as it was. The next refresh reconciles with the server, so a failed
+        // toggle cannot leave the icon lying about what is saved.
+        refreshStarred();
+      } finally {
+        setStarPendingId(null);
+      }
+    },
+    [authedRequest, conversationId, refreshStarred, starPendingId, starredSources],
+  );
 
   const loadInitial = useCallback(async () => {
     try {
@@ -419,6 +525,9 @@ const ConversationView = ({
             hasMore={hasMore}
             loadingOlder={loadingOlder}
             onLoadOlder={loadOlder}
+            onToggleStar={canSendMessages ? (message) => void handleToggleStar(message) : undefined}
+            starredMessageIds={starredSources}
+            starPendingId={starPendingId}
           />
         )}
 
@@ -431,6 +540,9 @@ const ConversationView = ({
           currentAccountId={whatsappAccount?.id ?? null}
           currentAccountName={whatsappAccount?.name ?? null}
           templates={templates}
+          onOpenStarred={canSendMessages ? () => setStarredOpen(true) : undefined}
+          starredInsert={starredInsert}
+          onStarredInsertHandled={() => setStarredInsert(null)}
         />
 
         {/* Keyed on the thread, so switching leads remounts the writer and one lead's drafts
@@ -443,6 +555,15 @@ const ConversationView = ({
             aiCategory={conversation.aiCategory ?? null}
             aiFacts={conversation.aiFacts ?? null}
             onClose={() => setTemplatesOpen(false)}
+          />
+        ) : null}
+
+        {/* Not keyed on the thread: saved messages are the user's own and belong to no lead. */}
+        {starredOpen ? (
+          <StarredMessagesDialog
+            onUse={(body) => setStarredInsert({ body, nonce: Date.now() })}
+            onChanged={refreshStarred}
+            onClose={() => setStarredOpen(false)}
           />
         ) : null}
       </section>
