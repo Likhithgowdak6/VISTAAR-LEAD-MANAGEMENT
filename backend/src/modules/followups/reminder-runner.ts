@@ -20,6 +20,10 @@ import {
   createCallSchedulingSweepService,
   type CallSchedulingSweepService,
 } from '../lead-sources/call-scheduling-sweep.service.js';
+import {
+  createClockAlarmPushService,
+  type ClockAlarmPushService,
+} from '../push/clock-alarm-push.service.js';
 
 const asBoolean = (value: unknown): boolean => value === true || value === 'true';
 
@@ -40,6 +44,14 @@ export interface CreateReminderRunnerOptions {
    * start, stop and guard against overlap.
    */
   callSchedulingService?: CallSchedulingSweepService;
+  /**
+   * Asks handsets to create Clock alarms for reminders falling due in the next 24 hours.
+   *
+   * Same tick as the rest, and LAST of the four. It is the only one whose work is optional -
+   * every reminder still reaches the owner by push and by WhatsApp without it - so it runs
+   * after the three that are not.
+   */
+  clockAlarmService?: ClockAlarmPushService;
 }
 
 export const createReminderRunner = ({
@@ -47,6 +59,7 @@ export const createReminderRunner = ({
   service = createReminderSweepService({ config }),
   commitmentRetryService = createCommitmentRetrySweepService({ config }),
   callSchedulingService = createCallSchedulingSweepService(),
+  clockAlarmService = createClockAlarmPushService(),
 }: CreateReminderRunnerOptions = {}) => {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -57,6 +70,7 @@ export const createReminderRunner = ({
   // deliberately: two numbers that are both "the default" is how one of them silently becomes
   // wrong.
   const intervalMs = Number(config.REMINDER_SWEEP_INTERVAL_MS ?? 5_000);
+  const clockAlarmEnabled = asBoolean(config.CLOCK_ALARM_PUSH_ENABLED);
 
   const tick = async () => {
     // A sweep that overran its interval keeps its claims; starting a second one would race it
@@ -96,6 +110,19 @@ export const createReminderRunner = ({
         { code: err?.code, name: err?.name },
         'Call scheduling sweep tick failed safely.',
       );
+    }
+
+    // LAST, in its own try, and gated by its own flag. A Clock alarm is the one piece of this
+    // the owner cannot undo from the CRM - Android can create an alarm but not delete one - so
+    // it is off unless deliberately switched on, and a failure here must not touch the three
+    // channels above that are already proven.
+    try {
+      if (clockAlarmEnabled) {
+        await clockAlarmService.sweepOnce({});
+      }
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; name?: unknown };
+      logger.error({ code: err?.code, name: err?.name }, 'Clock alarm sweep tick failed safely.');
     } finally {
       running = false;
     }
@@ -126,7 +153,7 @@ export const createReminderRunner = ({
     }
   };
 
-  return { start, stop, tick, enabled, intervalMs };
+  return { start, stop, tick, enabled, intervalMs, clockAlarmEnabled };
 };
 
 export type ReminderRunner = ReturnType<typeof createReminderRunner>;

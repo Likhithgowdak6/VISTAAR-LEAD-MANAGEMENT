@@ -17,7 +17,10 @@
  */
 import { env, type Env } from '../../config/env.js';
 import { logger as defaultLogger } from '../../config/logger.js';
-import { PUSH_DEAD_TOKEN_CODES } from '../../constants/push.js';
+import {
+  PUSH_DEAD_TOKEN_CODES,
+  PUSH_REMINDER_CHANNEL_ID,
+} from '../../constants/push.js';
 
 export interface PushPayload {
   title: string;
@@ -175,7 +178,7 @@ export const createPushSender = ({
           priority: 'high',
           notification: {
             // A reminder is time-critical and the phone is usually locked when it fires.
-            channelId: 'vistaar-reminders',
+            channelId: PUSH_REMINDER_CHANNEL_ID,
             sound: 'default',
           },
         },
@@ -197,7 +200,60 @@ export const createPushSender = ({
     }
   };
 
-  return { sendToToken, usable, report };
+  /**
+   * Sends a DATA-ONLY message - one the owner never sees.
+   *
+   * WHY NO `notification` BLOCK. A message carrying one is rendered by the system and handed to
+   * the app only on tap; a data-only message is delivered to the app's FirebaseMessagingService
+   * instead, which is the only way to run code on a phone whose owner has not opened Vistaar.
+   * This one asks the handset to put a reminder into its Clock app. Adding a notification block
+   * here would both show a spurious notification and stop the code running.
+   *
+   * HIGH PRIORITY IS LOAD-BEARING. A normal-priority data message is held until the device
+   * leaves Doze, which for an overnight reminder means it arrives after the alarm should have
+   * rung. High priority is the documented way to ask for immediate delivery.
+   *
+   * SAME FAILURE CONTRACT AS `sendToToken`: never throws, and distinguishes only dead tokens
+   * from everything else.
+   */
+  const sendDataToToken = async (
+    token: string,
+    data: Record<string, string>,
+  ): Promise<PushSendOutcome> => {
+    if (!usable) {
+      warnOnce();
+
+      return {
+        ok: false,
+        deadToken: false,
+        error: report.enabled ? `firebase not configured: ${report.missing.join(', ')}` : 'push disabled',
+      };
+    }
+
+    try {
+      messaging ??= await loadMessaging(config);
+
+      const messageId = await messaging.send({
+        token,
+        data,
+        android: { priority: 'high' },
+      });
+
+      return { ok: true, messageId: messageId ?? null };
+    } catch (error: unknown) {
+      const err = error as { code?: unknown; message?: unknown };
+      const code = String(err?.code ?? '');
+      const message = String(err?.message ?? err?.code ?? 'push send failed');
+
+      return {
+        ok: false,
+        deadToken: PUSH_DEAD_TOKEN_CODES.some((dead) => code.includes(dead)),
+        error: message.slice(0, 300),
+      };
+    }
+  };
+
+  return { sendToToken, sendDataToToken, usable, report };
 };
 
 export type PushSender = ReturnType<typeof createPushSender>;

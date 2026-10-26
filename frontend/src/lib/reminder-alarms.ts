@@ -37,7 +37,13 @@ export interface DeviceReminder {
   schedulable: boolean;
 }
 
-export const REMINDER_CHANNEL_ID = 'vistaar-reminders';
+/**
+ * MUST MATCH `ReminderChannel.ID` in the Android app and `PUSH_REMINDER_CHANNEL_ID` on the
+ * backend. Renamed from `vistaar-reminders` deliberately: a NotificationChannel is immutable
+ * once created, so re-creating the old id with alarm-stream audio would be silently ignored on
+ * every phone that already had it. A new id is the only way to ship changed channel settings.
+ */
+export const REMINDER_CHANNEL_ID = 'vistaar-reminders-alarm';
 
 export interface ReminderAlarmOutcome {
   scheduled: string[];
@@ -193,12 +199,26 @@ export const reconcileReminderAlarms = async (
 };
 
 /**
- * Creates the notification channel.
+ * Makes sure the reminder channel exists, WITHOUT overwriting the better one.
  *
  * Android 8+ takes importance, sound and vibration from the CHANNEL, not from the individual
- * notification - a channel created at default importance can never be made to make a sound
- * later, because channel settings are immutable once the user has seen them. So this is created
- * once at HIGH with the default notification sound, which is what makes a reminder audible.
+ * notification, and a channel is IMMUTABLE once created - whoever gets there first decides how
+ * reminders sound on this handset forever.
+ *
+ * THE NATIVE ONE MUST WIN. `ReminderChannel.ensure()` in MainActivity.onCreate creates this same
+ * id with `USAGE_ALARM` audio, so reminders play at alarm volume and are not silenced by the
+ * ringer being off. Capacitor's `createChannel` cannot express audio usage at all - it has a
+ * sound and an importance and nothing else - so the channel this function could build is
+ * strictly worse. Today native always runs first, because onCreate precedes the WebView; this
+ * checks anyway rather than relying on that ordering, because the cost of being wrong is a
+ * permanently quiet reminder that no later release can repair.
+ *
+ * So: create it only if nothing has, and treat a plugin that cannot list channels as "something
+ * might already be there" - the safe assumption, since a missing channel merely falls back to
+ * the app default while a downgraded one is forever.
+ *
+ * Returns whether THIS function created the channel, so the caller can tell the fallback path
+ * from the normal one.
  */
 export const ensureReminderChannel = async (
   plugin: typeof LocalNotifications = LocalNotifications,
@@ -208,9 +228,23 @@ export const ensureReminderChannel = async (
     return false;
   }
 
+  try {
+    const { channels } = await plugin.listChannels();
+
+    if (channels?.some((channel) => channel.id === REMINDER_CHANNEL_ID)) {
+      // The native alarm-stream channel is already there. Touching it would do nothing anyway,
+      // but not touching it is the guarantee.
+      return false;
+    }
+  } catch {
+    // An older plugin, or a handset that refused to answer. Assume the native channel exists
+    // rather than risk replacing it with this weaker one.
+    return false;
+  }
+
   await plugin.createChannel({
     id: REMINDER_CHANNEL_ID,
-    name: 'Reminders',
+    name: 'Reminder alarms',
     description: 'Follow-up and personal reminders from Vistaar CRM',
     importance: 4,
     visibility: 1,

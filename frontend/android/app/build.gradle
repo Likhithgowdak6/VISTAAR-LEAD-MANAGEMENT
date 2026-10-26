@@ -36,6 +36,19 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    /*
+     * Needed because VistaarMessagingService extends FirebaseMessagingService.
+     *
+     * NOT redundant with the push-notifications plugin, which already depends on this. That
+     * plugin uses `implementation`, and Gradle keeps an `implementation` dependency off the
+     * compile classpath of anything that consumes the module - the whole point of the scope.
+     * So the classes exist at runtime and the app module cannot see them at compile time,
+     * which fails as "cannot access FirebaseMessagingService" and looks like a missing library
+     * rather than a scope rule.
+     *
+     * The version is shared via variables.gradle so this and the plugin cannot drift apart.
+     */
+    implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

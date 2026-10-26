@@ -16,6 +16,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CLOCK_ALARM_WINDOW_MS,
+  canArmClockAlarmsInBackground,
+  requestClockAlarmBackgroundArming,
   syncClockAlarms,
   withinClockWindow,
   type ClockAlarmReminder,
@@ -33,8 +35,10 @@ const reminder = (overrides: Partial<ClockAlarmReminder> = {}): ClockAlarmRemind
   ...overrides,
 });
 
-const createPlugin = ({ available = true } = {}) => ({
+const createPlugin = ({ available = true, backgroundGranted = false } = {}) => ({
   isAvailable: vi.fn(async () => ({ available })),
+  canArmInBackground: vi.fn(async () => ({ granted: backgroundGranted })),
+  requestBackgroundArming: vi.fn(async () => ({ opened: true })),
   set: vi.fn(
     async (_options: { hour: number; minute: number; label: string; skipUi?: boolean }) => ({
       created: true,
@@ -257,5 +261,58 @@ describe('when the Clock app cannot be used', () => {
 
     // Asking would be a pointless bridge round trip on every single sync.
     expect(plugin.isAvailable).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Whether a Clock alarm can be created while Vistaar is CLOSED.
+ *
+ * THE PLATFORM FACT BEHIND ALL OF THIS. ACTION_SET_ALARM is an activity launch, and Android 10+
+ * blocks those from the background unless one of eight documented exemptions applies. Exactly
+ * one is reachable by an ordinary app: the user granting "Display over other apps". Receiving a
+ * high-priority FCM message is not an exemption; nor is holding SCHEDULE_EXACT_ALARM; nor is a
+ * foreground service. So this one boolean is the difference between "alarms when I remember to
+ * open the app" and "alarms always", and the UI shows the prompt on the strength of it.
+ */
+describe('arming Clock alarms from a closed app', () => {
+  it('reports true once the owner has granted it', async () => {
+    const plugin = createPlugin({ backgroundGranted: true });
+
+    expect(await canArmClockAlarmsInBackground(plugin as never, () => 'android')).toBe(true);
+  });
+
+  it('reports false before they have', async () => {
+    const plugin = createPlugin({ backgroundGranted: false });
+
+    expect(await canArmClockAlarmsInBackground(plugin as never, () => 'android')).toBe(false);
+  });
+
+  it('is false off Android, where there is no such permission to grant', async () => {
+    const plugin = createPlugin({ backgroundGranted: true });
+
+    expect(await canArmClockAlarmsInBackground(plugin as never, () => 'web')).toBe(false);
+    expect(plugin.canArmInBackground).not.toHaveBeenCalled();
+  });
+
+  it('treats an older build without the method as "not granted", not as a crash', async () => {
+    // A phone running an APK from before this feature. The prompt simply does not appear.
+    const plugin = createPlugin();
+    plugin.canArmInBackground.mockRejectedValue(new Error('not implemented'));
+
+    expect(await canArmClockAlarmsInBackground(plugin as never, () => 'android')).toBe(false);
+  });
+
+  it('opens the settings screen when asked from a deliberate tap', async () => {
+    const plugin = createPlugin();
+
+    expect(await requestClockAlarmBackgroundArming(plugin as never, () => 'android')).toBe(true);
+    expect(plugin.requestBackgroundArming).toHaveBeenCalledTimes(1);
+  });
+
+  it('never opens settings off Android', async () => {
+    const plugin = createPlugin();
+
+    expect(await requestClockAlarmBackgroundArming(plugin as never, () => 'web')).toBe(false);
+    expect(plugin.requestBackgroundArming).not.toHaveBeenCalled();
   });
 });

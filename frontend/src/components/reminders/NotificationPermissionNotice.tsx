@@ -41,6 +41,16 @@ interface Props {
   clockAlarmsPending?: number;
   /** True when nothing on this handset can answer ACTION_SET_ALARM. */
   clockAlarmUnavailable?: boolean;
+  /**
+   * Whether a Clock alarm can be created while Vistaar is CLOSED.
+   *
+   * False is the normal state, not an error: it needs "Display over other apps", which Android
+   * only grants from its own settings screen. Without it Clock alarms still appear, but only
+   * for reminders the owner was in the app to see.
+   */
+  clockAlarmBackgroundGranted?: boolean;
+  /** Opens Android's "Display over other apps" screen. */
+  onRequestClockAlarmBackground?: () => Promise<boolean>;
 }
 
 const NotificationPermissionNotice = ({
@@ -54,10 +64,13 @@ const NotificationPermissionNotice = ({
   clockAlarmCount = 0,
   clockAlarmsPending = 0,
   clockAlarmUnavailable = false,
+  clockAlarmBackgroundGranted = false,
+  onRequestClockAlarmBackground,
 }: Props) => {
   const [busy, setBusy] = useState(false);
   const [justDenied, setJustDenied] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
+  const [openingOverlay, setOpeningOverlay] = useState(false);
 
   // The browser build. There is no such thing as a local notification here, and saying
   // "notifications are off" would read as a fault rather than as the nature of a web page.
@@ -114,6 +127,36 @@ const NotificationPermissionNotice = ({
             ? ' Could not reach the server just now, so this list may be behind.'
             : ''}
         </p>
+
+        {/*
+            The one thing standing between "alarms when I remember to open the app" and "alarms
+            always". Shown only where it can be acted on: there is a clock app to accept them,
+            and the owner has not granted the permission yet. The copy names the real trade -
+            Android has no gentler way to allow a closed app to create an alarm.
+        */}
+        {!clockAlarmUnavailable && !clockAlarmBackgroundGranted && onRequestClockAlarmBackground ? (
+          <div className="mt-2 border-t border-line pt-2">
+            <p className="font-semibold text-key">Clock alarms need the app open right now.</p>
+            <p className="mt-1">
+              Android only lets a closed app add an alarm to your Clock if{' '}
+              <strong>Display over other apps</strong> is allowed for Vistaar. Turn it on and
+              reminders reach your Clock app even when Vistaar has been closed for days.
+            </p>
+            <button
+              type="button"
+              disabled={openingOverlay}
+              onClick={() => {
+                setOpeningOverlay(true);
+                // Opens Android settings, so this app backgrounds. Android reports no result,
+                // so the resume listener re-reads the real state when they come back.
+                void onRequestClockAlarmBackground().finally(() => setOpeningOverlay(false));
+              }}
+              className="mt-2 rounded-lg bg-key px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-60"
+            >
+              {openingOverlay ? 'Opening…' : 'Allow Clock alarms when closed'}
+            </button>
+          </div>
+        ) : null}
 
         {clockAlarmUnavailable ? (
           <p className="mt-1">

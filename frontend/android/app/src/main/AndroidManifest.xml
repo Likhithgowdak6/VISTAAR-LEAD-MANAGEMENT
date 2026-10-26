@@ -42,6 +42,31 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!--
+        SYSTEM_ALERT_WINDOW is here for ONE reason: it is the only way a closed app may create a
+        Clock alarm. Read this before deciding it looks excessive.
+
+        ACTION_SET_ALARM is an ACTIVITY action - the only alarm API Android has. There is no
+        ContentProvider for alarms (contrast android.provider.CalendarContract, which exposes a
+        CONTENT_URI you can insert into from a service; android.provider.AlarmClock is 23 String
+        constants and nothing else). So creating a Clock alarm means startActivity, and Android
+        10+ blocks that from the background unless one of eight documented exemptions applies.
+
+        Of those eight, exactly one is reachable by an ordinary app: "the app has the
+        SYSTEM_ALERT_WINDOW permission granted by the user". Receiving a high-priority FCM
+        message is NOT an exemption. Holding SCHEDULE_EXACT_ALARM is NOT an exemption. A
+        foreground service is NOT an exemption.
+
+        NOT GRANTED AT INSTALL, and nothing here grants it. It is a special permission the owner
+        must switch on themselves under "Display over other apps", and the Reminders screen links
+        there. Until they do, ClockAlarmArmer declines and the feature is simply off - every
+        other reminder channel is untouched.
+
+        THIS APP NEVER DRAWS AN OVERLAY. The permission is held solely for the background-launch
+        exemption it carries; there is no overlay view anywhere in this codebase.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
         Android 11 filters which other apps a package can see. Without this, resolveActivity()
         for ACTION_SET_ALARM returns null even on a phone with a perfectly good Clock app, and
         the plugin would report Clock alarms as unavailable on every modern handset.
@@ -82,6 +107,32 @@
             </intent-filter>
 
         </activity>
+
+        <!--
+            The FCM entry point, replacing Capacitor's.
+
+            WHY REPLACE RATHER THAN ADD. Firebase dispatches a message to ONE service - the first
+            that resolves for com.google.firebase.MESSAGING_EVENT. Declaring a second alongside
+            Capacitor's would make which one runs a manifest-merge ordering accident. So
+            Capacitor's is removed below and ours EXTENDS it, calling super on every callback:
+            the existing push and token behaviour is byte-for-byte what it was, with the
+            clock-alarm data message handled on the way past.
+        -->
+        <service
+            android:name=".VistaarMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
+            Removed so exactly one service answers MESSAGING_EVENT. VistaarMessagingService is a
+            subclass of this very class, so nothing Capacitor does is lost - see above.
+        -->
+        <service
+            android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
+            tools:node="remove" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

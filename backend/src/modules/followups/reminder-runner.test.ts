@@ -39,14 +39,16 @@ const runnerConfig = (overrides: Record<string, unknown> = {}) =>
 
 const createHarness = (configOverrides: Record<string, unknown> = {}) => {
   const sweepOnce = vi.fn().mockResolvedValue({});
+  const clockAlarmSweep = vi.fn().mockResolvedValue({});
   const runner = createReminderRunner({
     config: runnerConfig(configOverrides),
     service: { sweepOnce } as never,
     commitmentRetryService: { sweepOnce: vi.fn().mockResolvedValue({}) } as never,
     callSchedulingService: { sweepOnce: vi.fn().mockResolvedValue({}) } as never,
+    clockAlarmService: { sweepOnce: clockAlarmSweep } as never,
   });
 
-  return { runner, sweepOnce };
+  return { runner, sweepOnce, clockAlarmSweep };
 };
 
 describe('the sweep interval default', () => {
@@ -234,5 +236,61 @@ describe('the gate', () => {
     const { runner } = createHarness({ REMINDER_SWEEP_INTERVAL_MS: undefined });
 
     expect(runner.intervalMs).toBe(FIELD.parse(undefined));
+  });
+});
+
+/**
+ * The Clock-alarm sweep, and why it is off unless asked for.
+ *
+ * IT IS THE ONE REMINDER FEATURE WITH AN IRREVERSIBLE COST. Android lets an app create an alarm
+ * in the Clock app and gives it no way to delete one - so a reminder that is rescheduled or
+ * completed leaves its alarm behind for the owner to remove by hand. That is a fair trade for
+ * somebody who asked to be woken and a bad surprise for somebody who did not, which is why it
+ * has its own flag rather than riding on PUSH_ENABLED.
+ */
+describe('the clock alarm sweep', () => {
+  it('does not run unless CLOCK_ALARM_PUSH_ENABLED is set', async () => {
+    const { runner, clockAlarmSweep } = createHarness();
+
+    await runner.tick();
+
+    expect(clockAlarmSweep).not.toHaveBeenCalled();
+  });
+
+  it('runs when it is', async () => {
+    const { runner, clockAlarmSweep } = createHarness({ CLOCK_ALARM_PUSH_ENABLED: true });
+
+    await runner.tick();
+
+    expect(clockAlarmSweep).toHaveBeenCalledTimes(1);
+  });
+
+  it('still delivers reminders when the clock alarm sweep throws', async () => {
+    const { runner, sweepOnce, clockAlarmSweep } = createHarness({
+      CLOCK_ALARM_PUSH_ENABLED: true,
+    });
+
+    clockAlarmSweep.mockRejectedValue(new Error('clock sweep blew up'));
+
+    await runner.tick();
+
+    // The optional channel must never be able to take down the proven ones.
+    expect(sweepOnce).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs AFTER the reminder sweep, which is the one that must not be delayed', async () => {
+    const { runner, sweepOnce, clockAlarmSweep } = createHarness({
+      CLOCK_ALARM_PUSH_ENABLED: true,
+    });
+
+    await runner.tick();
+
+    expect(sweepOnce.mock.invocationCallOrder[0]!).toBeLessThan(
+      clockAlarmSweep.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('is off by default in the real schema', () => {
+    expect(envSchema.shape.CLOCK_ALARM_PUSH_ENABLED.parse(undefined)).toBe(false);
   });
 });

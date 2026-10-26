@@ -14,6 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  REMINDER_CHANNEL_ID,
   checkExactAlarmSetting,
   ensureReminderChannel,
   notificationIdFor,
@@ -41,7 +42,13 @@ const createPlugin = ({
   permission = 'granted',
   exactAlarm = 'granted',
   pendingIds = [] as number[],
+  // Which channels the handset already has. Empty is a device whose native layer somehow did
+  // not run; the realistic case is that the alarm channel is already there.
+  existingChannelIds = [] as string[],
 } = {}) => ({
+  listChannels: vi.fn(async () => ({
+    channels: existingChannelIds.map((id) => ({ id })),
+  })),
   checkPermissions: vi.fn(async () => ({ display: permission })),
   requestPermissions: vi.fn(async () => ({ display: permission })),
   checkExactNotificationSetting: vi.fn(async () => ({ exact_alarm: exactAlarm })),
@@ -305,17 +312,51 @@ describe('permissions and platform', () => {
 });
 
 describe('the notification channel', () => {
-  it('is created at high importance so reminders make a sound', async () => {
+  it('is created at high importance when nothing has created it', async () => {
     const plugin = createPlugin();
 
-    await ensureReminderChannel(plugin as never, () => 'android');
+    const created = await ensureReminderChannel(plugin as never, () => 'android');
 
     // Android 8+ takes sound and importance from the CHANNEL, and channel settings are
     // immutable once the user has seen them - a channel created at default importance can
     // never be made audible later.
+    expect(created).toBe(true);
     expect(plugin.createChannel).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'vistaar-reminders', importance: 4 }),
+      expect.objectContaining({ id: REMINDER_CHANNEL_ID, importance: 4 }),
     );
+  });
+
+  it('LEAVES THE NATIVE ALARM-STREAM CHANNEL ALONE', async () => {
+    // The real case on every handset: MainActivity.onCreate already built this id with
+    // USAGE_ALARM audio. Capacitor cannot express audio usage, so anything created here is
+    // strictly worse - and a channel is immutable, so a downgrade would be permanent.
+    const plugin = createPlugin({ existingChannelIds: [REMINDER_CHANNEL_ID] });
+
+    const created = await ensureReminderChannel(plugin as never, () => 'android');
+
+    expect(created).toBe(false);
+    expect(plugin.createChannel).not.toHaveBeenCalled();
+  });
+
+  it('still creates it when the handset has other channels but not this one', async () => {
+    const plugin = createPlugin({ existingChannelIds: ['some-other-channel'] });
+
+    const created = await ensureReminderChannel(plugin as never, () => 'android');
+
+    expect(created).toBe(true);
+    expect(plugin.createChannel).toHaveBeenCalledTimes(1);
+  });
+
+  it('assumes the native channel exists when the plugin cannot list channels', async () => {
+    // Failing closed: a missing channel only costs the app-default sound, but replacing the
+    // alarm channel with a quieter one can never be undone.
+    const plugin = createPlugin();
+    plugin.listChannels.mockRejectedValue(new Error('not implemented'));
+
+    const created = await ensureReminderChannel(plugin as never, () => 'android');
+
+    expect(created).toBe(false);
+    expect(plugin.createChannel).not.toHaveBeenCalled();
   });
 
   it('is skipped off Android', async () => {
@@ -325,6 +366,7 @@ describe('the notification channel', () => {
 
     expect(created).toBe(false);
     expect(plugin.createChannel).not.toHaveBeenCalled();
+    expect(plugin.listChannels).not.toHaveBeenCalled();
   });
 });
 
@@ -420,5 +462,27 @@ describe('the exact-alarm setting', () => {
 
     expect(await requestExactAlarmSetting(plugin as never, () => 'web')).toBe('unsupported');
     expect(plugin.changeExactNotificationSetting).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * The channel id, which must agree with two other copies of the same string.
+ *
+ * It also lives in `ReminderChannel.ID` (Android, Java) and `PUSH_REMINDER_CHANNEL_ID`
+ * (backend, TypeScript). Android treats a push sent to a channel that does not exist as
+ * perfectly fine - it falls back to the default channel and arrives quietly - so a mismatch
+ * between the three produces a notification that works and never wakes anybody. There is no
+ * runtime error to catch it, which is why it is pinned here.
+ */
+describe('the reminder channel id', () => {
+  it('is the alarm-stream channel', () => {
+    expect(REMINDER_CHANNEL_ID).toBe('vistaar-reminders-alarm');
+  });
+
+  it('is NOT the old id, which Android would refuse to re-configure', () => {
+    // A NotificationChannel is immutable once created. Reverting to `vistaar-reminders` would
+    // ship a change that silently does nothing on every phone that already had it.
+    expect(REMINDER_CHANNEL_ID).not.toBe('vistaar-reminders');
   });
 });

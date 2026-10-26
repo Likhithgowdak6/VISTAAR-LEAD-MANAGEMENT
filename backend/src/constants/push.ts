@@ -44,5 +44,21 @@ export const PUSH_DEAD_TOKEN_CODES: readonly string[] = Object.freeze([
  */
 export const PUSH_REMINDER_TITLE = 'Vistaar reminder';
 
+/**
+ * The Android notification channel a reminder push rings on.
+ *
+ * MUST MATCH `ReminderChannel.ID` in the Android app and `REMINDER_CHANNEL_ID` in the
+ * frontend. The channel is created natively at app launch with `USAGE_ALARM` audio, so a push
+ * on it plays at ALARM volume and is not silenced by the ringer being off - which is the only
+ * way to wake somebody whose app is closed, because a Clock-app alarm cannot be created from
+ * the background on Android 10+.
+ *
+ * SENDING TO A CHANNEL ID THAT DOES NOT EXIST IS NOT AN ERROR - Android quietly falls back to
+ * the app's default channel and the notification arrives, just quietly. That is why this is a
+ * named constant with a test either side rather than a literal in the sender: a typo here
+ * produces a working-but-silent notification, which is the hardest kind of bug to notice.
+ */
+export const PUSH_REMINDER_CHANNEL_ID = 'vistaar-reminders-alarm';
+
 /** Cut to a length that fits a notification shade without the OS truncating mid-sentence. */
 export const PUSH_BODY_MAX_LENGTH = 120;

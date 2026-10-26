@@ -264,6 +264,7 @@ const AppShell = () => {
     status: alarmStatus,
     requestPermission: requestNotificationPermission,
     requestExactAlarm,
+    requestClockAlarmBackground,
     syncNow: syncAlarms,
   } = useReminderAlarms({
     authedRequest,
@@ -593,6 +594,8 @@ const AppShell = () => {
                       clockAlarmCount: alarmStatus.clockAlarmCount,
                       clockAlarmsPending: alarmStatus.clockAlarmsPending,
                       clockAlarmUnavailable: alarmStatus.clockAlarmUnavailable,
+                      clockAlarmBackgroundGranted: alarmStatus.clockAlarmBackgroundGranted,
+                      onRequestClockAlarmBackground: requestClockAlarmBackground,
                       lastSkip: alarmStatus.lastSkip,
                       lastSyncFailed: alarmStatus.lastSyncFailed,
                       armedCount: alarmStatus.armedCount,

@@ -557,3 +557,62 @@ export const markReminderPushed = ({ taskId, now = new Date() }: MarkReminderPus
     { $set: { pushNotifiedAt: now } },
     { returnDocument: 'after' },
   ).exec();
+
+export interface FindRemindersNeedingClockAlarmParams {
+  now?: Date;
+  windowMs?: number;
+  limit?: number;
+}
+
+/**
+ * Reminders that fall due soon enough to become a Clock alarm, and have not been asked for yet.
+ *
+ * THE WINDOW IS THE WHOLE QUERY. `ACTION_SET_ALARM` carries an hour and a minute and no date,
+ * so the Clock app rings at the next occurrence of that time. Inside 24 hours that occurrence
+ * IS the due instant; outside it, the alarm would ring up to a day early. So this deliberately
+ * returns nothing for a reminder two days out - it becomes eligible on a later sweep, once it
+ * has come inside the window.
+ *
+ * NOT ORGANISATION-SCOPED. This is a background sweep over every tenant, the same shape as the
+ * delivery sweep; the organisation travels with each task to whoever acts on it.
+ *
+ * `dueAt: { $gt: now }` rather than `$gte`: a reminder already due does not want an alarm, it
+ * wants the push that is about to fire.
+ */
+export const findRemindersNeedingClockAlarm = ({
+  now = new Date(),
+  windowMs = 24 * 60 * 60 * 1000,
+  limit = 100,
+}: FindRemindersNeedingClockAlarmParams = {}) =>
+  FollowUpTask.find({
+    status: FOLLOWUP_STATUSES.PENDING,
+    clockAlarmArmedAt: null,
+    dueAt: {
+      $gt: now,
+      $lte: new Date(now.getTime() + windowMs),
+    },
+  })
+    .sort({ dueAt: 1 })
+    .limit(limit)
+    .exec();
+
+export interface MarkClockAlarmArmedParams {
+  taskId?: ObjectIdLike;
+  now?: Date;
+}
+
+/**
+ * Records that the owner's handsets were asked to create a Clock alarm.
+ *
+ * COMPARE-AND-SET on `clockAlarmArmedAt: null`, unlike `markReminderPushed`, which simply
+ * stamps. The difference is what each protects: a duplicate push is a second buzz, while a
+ * duplicate clock-arm is a second alarm in the Clock app that the platform gives us NO WAY to
+ * delete - the owner has to remove it by hand. The returned document is null when another pass
+ * got there first, which is the caller's signal that it must not send.
+ */
+export const markClockAlarmArmed = ({ taskId, now = new Date() }: MarkClockAlarmArmedParams = {}) =>
+  FollowUpTask.findOneAndUpdate(
+    { _id: taskId, clockAlarmArmedAt: null },
+    { $set: { clockAlarmArmedAt: now } },
+    { returnDocument: 'after' },
+  ).exec();

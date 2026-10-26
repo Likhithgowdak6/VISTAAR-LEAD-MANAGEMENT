@@ -21,6 +21,7 @@ vi.mock('../../config/logger.js', () => ({
 const { createPushSender, describeConfiguration, normalizePrivateKey } = await import(
   './push-sender.service.js'
 );
+const { PUSH_REMINDER_CHANNEL_ID } = await import('../../constants/push.js');
 
 const config = (overrides: Record<string, unknown> = {}) =>
   ({
@@ -32,6 +33,10 @@ const config = (overrides: Record<string, unknown> = {}) =>
   }) as never;
 
 const payload = { title: 'Vistaar reminder', body: 'Call Rahul back', data: { type: 'reminder' } };
+
+/** A messaging handle whose send is observable. */
+const messagingWith = (send: ReturnType<typeof vi.fn>) =>
+  vi.fn(async () => ({ send })) as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -145,7 +150,10 @@ describe('sending', () => {
     await sender.sendToToken('tok-a', payload);
 
     expect(send.mock.calls[0]![0]).toMatchObject({
-      android: { priority: 'high', notification: { channelId: 'vistaar-reminders' } },
+      android: {
+        priority: 'high',
+        notification: { channelId: PUSH_REMINDER_CHANNEL_ID },
+      },
     });
   });
 
@@ -214,5 +222,95 @@ describe('the private key', () => {
 
   it('leaves a key that already has real newlines alone', () => {
     expect(normalizePrivateKey('a\nb')).toBe('a\nb');
+  });
+});
+
+/**
+ * The notification channel, which is the whole difference between a chime and an alarm.
+ *
+ * WHY THIS NEEDS TESTS AT ALL. Sending to a channel id that does not exist on the handset is
+ * NOT an error: Android falls back to the app's default channel and the notification arrives,
+ * just quietly. So a typo here produces a push that works, looks fine in every log, and simply
+ * never wakes anybody - the hardest kind of bug to notice. The id is a named constant with a
+ * test on each side for that reason.
+ *
+ * The matching assertions live in frontend/src/tests/reminder-alarms.test.ts and in
+ * ReminderChannel.java; this is one of three copies of one string, in three languages.
+ */
+describe('the reminder channel', () => {
+  it('is the alarm-stream channel, not the old notification one', async () => {
+    const send = vi.fn(async (_message: unknown) => 'id');
+    const sender = createPushSender({ config: config(), loadMessaging: messagingWith(send) });
+
+    await sender.sendToToken('tok-a', payload);
+
+    expect(send.mock.calls[0]![0]).toMatchObject({
+      android: { notification: { channelId: 'vistaar-reminders-alarm' } },
+    });
+  });
+
+  it('uses the shared constant rather than a literal', () => {
+    // A literal in the sender is how the three copies drift apart.
+    expect(PUSH_REMINDER_CHANNEL_ID).toBe('vistaar-reminders-alarm');
+  });
+
+  it('is NOT the pre-alarm id, which is immutable on handsets that already have it', () => {
+    // Re-creating `vistaar-reminders` with better settings is silently ignored by Android, so
+    // reverting to it would ship a change that does nothing.
+    expect(PUSH_REMINDER_CHANNEL_ID).not.toBe('vistaar-reminders');
+  });
+});
+
+/**
+ * The silent message that reaches a closed phone.
+ *
+ * THE DISTINCTION THESE PIN, and it is the whole reason the method exists: a message carrying
+ * a `notification` block is rendered by the system and handed to the app only when the owner
+ * taps it. A data-only message is delivered to the app's FirebaseMessagingService instead,
+ * which is the only code path that exists on a phone whose owner has not opened Vistaar. Add a
+ * notification block here and the Clock alarm is never created - the thing it was sent to do.
+ */
+describe('data-only sends', () => {
+  it('carries NO notification block, so the app is woken rather than the owner', async () => {
+    const send = vi.fn(async (_message: unknown) => 'id');
+    const sender = createPushSender({ config: config(), loadMessaging: messagingWith(send) });
+
+    await sender.sendDataToToken('tok-a', { type: 'clock-alarm', dueAtMillis: '123' });
+
+    const message = send.mock.calls[0]![0] as Record<string, unknown>;
+
+    expect(message).not.toHaveProperty('notification');
+    expect(message.data).toEqual({ type: 'clock-alarm', dueAtMillis: '123' });
+  });
+
+  it('is high priority, or Doze holds it until after the alarm should have rung', async () => {
+    const send = vi.fn(async (_message: unknown) => 'id');
+    const sender = createPushSender({ config: config(), loadMessaging: messagingWith(send) });
+
+    await sender.sendDataToToken('tok-a', { type: 'clock-alarm' });
+
+    expect(send.mock.calls[0]![0]).toMatchObject({ android: { priority: 'high' } });
+  });
+
+  it('reports a dead token the same way the notification path does', async () => {
+    const send = vi.fn(async () => {
+      throw Object.assign(new Error('gone'), {
+        code: 'messaging/registration-token-not-registered',
+      });
+    });
+    const sender = createPushSender({ config: config(), loadMessaging: messagingWith(send) });
+
+    const outcome = await sender.sendDataToToken('tok-a', { type: 'clock-alarm' });
+
+    expect(outcome).toMatchObject({ ok: false, deadToken: true });
+  });
+
+  it('never throws when Firebase is not configured', async () => {
+    const sender = createPushSender({ config: config({ FIREBASE_PRIVATE_KEY: '' }) });
+
+    const outcome = await sender.sendDataToToken('tok-a', { type: 'clock-alarm' });
+
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { error: string }).error).toContain('FIREBASE_PRIVATE_KEY');
   });
 });

@@ -2,7 +2,10 @@ package com.vistaarverse.leadmanagement;
 
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.provider.AlarmClock;
+import android.provider.Settings;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -105,6 +108,61 @@ public class ClockAlarmPlugin extends Plugin {
 
         JSObject result = new JSObject();
         result.put("created", true);
+        call.resolve(result);
+    }
+
+    /**
+     * Whether a Clock alarm can be created while Vistaar is CLOSED.
+     *
+     * Distinct from `isAvailable`, which answers whether a clock app exists at all. This answers
+     * the other half: ACTION_SET_ALARM is an activity launch, and Android 10+ blocks those from
+     * the background unless the owner has granted "Display over other apps" - the only one of
+     * the platform's eight exemptions an ordinary app can reach. Without it, alarms still work
+     * from inside the app and the background path declines; see ClockAlarmArmer.
+     */
+    @PluginMethod
+    public void canArmInBackground(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("granted", ClockAlarmArmer.canLaunchFromBackground(getContext()));
+        call.resolve(result);
+    }
+
+    /**
+     * Opens the system screen where the owner grants "Display over other apps".
+     *
+     * ONLY EVER FROM A DELIBERATE TAP. There is no way to request this permission inline - it is
+     * a special permission with its own settings page, and no dialog exists to prompt for it.
+     * Resolves once the screen has been opened; whether the owner actually granted it is read
+     * back later with `canArmInBackground`, because the system gives no result here.
+     */
+    @PluginMethod
+    public void requestBackgroundArming(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            JSObject result = new JSObject();
+            result.put("opened", false);
+            call.resolve(result);
+            return;
+        }
+
+        Intent intent = new Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + getContext().getPackageName())
+        );
+
+        if (!resolves(intent)) {
+            call.reject("NO_SETTINGS_SCREEN");
+            return;
+        }
+
+        try {
+            getActivity().startActivity(intent);
+        } catch (Exception error) {
+            call.reject("OPEN_SETTINGS_FAILED", error);
+            return;
+        }
+
+        JSObject result = new JSObject();
+        result.put("opened", true);
         call.resolve(result);
     }
 

@@ -57,6 +57,9 @@ export interface FollowUpTaskDocument {
    */
   pushNotifiedAt: Date | null;
 
+  /** When the handset was asked to create a Clock alarm - see the schema below. */
+  clockAlarmArmedAt: Date | null;
+
   // Reminder fields - see the schema below for why each exists.
   title: string | null;
   timezone: string | null;
@@ -175,6 +178,26 @@ const followUpTaskSchema = new mongoose.Schema<FollowUpTaskDocument>(
     },
 
     pushNotifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    /**
+     * When the handset was asked to put this reminder into the phone's Clock app.
+     *
+     * ITS OWN STAMP, NOT `pushNotifiedAt`. The two messages are different things sent at
+     * different times: the clock-arm message goes out up to 24 hours EARLY, because
+     * ACTION_SET_ALARM takes an hour and a minute with no date and the Clock app fires at the
+     * next occurrence of that time - so arming it any earlier would ring a day too soon. The
+     * reminder push goes out when the reminder is actually due. Sharing one stamp would make
+     * each suppress the other.
+     *
+     * STAMPED ON DISPATCH, NOT ON ARRIVAL. The server cannot know whether the Clock app
+     * accepted it - the handset may lack the overlay permission, or have no clock app at all.
+     * This records that we asked, which is the only thing this side can honestly claim, and is
+     * what stops the sweep asking again every five seconds.
+     */
+    clockAlarmArmedAt: {
       type: Date,
       default: null,
     },
@@ -343,6 +366,22 @@ followUpTaskSchema.index({
   status: 1,
   dueAt: 1,
   deliveryClaimedAt: 1,
+});
+
+/**
+ * The Clock-alarm sweep's index: "what is pending, falls due in the next day, and has not been
+ * handed to a handset's Clock app yet?"
+ *
+ * ITS OWN INDEX RATHER THAN THE SCHEDULER'S. `{status, dueAt, deliveryClaimedAt}` above would
+ * serve the status and dueAt part, then load every pending task in the next 24 hours and
+ * discard the armed ones in memory. `clockAlarmArmedAt` is the selective term here - once a
+ * reminder has been armed it stays armed - and this sweep runs on the same five-second tick as
+ * everything else, so the discarded work would be repeated 17,280 times a day.
+ */
+followUpTaskSchema.index({
+  status: 1,
+  clockAlarmArmedAt: 1,
+  dueAt: 1,
 });
 
 /**

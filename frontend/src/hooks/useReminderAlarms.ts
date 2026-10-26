@@ -22,7 +22,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { syncReminders } from '../api/endpoints';
-import { syncClockAlarms } from '../lib/clock-alarm';
+import {
+  canArmClockAlarmsInBackground,
+  requestClockAlarmBackgroundArming,
+  syncClockAlarms,
+} from '../lib/clock-alarm';
 import {
   checkExactAlarmSetting,
   checkReminderPermission,
@@ -103,6 +107,14 @@ export interface ReminderAlarmStatus {
   clockAlarmsPending: number;
   /** Set when the handset has no app that can answer ACTION_SET_ALARM. */
   clockAlarmUnavailable: boolean;
+  /**
+   * Whether a Clock alarm can be created while Vistaar is CLOSED.
+   *
+   * The difference between alarms that need the owner to open the app and alarms that simply
+   * appear. Needs Android's "Display over other apps", which is the only exemption from the
+   * background-activity-launch rule an ordinary app can reach.
+   */
+  clockAlarmBackgroundGranted: boolean;
 }
 
 export const useReminderAlarms = ({
@@ -114,6 +126,7 @@ export const useReminderAlarms = ({
   status: ReminderAlarmStatus;
   requestPermission: () => Promise<ReminderPermission>;
   requestExactAlarm: () => Promise<ReminderPermission>;
+  requestClockAlarmBackground: () => Promise<boolean>;
 } => {
   const [status, setStatus] = useState<ReminderAlarmStatus>({
     permission: 'unsupported',
@@ -123,6 +136,7 @@ export const useReminderAlarms = ({
     lastSyncFailed: false,
     clockAlarmCount: 0,
     clockAlarmsPending: 0,
+    clockAlarmBackgroundGranted: false,
     clockAlarmUnavailable: false,
   });
   // Guards against two syncs overlapping - a resume event arriving mid-startup-sync would
@@ -245,9 +259,20 @@ export const useReminderAlarms = ({
     }
 
     void ensureReminderChannel()
-      .then(() => Promise.all([checkReminderPermission(), checkExactAlarmSetting()]))
-      .then(([permission, exactAlarm]) =>
-        setStatus((previous) => ({ ...previous, permission, exactAlarm })),
+      .then(() =>
+        Promise.all([
+          checkReminderPermission(),
+          checkExactAlarmSetting(),
+          canArmClockAlarmsInBackground(),
+        ]),
+      )
+      .then(([permission, exactAlarm, clockAlarmBackgroundGranted]) =>
+        setStatus((previous) => ({
+          ...previous,
+          permission,
+          exactAlarm,
+          clockAlarmBackgroundGranted,
+        })),
       )
       .then(() => syncNow());
   }, [enabled, syncNow]);
@@ -272,9 +297,20 @@ export const useReminderAlarms = ({
       // Android's own settings screen, and that change is invisible to this app otherwise.
       // The exact-alarm one especially - granting it is a round trip through settings, so this
       // resume is the only moment the app finds out it succeeded.
-      void Promise.all([checkReminderPermission(), checkExactAlarmSetting()]).then(
-        ([permission, exactAlarm]) =>
-          setStatus((previous) => ({ ...previous, permission, exactAlarm })),
+      // The overlay permission is read here too, and this is the ONLY place it can be: it is
+      // granted on a system screen that gives no callback, so returning to the app is the one
+      // moment Vistaar can discover it succeeded.
+      void Promise.all([
+        checkReminderPermission(),
+        checkExactAlarmSetting(),
+        canArmClockAlarmsInBackground(),
+      ]).then(([permission, exactAlarm, clockAlarmBackgroundGranted]) =>
+        setStatus((previous) => ({
+          ...previous,
+          permission,
+          exactAlarm,
+          clockAlarmBackgroundGranted,
+        })),
       );
       void syncNow();
     };
@@ -340,5 +376,23 @@ export const useReminderAlarms = ({
     return result;
   }, []);
 
-  return { syncNow, status, requestPermission, requestExactAlarm };
+  /**
+   * Opens Android's "Display over other apps" screen.
+   *
+   * Like `requestExactAlarm`, it does not sync on the way back: granting backgrounds the app,
+   * and the visibility listener re-reads the permission and re-syncs on return. Returns only
+   * whether the SCREEN opened - Android reports nothing about what the owner chose there.
+   */
+  const requestClockAlarmBackground = useCallback(
+    () => requestClockAlarmBackgroundArming(),
+    [],
+  );
+
+  return {
+    syncNow,
+    status,
+    requestPermission,
+    requestExactAlarm,
+    requestClockAlarmBackground,
+  };
 };

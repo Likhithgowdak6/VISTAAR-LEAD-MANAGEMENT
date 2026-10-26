@@ -34,6 +34,9 @@ export interface ClockAlarmNative {
     label: string;
     skipUi?: boolean;
   }): Promise<{ created: boolean }>;
+  /** Whether a Clock alarm can be created while the app is CLOSED - see below. */
+  canArmInBackground(): Promise<{ granted: boolean }>;
+  requestBackgroundArming(): Promise<{ opened: boolean }>;
 }
 
 const ClockAlarm = registerPlugin<ClockAlarmNative>('ClockAlarm');
@@ -172,4 +175,58 @@ export const syncClockAlarms = async (
   }
 
   return { created: createdNow, remaining, skipped: null };
+};
+
+/**
+ * Whether this handset can create a Clock alarm while Vistaar is CLOSED.
+ *
+ * THE ONE SETTING THAT DECIDES IT. ACTION_SET_ALARM is an activity launch, and Android 10+
+ * blocks those from the background unless the owner has granted "Display over other apps" -
+ * the only one of the platform's eight exemptions an ordinary app can reach. Without it the
+ * server's arming message arrives and the handset declines; reminders still ring through the
+ * notification and still arrive on WhatsApp, but nothing lands in the Clock app unless the
+ * owner happens to open Vistaar first.
+ *
+ * Returns false off Android and on a build whose plugin predates the method, so the UI shows
+ * the prompt only where it can actually be acted on.
+ */
+export const canArmClockAlarmsInBackground = async (
+  plugin: ClockAlarmNative = ClockAlarm,
+  platform: () => string = () => Capacitor.getPlatform(),
+): Promise<boolean> => {
+  if (platform() !== 'android') {
+    return false;
+  }
+
+  try {
+    const { granted } = await plugin.canArmInBackground();
+
+    return granted === true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Opens the system screen where the owner grants it.
+ *
+ * ONLY FROM A DELIBERATE TAP. There is no inline dialog for this permission - it has its own
+ * settings page - and the system reports no result, so the caller re-reads
+ * `canArmClockAlarmsInBackground` when the app next comes to the foreground.
+ */
+export const requestClockAlarmBackgroundArming = async (
+  plugin: ClockAlarmNative = ClockAlarm,
+  platform: () => string = () => Capacitor.getPlatform(),
+): Promise<boolean> => {
+  if (platform() !== 'android') {
+    return false;
+  }
+
+  try {
+    const { opened } = await plugin.requestBackgroundArming();
+
+    return opened === true;
+  } catch {
+    return false;
+  }
 };

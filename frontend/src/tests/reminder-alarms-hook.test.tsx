@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   checkExactAlarmSetting: vi.fn(),
   requestExactAlarmSetting: vi.fn(),
   syncClockAlarms: vi.fn(),
+  canArmClockAlarmsInBackground: vi.fn(),
+  requestClockAlarmBackgroundArming: vi.fn(),
   addListener: vi.fn(),
   removeListener: vi.fn(),
 }));
@@ -44,7 +46,14 @@ vi.mock('../lib/reminder-alarms', () => ({
   requestExactAlarmSetting: mocks.requestExactAlarmSetting,
 }));
 
-vi.mock('../lib/clock-alarm', () => ({ syncClockAlarms: mocks.syncClockAlarms }));
+vi.mock('../lib/clock-alarm', () => ({
+  syncClockAlarms: mocks.syncClockAlarms,
+  // Read on the SAME startup and resume chain as the two permissions above, for the same
+  // reason the comment there gives: omit it and the chain rejects on an undefined call, and
+  // every lifecycle test fails at once with nothing pointing at Clock alarms.
+  canArmClockAlarmsInBackground: mocks.canArmClockAlarmsInBackground,
+  requestClockAlarmBackgroundArming: mocks.requestClockAlarmBackgroundArming,
+}));
 
 vi.mock('@capacitor/local-notifications', () => ({
   LocalNotifications: {
@@ -115,6 +124,8 @@ beforeEach(() => {
   mocks.checkExactAlarmSetting.mockResolvedValue('granted');
   mocks.requestExactAlarmSetting.mockResolvedValue('granted');
   mocks.syncClockAlarms.mockResolvedValue({ created: [], remaining: 0, skipped: null });
+  mocks.canArmClockAlarmsInBackground.mockResolvedValue(false);
+  mocks.requestClockAlarmBackgroundArming.mockResolvedValue(true);
   mocks.addListener.mockResolvedValue({ remove: mocks.removeListener });
 });
 
@@ -175,6 +186,27 @@ describe('resume', () => {
     });
 
     await waitFor(() => expect(mocks.syncReminders).toHaveBeenCalledTimes(2));
+  });
+
+  /**
+   * RESUME IS THE ONLY MOMENT THIS CAN BE LEARNED. "Display over other apps" is granted on a
+   * system screen that reports nothing back to the app - no callback, no result code. If the
+   * hook did not re-read it here, an owner could grant the permission and the Reminders screen
+   * would keep telling them Clock alarms need the app open, forever.
+   */
+  it('re-reads the Clock-alarm permission when the app comes back', async () => {
+    render(<Harness />);
+    await waitFor(() => expect(mocks.canArmClockAlarmsInBackground).toHaveBeenCalledTimes(1));
+
+    // The owner went to Android settings and switched it on.
+    mocks.canArmClockAlarmsInBackground.mockResolvedValue(true);
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.canArmClockAlarmsInBackground).toHaveBeenCalledTimes(2));
   });
 
   it('does not stack listeners across re-renders', async () => {

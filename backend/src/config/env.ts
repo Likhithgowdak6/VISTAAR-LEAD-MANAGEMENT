@@ -334,6 +334,20 @@ export const envSchema = z.object({
   // --------------------------------------------------------------------------
   PUSH_ENABLED: booleanString.default(false),
 
+  /**
+   * Whether to ask handsets to create real alarms in the phone's Clock app.
+   *
+   * SEPARATE FROM `PUSH_ENABLED` AND OFF BY DEFAULT, because it is the one reminder feature
+   * with a cost the owner cannot undo from here: the Android platform can create a Clock alarm
+   * and dismiss a ringing one, but it cannot DELETE one. A reminder that is rescheduled or
+   * completed leaves its alarm behind for the owner to remove by hand. That is a reasonable
+   * trade for somebody who wants to be woken, and a bad surprise for somebody who did not ask.
+   *
+   * It also needs the handset's "Display over other apps" permission to do anything at all -
+   * see ClockAlarmArmer.java - so turning this on without that granted is simply inert.
+   */
+  CLOCK_ALARM_PUSH_ENABLED: booleanString.default(false),
+
   // From the Firebase service-account JSON. Kept as three separate values rather than a path
   // to the file: the file is a secret that must never enter the repo or the APK, and three
   // environment variables are the one shape that works identically on a laptop, in systemd and

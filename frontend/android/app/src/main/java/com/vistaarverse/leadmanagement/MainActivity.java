@@ -16,5 +16,10 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ClockAlarmPlugin.class);
         super.onCreate(savedInstanceState);
+
+        // The channel a reminder push rings on, created here rather than from JS because it
+        // has to exist before the FIRST push - which can arrive on an install where no JS has
+        // ever run. A no-op once it exists. See ReminderChannel.
+        ReminderChannel.ensure(this);
     }
 }
