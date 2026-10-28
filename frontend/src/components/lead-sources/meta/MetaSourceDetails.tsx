@@ -10,6 +10,7 @@ import RelativeTime from '../../RelativeTime';
 import Spinner from '../../Spinner';
 import { errorMessage, type AuthValue } from '../../types';
 import { type LeadSource, type MetaConnection, type MetaDiagnostics } from './meta-wizard-types';
+import MetaPhoneMapping from './MetaPhoneMapping';
 import { primaryButtonClass, secondaryButtonClass } from './meta-wizard-ui';
 import { useMobileBackLayer } from '../../../hooks/useMobileBackLayer';
 
@@ -241,6 +242,12 @@ const MetaSourceDetails = ({ leadSource, onClose, onChanged, onReconnect }: Prop
             {error}
           </p>
         ) : null}
+
+        {/* Above the buttons: a setting to change, not an action to take. Only rendered for a
+            single-form source, which is the only shape with one question list to offer. */}
+        <div className="mt-4">
+          <MetaPhoneMapping leadSource={leadSource} onChanged={onChanged} />
+        </div>
 
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onClose} className={secondaryButtonClass}>

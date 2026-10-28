@@ -1179,6 +1179,15 @@ export interface UpdateLeadSourceParams extends TokenParams {
   accessToken?: string;
   formId?: string | null;
   formName?: string | null;
+  /**
+   * Which form question holds each identity field.
+   *
+   * Only `phone` is settable from the UI today: a form that asks for a number in its own words
+   * produces a machine name the importer's automatic rules do not recognise, and every lead is
+   * skipped `no_phone`. Null restores the automatic behaviour. The PATCH route has always
+   * accepted this; nothing in the UI could send it until now.
+   */
+  columnMapping?: { phone?: string | null };
 }
 
 export const updateLeadSource = ({
