@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import PullToRefreshIndicator from './PullToRefreshIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+
 import { listConversations, listStages, listTags, setAiAutomation } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { useIsMobileViewport } from '../hooks/useMobileBackLayer';
@@ -144,6 +147,16 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
     aiStatusFilter,
     needsAttentionFilter,
   ]);
+
+  /**
+   * Pull down at the top of the inbox to refetch it.
+   *
+   * Wired to `load` rather than to a refresh of its own, so a pull asks exactly what the
+   * sixty-second poll asks: page one with the current filters. `load` resolves after it has
+   * set state and never rejects - it reports failures through `error` - so the indicator
+   * stops when the data has really landed, successfully or not.
+   */
+  const pull = usePullToRefresh({ scrollRef, onRefresh: load });
 
   useEffect(() => {
     // Fetch-on-mount + slow fallback poll: state updates happen after each request resolves.
@@ -398,6 +411,12 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
       ) : null}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
+        <PullToRefreshIndicator
+          distance={pull.pullDistance}
+          armed={pull.armed}
+          refreshing={pull.refreshing}
+        />
+
         {loading ? (
           <div className="p-4">
             <Spinner label="Loading conversations…" />
