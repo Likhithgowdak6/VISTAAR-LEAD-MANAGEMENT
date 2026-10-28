@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
@@ -15,6 +15,7 @@ import MobileAppBar from '../components/mobile/MobileAppBar';
 import MobileBottomNav from '../components/mobile/MobileBottomNav';
 import { useAuth } from '../auth/AuthContext';
 import { getInitials } from '../lib/format';
+import { clearDeepLinkTarget, readDeepLinkTarget } from '../lib/deep-link';
 import { readMetaConnectReturn } from '../lib/meta-connect';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import AccountsPage from './AccountsPage';
@@ -136,10 +137,28 @@ const AppShell = () => {
   // Facebook's callback redirects the browser to `/`, which reloads the whole app at the inbox.
   // Landing there after signing in would strand the person two clicks from what they were doing,
   // so the return trip opens on Lead sources, where the wizard is waiting.
-  const [view, setView] = useState<AppView>(() =>
-    readMetaConnectReturn() ? 'lead-sources' : 'inbox',
+  /**
+   * The lead a WhatsApp notification link asked for, read once on mount.
+   *
+   * Read HERE rather than in App, because this component only renders for a signed-in user -
+   * App shows LoginPage otherwise. Signing in unmounts LoginPage and mounts this fresh, so the
+   * initialisers below run with the parameter still in the URL, and the link lands on the right
+   * thread after login without anything having to remember it across the sign-in.
+   */
+  const deepLink = useMemo(() => readDeepLinkTarget(), []);
+
+  const [view, setView] = useState<AppView>(() => {
+    // An explicit lead link wins over the Meta return: it names one record, which is a stronger
+    // instruction than "you just came back from Facebook".
+    if (deepLink) {
+      return 'inbox';
+    }
+
+    return readMetaConnectReturn() ? 'lead-sources' : 'inbox';
+  });
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => deepLink?.conversationId ?? null,
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
@@ -165,6 +184,19 @@ const AppShell = () => {
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+
+  /**
+   * Wipes the link parameters once they have been acted on.
+   *
+   * Without this a refresh would drag the owner back to the thread they had just navigated away
+   * from, and the URL would keep carrying a lead id into anything it was pasted into. The state
+   * above has already consumed the value, so clearing the address bar changes nothing on screen.
+   */
+  useEffect(() => {
+    if (deepLink) {
+      clearDeepLinkTarget();
+    }
+  }, [deepLink]);
 
   /**
    * Opens a lead. Used by the reminders list and by a tapped notification, so both land in the

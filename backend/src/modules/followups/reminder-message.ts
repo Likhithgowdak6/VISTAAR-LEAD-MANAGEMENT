@@ -9,6 +9,7 @@
  * Two shapes, because two kinds of reminder read differently: a lead follow-up has to name who
  * and why, and a personal reminder has no lead to name and should not pretend otherwise.
  */
+import { buildReminderDeepLink } from '../../utils/deep-link.js';
 import { getLocalDateParts } from '../whatsapp/automation/quiet-hours.js';
 import { type FollowUpTaskDocument } from './followup-task.model.js';
 
@@ -131,7 +132,28 @@ export const buildReminderMessage = (
     lines.push(`💬 Reason: "${clip(reason, REASON_MAX_LENGTH)}"`);
   }
 
-  lines.push(`🕒 Reminder Time: ${when}`, '', 'Open Vistaar CRM to continue the conversation.');
+  lines.push(`🕒 Reminder Time: ${when}`);
+
+  /*
+   * A tap straight to the lead, replacing "go and find them".
+   *
+   * There is no reminder-detail screen to link to - reminders render inside the lead panel,
+   * reached by opening the conversation - so this resolves to that thread, which is where the
+   * owner has to be to act on it anyway. Null when the id is unusable or no public origin is
+   * configured, in which case the message keeps the closing sentence it has always ended with
+   * rather than printing something that looks tappable and is not.
+   */
+  const reminderLink = buildReminderDeepLink({
+    taskId: task._id,
+    conversationId: task.conversationId,
+  });
+
+  lines.push(
+    '',
+    reminderLink
+      ? `View reminder: ${reminderLink}`
+      : 'Open Vistaar CRM to continue the conversation.',
+  );
 
   return lines.join('\n');
 };

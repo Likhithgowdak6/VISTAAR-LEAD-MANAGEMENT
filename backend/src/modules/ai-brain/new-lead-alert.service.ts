@@ -18,6 +18,7 @@ import { logger as defaultLogger } from '../../config/logger.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity as defaultCreateActivity } from '../activity/activity-log.repository.js';
 import { claimNewLeadAlert as defaultClaimNewLeadAlert } from '../conversations/conversation.repository.js';
+import { buildConversationDeepLink } from '../../utils/deep-link.js';
 import {
   createOwnerNotifyService,
   type NotifyOwnerParams,
@@ -176,6 +177,13 @@ export interface BuildNewLeadAlertTextParams {
   category?: string | null;
   /** Where the lead came from, e.g. the lead source's name. */
   sourceLabel?: string | null;
+  /**
+   * The thread this alert is about, used only to build the "View lead" link.
+   *
+   * Optional so every existing caller and test keeps working unchanged: without it the alert is
+   * exactly the message it was before, minus the link line.
+   */
+  conversationId?: unknown;
 }
 
 /**
@@ -190,6 +198,7 @@ export const buildNewLeadAlertText = ({
   facts,
   category,
   sourceLabel,
+  conversationId,
 }: BuildNewLeadAlertTextParams): string => {
   const safeFacts = facts ?? {};
   const lines: string[] = [`🔔 New lead: ${leadDisplayName}${phone ? ` (${phone})` : ''}`];
@@ -220,6 +229,21 @@ export const buildNewLeadAlertText = ({
   // imported lead - who passes no first message - gets no empty quotes.
   if (firstMessage !== undefined) {
     lines.push(`"${previewFirstMessage(firstMessage)}"`);
+  }
+
+  /*
+   * LAST, and only when it resolves.
+   *
+   * WhatsApp linkifies a bare https URL in message text, so this is one tap to the thread
+   * instead of hunting for the name in the inbox. An id that is not a well-formed ObjectId, or
+   * a deployment with no public origin configured, omits the line entirely - a link that looks
+   * tappable and goes nowhere is worse than none. The alert itself still sends either way,
+   * because losing the notification would be the far worse failure.
+   */
+  const leadLink = buildConversationDeepLink(conversationId);
+
+  if (leadLink) {
+    lines.push('', `View lead: ${leadLink}`);
   }
 
   return lines.join('\n');
@@ -291,6 +315,7 @@ export const sendNewLeadAlert = async ({
         facts,
         category,
         sourceLabel,
+        conversationId,
       }),
     });
 
