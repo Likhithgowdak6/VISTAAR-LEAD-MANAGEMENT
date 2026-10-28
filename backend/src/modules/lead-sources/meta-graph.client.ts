@@ -318,12 +318,26 @@ export interface FetchMetaFormLeadsOptions extends MetaGraphRequestOptions {
   maxLeads?: number;
   /** Cursor pages to walk at most, so one source cannot monopolise a tick. */
   maxPages?: number;
+  /**
+   * Resume paging from here instead of starting at the newest lead.
+   *
+   * This is Meta's OPAQUE `paging.cursors.after` token, never its `paging.next` URL. The URL
+   * carries the access token in its query string, and the importer persists this value between
+   * ticks - writing a credential into Mongo in plaintext, beside a field the schema deliberately
+   * encrypts and marks `select: false`, is not a trade worth making for a shorter diff.
+   */
+  after?: string | null;
 }
 
 export interface FetchMetaFormLeadsResult {
   leads: MetaGraphLead[];
-  /** True when the cap stopped the walk before Meta ran out of pages. */
+  /** True when a cap stopped the walk before Meta ran out of pages. */
   truncated: boolean;
+  /**
+   * Where to resume, when `truncated` is true. Null when Meta had nothing more to give, which is
+   * the only signal that a backfill has actually reached the end of a form's history.
+   */
+  nextAfter: string | null;
 }
 
 /**
@@ -335,12 +349,20 @@ export interface FetchMetaFormLeadsResult {
  * `GREATER_THAN` on whole seconds, so the watermark is nudged up by a second by the caller to
  * avoid asking for the same boundary lead forever.
  */
+/** A blank cursor must become `undefined` so the param is omitted rather than sent empty. */
+const emptyToNullCursor = (value: string | null | undefined): string | undefined => {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+
+  return trimmed === '' ? undefined : trimmed;
+};
+
 export const fetchMetaFormLeads = async ({
   accessToken,
   formId,
   since = null,
   maxLeads = 200,
   maxPages = DEFAULT_MAX_PAGES,
+  after = null,
   fetchFn = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: FetchMetaFormLeadsOptions): Promise<FetchMetaFormLeadsResult> => {
@@ -364,11 +386,15 @@ export const fetchMetaFormLeads = async ({
       fields: LEAD_FIELDS.join(','),
       limit: Math.min(META_GRAPH_PAGE_SIZE, Math.max(1, maxLeads)),
       filtering,
+      // Resuming a backfill. Rebuilt with a fresh token each tick rather than replaying a stored
+      // `paging.next`, which would mean persisting the credential.
+      after: emptyToNullCursor(after),
     },
   });
 
   const leads: MetaGraphLead[] = [];
   let pagesWalked = 0;
+  let nextAfter: string | null = null;
 
   while (url !== null && pagesWalked < maxPages && leads.length < maxLeads) {
     const page: MetaGraphPage<MetaGraphLead> = await requestGraph<MetaGraphPage<MetaGraphLead>>({
@@ -389,12 +415,19 @@ export const fetchMetaFormLeads = async ({
       }
     }
 
+    // The cursor at the END of the page just read. Carried forward so a truncated walk can be
+    // resumed exactly where it stopped.
+    nextAfter = typeof page.paging?.cursors?.after === 'string' ? page.paging.cursors.after : null;
     url = typeof page.paging?.next === 'string' ? page.paging.next : null;
   }
 
-  // A cursor still in hand means Meta had more to give and a cap stopped the walk. The next tick
-  // picks up from the advanced watermark rather than re-walking these pages.
-  return { leads, truncated: url !== null };
+  // A `next` still in hand means Meta had more to give and a cap stopped the walk. The caller
+  // decides what to do with that: an incremental poll relies on the watermark, but a BACKFILL
+  // must resume from `nextAfter`, because the leads it has not reached yet are OLDER than
+  // everything it just read and a forward watermark would step over them permanently.
+  const truncated = url !== null;
+
+  return { leads, truncated, nextAfter: truncated ? nextAfter : null };
 };
 
 export interface MetaConnectionTest {

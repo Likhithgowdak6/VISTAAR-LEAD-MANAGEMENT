@@ -51,6 +51,43 @@ export interface LeadSourceMetaConfig {
    */
   lastLeadCreatedAt: Date | null;
   /**
+   * Where to resume a historical backfill: Meta's opaque `paging.cursors.after`, never its
+   * `paging.next` URL - that one carries the access token in its query string.
+   *
+   * Null once the backfill has reached the end of the form's history, or when it never started.
+   */
+  backfillCursor: string | null;
+  /**
+   * Whether the historical backfill has drained the form.
+   *
+   * ABSENT MEANS "LEGACY, ALREADY INCREMENTAL". Sources created before resumable backfill existed
+   * have a watermark and no flag; treating `undefined` as "not finished" would restart a backfill
+   * on every live source the moment this ships. See `resolveMetaBackfillState`.
+   */
+  backfillComplete?: boolean;
+  /**
+   * Newest `created_time` seen at ANY point during the backfill, held aside until it finishes.
+   *
+   * The forward watermark cannot be set while history is still being walked - Meta serves
+   * newest-first, so the newest lead arrives on page one and a watermark set there would exclude
+   * every older page that has not been read yet. This remembers it instead, and becomes
+   * `lastLeadCreatedAt` on the tick that completes the backfill.
+   */
+  backfillNewestSeenAt: Date | null;
+  /**
+   * Form ids whose history has been fully read.
+   *
+   * Only meaningful for a source set to "all forms on this page", where one cursor cannot
+   * resume several forms. The backfill walks ONE form per tick and records it here when Meta
+   * runs out of pages for it; a single-form source simply fills this with that one id.
+   */
+  backfillCompletedFormIds: string[];
+  /**
+   * Set when a tick was truncated by a cap. Purely diagnostic: it is what tells an admin that a
+   * green "ok" sync has not finished reading the form's history.
+   */
+  backfillTruncatedAt: Date | null;
+  /**
    * Set when the Page was subscribed to leadgen webhooks, so leads arrive in seconds rather than
    * on the ten-minute poll. Null means this source is poll-only, which still works - the webhook
    * is an accelerator, never the only path. See meta-webhook.service.ts.
@@ -191,6 +228,14 @@ const leadSourceMetaSchema = new mongoose.Schema<LeadSourceMetaConfig>(
     accessTokenLast4: { type: String, trim: true, maxlength: 4, default: null },
     accessTokenSetAt: { type: Date, default: null },
     lastLeadCreatedAt: { type: Date, default: null },
+    // Meta's cursors are long; 2000 matches the URL ceiling used elsewhere in this schema.
+    backfillCursor: { type: String, trim: true, maxlength: 2000, default: null },
+    // NO DEFAULT, deliberately: `undefined` is the signal for a source that predates resumable
+    // backfill, and giving it `false` here would make every one of them look unfinished.
+    backfillComplete: { type: Boolean },
+    backfillNewestSeenAt: { type: Date, default: null },
+    backfillCompletedFormIds: { type: [String], default: [] },
+    backfillTruncatedAt: { type: Date, default: null },
     webhookSubscribedAt: { type: Date, default: null },
     webhookError: { type: String, trim: true, maxlength: 500, default: null },
   },

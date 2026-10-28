@@ -45,6 +45,14 @@ export interface CreateMetaLeadImportServiceOptions {
       leadSourceId?: ObjectIdLike;
       lastLeadCreatedAt: Date;
     }) => Promise<unknown>;
+    recordMetaBackfillProgress?: (params: {
+      leadSourceId?: ObjectIdLike;
+      cursor?: string | null;
+      complete?: boolean;
+      newestSeenAt?: Date | null;
+      truncatedAt?: Date | null;
+      completedFormIds?: string[];
+    }) => Promise<unknown>;
   };
   logger?: { error?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void };
 }
@@ -70,6 +78,45 @@ export const resolveMetaSince = (leadSource: LeadSourceDocument): Date | null =>
   }
 
   return importFrom;
+};
+
+export interface MetaBackfillState {
+  /** True while historical pages are still being walked. */
+  backfilling: boolean;
+  /** Opaque `paging.cursors.after` to resume from, or null to start at the newest lead. */
+  cursor: string | null;
+}
+
+/**
+ * Whether this source is still reading history, and from where.
+ *
+ * THE COMPATIBILITY RULE IS THE SUBTLE PART. `backfillComplete` is `undefined` on every source
+ * created before resumable backfill existed. Treating that as "not finished" would, on the first
+ * tick after deploying this, restart a full historical walk on every live Meta source - lighting
+ * up inboxes with leads their owners dealt with weeks ago. So an absent flag plus an established
+ * watermark means "legacy, already incremental", and is left alone.
+ *
+ * A source is only backfilling when backfill was ASKED FOR (`importFromTime` at the epoch), the
+ * flag does not say it finished, and either the flag exists - so this code wrote it - or no
+ * watermark has ever been set, which means nothing has been read yet.
+ */
+export const resolveMetaBackfillState = (leadSource: LeadSourceDocument): MetaBackfillState => {
+  const meta = leadSource.meta ?? null;
+  const complete = meta?.backfillComplete;
+  const hasWatermark = (meta?.lastLeadCreatedAt ?? null) !== null;
+  const importFrom = leadSource.importFromTime;
+  const wantsHistory = !importFrom || importFrom.getTime() <= 0;
+
+  if (!wantsHistory || complete === true) {
+    return { backfilling: false, cursor: null };
+  }
+
+  // Legacy source: no flag, but it has clearly been running.
+  if (complete === undefined && hasWatermark) {
+    return { backfilling: false, cursor: null };
+  }
+
+  return { backfilling: true, cursor: meta?.backfillCursor ?? null };
 };
 
 export const createMetaLeadImportService = ({
@@ -117,6 +164,92 @@ export const createMetaLeadImportService = ({
     return forms.map((form) => ({ id: form.id, name: form.name }));
   };
 
+  /**
+   * Moves a backfill forward one tick, or finishes it.
+   *
+   * THE FORWARD WATERMARK IS NOT TOUCHED WHILE HISTORY REMAINS. Meta serves newest-first, so the
+   * newest lead in the whole form arrives on page one; writing it to `lastLeadCreatedAt` there
+   * would make every older page older than the filter and unreachable for ever. That was the
+   * bug. The newest instant is remembered in `backfillNewestSeenAt` instead and only becomes the
+   * watermark on the tick that drains the form.
+   *
+   * COMPLETION IS MEASURED BY META, NOT BY US: `truncated === false` means Meta had no `next`
+   * page left, which is the only trustworthy end-of-history signal available.
+   */
+  const advanceBackfill = async ({
+    leadSource,
+    result,
+    truncated,
+    nextAfter,
+    formsThisTick,
+    completedFormIds,
+    allFormIds,
+    exhausted,
+  }: {
+    leadSource: LeadSourceDocument;
+    result: LeadBatchResult;
+    truncated: boolean;
+    nextAfter: string | null;
+    formsThisTick: { id: string; name: string | null }[];
+    completedFormIds: readonly string[];
+    allFormIds: readonly string[];
+    exhausted: boolean;
+  }): Promise<void> => {
+    const seenBefore = leadSource.meta?.backfillNewestSeenAt ?? null;
+    const seenNow = result.newestSubmittedAt;
+    const newestSeenAt =
+      seenNow !== null && (seenBefore === null || seenNow > seenBefore) ? seenNow : seenBefore;
+
+    if (truncated) {
+      await leadSourceRepository?.recordMetaBackfillProgress?.({
+        leadSourceId: leadSource._id,
+        cursor: nextAfter,
+        newestSeenAt,
+        truncatedAt: new Date(),
+      });
+
+      logger?.warn?.(
+        {
+          leadSourceId: leadSource._id.toString(),
+          imported: result.counts.imported,
+          resumable: nextAfter !== null,
+        },
+        'META_BACKFILL: history is not fully read yet; the next poll resumes from the stored cursor.',
+      );
+
+      return;
+    }
+
+    // Meta had nothing more for the form read this tick. Record it done, then decide whether
+    // the SOURCE is done - which for an all-forms source means every form, not just this one.
+    const doneNow = exhausted
+      ? [...completedFormIds]
+      : [...new Set([...completedFormIds, ...formsThisTick.map((form) => form.id)])];
+    const sourceComplete = allFormIds.every((id) => doneNow.includes(id));
+
+    await leadSourceRepository?.recordMetaBackfillProgress?.({
+      leadSourceId: leadSource._id,
+      cursor: null,
+      // Only when the LAST form is drained. Marking it complete earlier would strand the rest.
+      ...(sourceComplete ? { complete: true } : {}),
+      newestSeenAt,
+      truncatedAt: null,
+      completedFormIds: doneNow,
+    });
+
+    if (!sourceComplete) {
+      // More forms to walk; the watermark stays unset so their older leads remain reachable.
+      return;
+    }
+
+    if (newestSeenAt !== null) {
+      await leadSourceRepository?.recordMetaLeadWatermark({
+        leadSourceId: leadSource._id,
+        lastLeadCreatedAt: newestSeenAt,
+      });
+    }
+  };
+
   const importFromSource = async (leadSource: LeadSourceDocument): Promise<LeadBatchResult> => {
     if (config.META_LEAD_ADS_ENABLED !== true) {
       throw new MetaLeadSourceNotConfiguredError(
@@ -132,26 +265,59 @@ export const createMetaLeadImportService = ({
       throw new MetaLeadSourceNotConfiguredError();
     }
 
-    const since = resolveMetaSince(leadSource);
+    const backfill = resolveMetaBackfillState(leadSource);
+    // A backfill never filters by time: its whole job is to reach pages OLDER than anything a
+    // forward filter would admit. It resumes by cursor instead.
+    const since = backfill.backfilling ? null : resolveMetaSince(leadSource);
     const forms = await resolveFormIds({ leadSource, accessToken });
 
     const graphLeads: { lead: MetaGraphLead; formName: string | null }[] = [];
+    let truncated = false;
+    let nextAfter: string | null = null;
 
-    for (const form of forms) {
+    const completedFormIds = leadSource.meta?.backfillCompletedFormIds ?? [];
+    /**
+     * ONE FORM PER TICK WHILE BACKFILLING.
+     *
+     * A cursor belongs to a single form's page walk, so a source set to "all forms on this page"
+     * cannot resume several at once from one stored value. Rather than keep a map of cursors -
+     * or silently get multi-form backfill wrong - the backfill drains one form to its end,
+     * records it, and takes the next one on the following tick. A single-form source is just the
+     * degenerate case of that.
+     */
+    const formsThisTick = backfill.backfilling
+      ? forms.filter((form) => !completedFormIds.includes(form.id)).slice(0, 1)
+      : forms;
+
+    // Every form is done and Meta had nothing more to give: the backfill is finished even though
+    // this tick read nothing.
+    const backfillExhausted = backfill.backfilling && formsThisTick.length === 0;
+
+    for (const form of formsThisTick) {
       if (graphLeads.length >= maxLeadsPerTick) {
+        // Stopped by the per-tick cap with forms still unread. Treated as truncated so the
+        // watermark is withheld; without it an incremental poll over several forms would
+        // advance past the ones never reached.
+        truncated = true;
         break;
       }
 
-      const { leads } = await fetchMetaFormLeads({
+      const page = await fetchMetaFormLeads({
         accessToken,
         formId: form.id,
         since,
         maxLeads: maxLeadsPerTick - graphLeads.length,
         maxPages: maxPagesPerTick,
+        after: backfill.backfilling ? backfill.cursor : null,
         timeoutMs,
       });
 
-      leads.forEach((lead) => {
+      if (page.truncated) {
+        truncated = true;
+        nextAfter = page.nextAfter;
+      }
+
+      page.leads.forEach((lead) => {
         graphLeads.push({ lead, formName: form.name });
       });
     }
@@ -187,23 +353,40 @@ export const createMetaLeadImportService = ({
 
     const result = await pipeline.importLeads({ leadSource, leads: mapped });
 
-    // Only on a clean tick. A failed lead is one the watermark must not step over, or it would
-    // never be asked for again — the ledger would not save it, because nothing was written.
-    if (result.counts.failed === 0 && result.newestSubmittedAt !== null) {
+    // Nothing is recorded after a failed lead. A failure means that lead was not written, so
+    // stepping the cursor or the watermark past it would lose it for good; re-reading the same
+    // page next tick is free, because the ledger refuses the ones that did land.
+    const clean = result.counts.failed === 0;
+
+    if (clean) {
       try {
-        await leadSourceRepository?.recordMetaLeadWatermark({
-          leadSourceId: leadSource._id,
-          lastLeadCreatedAt: result.newestSubmittedAt,
-        });
+        if (backfill.backfilling) {
+          await advanceBackfill({
+            leadSource,
+            result,
+            truncated,
+            nextAfter,
+            formsThisTick,
+            completedFormIds,
+            allFormIds: forms.map((form) => form.id),
+            exhausted: backfillExhausted,
+          });
+        } else if (result.newestSubmittedAt !== null) {
+          await leadSourceRepository?.recordMetaLeadWatermark({
+            leadSourceId: leadSource._id,
+            lastLeadCreatedAt: result.newestSubmittedAt,
+          });
+        }
       } catch (error: unknown) {
-        // A watermark that failed to save costs one extra fetch next tick and nothing else: the
-        // ledger still refuses the duplicates. Never worth failing an otherwise good import.
+        // Costs one extra fetch next tick and nothing else: the ledger still refuses the
+        // duplicates. Never worth failing an otherwise good import.
         logger?.warn?.(
           {
             leadSourceId: leadSource._id.toString(),
+            backfilling: backfill.backfilling,
             name: error instanceof Error ? error.name : 'unknown',
           },
-          'Could not advance the Meta lead watermark; the next poll will re-ask for these leads.',
+          'Could not record Meta import progress; the next poll will re-ask for these leads.',
         );
       }
     }

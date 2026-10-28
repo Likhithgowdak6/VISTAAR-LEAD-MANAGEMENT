@@ -23,6 +23,7 @@ import { type LeadSourceDocument } from './lead-source.model.js';
 import {
   findActiveLeadSources as defaultFindActiveLeadSources,
   recordLeadSourceSync as defaultRecordLeadSourceSync,
+  recordMetaBackfillProgress as defaultRecordMetaBackfillProgress,
   recordMetaLeadWatermark as defaultRecordMetaLeadWatermark,
 } from './lead-source.repository.js';
 import {
@@ -42,6 +43,7 @@ export interface CreateLeadImportServiceOptions extends CreateLeadPipelineOption
     findActiveLeadSources: typeof defaultFindActiveLeadSources;
     recordLeadSourceSync: typeof defaultRecordLeadSourceSync;
     recordMetaLeadWatermark?: typeof defaultRecordMetaLeadWatermark;
+    recordMetaBackfillProgress?: typeof defaultRecordMetaBackfillProgress;
   };
   /** Already-built pipeline, for a caller that wants to share one. Built from the options if not. */
   pipeline?: LeadPipeline;
@@ -59,6 +61,7 @@ export const createLeadImportService = ({
     findActiveLeadSources: defaultFindActiveLeadSources,
     recordLeadSourceSync: defaultRecordLeadSourceSync,
     recordMetaLeadWatermark: defaultRecordMetaLeadWatermark,
+    recordMetaBackfillProgress: defaultRecordMetaBackfillProgress,
   },
   logger = defaultLogger,
   now = () => new Date(),
@@ -78,6 +81,8 @@ export const createLeadImportService = ({
       leadSourceRepository: {
         recordMetaLeadWatermark:
           leadSourceRepository.recordMetaLeadWatermark ?? defaultRecordMetaLeadWatermark,
+        recordMetaBackfillProgress:
+          leadSourceRepository.recordMetaBackfillProgress ?? defaultRecordMetaBackfillProgress,
       },
     });
 

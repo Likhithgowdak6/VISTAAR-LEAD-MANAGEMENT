@@ -113,6 +113,13 @@ export const createLeadSource = ({
           accessTokenLast4: metaAccessTokenLast4(meta.accessToken),
           accessTokenSetAt: new Date(),
           lastLeadCreatedAt: null,
+          // A brand-new source has read nothing yet, so its backfill - if backfill was asked
+          // for - has not started. `backfillComplete` is left UNSET on purpose: it is only ever
+          // written to `true` by the tick that drains the form.
+          backfillCursor: null,
+          backfillNewestSeenAt: null,
+          backfillTruncatedAt: null,
+          backfillCompletedFormIds: [],
           // A source starts poll-only. The webhook subscription is a separate, explicitly
           // requested step, so a failure to subscribe never blocks creating the source.
           webhookSubscribedAt: null,
@@ -476,6 +483,67 @@ export interface RecordMetaLeadWatermarkParams {
  * scheduled poll) must never move the watermark backwards, which would re-fetch leads the other
  * tick already imported.
  */
+export interface RecordMetaBackfillProgressParams {
+  leadSourceId?: ObjectIdLike;
+  /** Opaque `paging.cursors.after`. Null when there is nothing left to resume from. */
+  cursor?: string | null;
+  /** True only on the tick that reached the end of the form's history. */
+  complete?: boolean;
+  /** Newest lead seen so far during the backfill, carried until it finishes. */
+  newestSeenAt?: Date | null;
+  /** When a cap last stopped the walk. Null clears it. */
+  truncatedAt?: Date | null;
+  /** Replaces the list of forms whose history is fully read. */
+  completedFormIds?: string[];
+}
+
+/**
+ * Records how far a historical backfill has got.
+ *
+ * SEPARATE FROM `recordMetaLeadWatermark`, and that separation is the fix. The watermark is a
+ * FORWARD boundary - "ask Meta for leads newer than this" - and Meta serves newest-first, so
+ * setting it while older pages are still unread is precisely what made those pages unreachable.
+ * This writes backfill state only; the watermark is set once, by the tick that finishes.
+ */
+export const recordMetaBackfillProgress = ({
+  leadSourceId,
+  cursor,
+  complete,
+  newestSeenAt,
+  truncatedAt,
+  completedFormIds,
+}: RecordMetaBackfillProgressParams = {}) => {
+  const set: Record<string, unknown> = {};
+
+  if (cursor !== undefined) {
+    set['meta.backfillCursor'] = cursor;
+  }
+
+  if (complete !== undefined) {
+    set['meta.backfillComplete'] = complete;
+  }
+
+  if (newestSeenAt !== undefined) {
+    set['meta.backfillNewestSeenAt'] = newestSeenAt;
+  }
+
+  if (truncatedAt !== undefined) {
+    set['meta.backfillTruncatedAt'] = truncatedAt;
+  }
+
+  if (completedFormIds !== undefined) {
+    set['meta.backfillCompletedFormIds'] = completedFormIds;
+  }
+
+  if (Object.keys(set).length === 0) {
+    return Promise.resolve(null);
+  }
+
+  return LeadSource.findOneAndUpdate({ _id: leadSourceId }, { $set: set }, {
+    returnDocument: 'after',
+  }).exec();
+};
+
 export const recordMetaLeadWatermark = ({
   leadSourceId,
   lastLeadCreatedAt,
