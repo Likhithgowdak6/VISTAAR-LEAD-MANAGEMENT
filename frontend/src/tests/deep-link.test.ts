@@ -13,7 +13,11 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clearDeepLinkTarget, readDeepLinkTarget } from '../lib/deep-link';
+import {
+  clearDeepLinkTarget,
+  readDeepLinkTarget,
+  readDeepLinkTargetFromUrl,
+} from '../lib/deep-link';
 
 const CONVERSATION_ID = '68f1a2b3c4d5e6f708192a3b';
 const TASK_ID = '6adf2dd59f91cdd63f09e0f3';
@@ -62,6 +66,49 @@ describe('reading the target', () => {
     const target = readDeepLinkTarget(`?metaConnect=1&conversation=${CONVERSATION_ID}`);
 
     expect(target?.conversationId).toBe(CONVERSATION_ID);
+  });
+});
+
+/**
+ * The Android arrival. Inside the APK the WebView is served from `https://localhost` and is
+ * never navigated to the link's URL - Android hands the whole URL over as an intent instead, so
+ * the parameters have to be read off that string rather than off `window.location`.
+ */
+describe('reading a whole URL, as Android delivers it', () => {
+  it('reads both ids out of an App Link', () => {
+    expect(
+      readDeepLinkTargetFromUrl(
+        `https://vistaarcrm.duckdns.org/?conversation=${CONVERSATION_ID}&reminder=${TASK_ID}`,
+      ),
+    ).toEqual({ conversationId: CONVERSATION_ID, reminderId: TASK_ID });
+  });
+
+  it('reads a lead link', () => {
+    expect(
+      readDeepLinkTargetFromUrl(`https://vistaarcrm.duckdns.org/?conversation=${CONVERSATION_ID}`),
+    ).toEqual({ conversationId: CONVERSATION_ID, reminderId: null });
+  });
+
+  it('is null for a launch with no link at all', () => {
+    // An ordinary icon tap. Not an error - there is simply nowhere to jump to.
+    expect(readDeepLinkTargetFromUrl('https://vistaarcrm.duckdns.org/')).toBeNull();
+  });
+
+  it('APPLIES THE SAME ID VALIDATION as the browser path', () => {
+    // The host already matched an intent filter to get here; the ids still have to be ours.
+    expect(
+      readDeepLinkTargetFromUrl('https://vistaarcrm.duckdns.org/?conversation=../../admin'),
+    ).toBeNull();
+    expect(
+      readDeepLinkTargetFromUrl(
+        `https://vistaarcrm.duckdns.org/?conversation=${CONVERSATION_ID}&reminder=nonsense`,
+      ),
+    ).toEqual({ conversationId: CONVERSATION_ID, reminderId: null });
+  });
+
+  it('does not throw on something that is not a URL', () => {
+    expect(readDeepLinkTargetFromUrl('')).toBeNull();
+    expect(readDeepLinkTargetFromUrl('not a url')).toBeNull();
   });
 });
 

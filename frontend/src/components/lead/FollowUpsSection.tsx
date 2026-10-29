@@ -69,12 +69,23 @@ type Props = {
    * build, where there are no alarms to arm.
    */
   alarms?: ComponentProps<typeof NotificationPermissionNotice>;
+  /**
+   * Refetches when this changes. Bumped by AppShell after a reminder is completed, rescheduled
+   * or cancelled from the dialog a notification link opens - which is outside this component,
+   * so nothing here would otherwise notice.
+   */
+  refreshKey?: number;
 };
 
 const isOverdue = (task: FollowUpTask, now: number): boolean =>
   task.status === 'pending' && Boolean(task.dueAt) && new Date(task.dueAt!).getTime() <= now;
 
-const FollowUpsSection = ({ conversationId, onRemindersChanged, alarms }: Props) => {
+const FollowUpsSection = ({
+  conversationId,
+  onRemindersChanged,
+  alarms,
+  refreshKey,
+}: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const [tasks, setTasks] = useState<FollowUpTask[]>([]);
   /**
@@ -120,7 +131,9 @@ const FollowUpsSection = ({ conversationId, onRemindersChanged, alarms }: Props)
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [load, canManage]);
+    // `refreshKey` is a dependency for its side effect, not because `load` reads it - bumping
+    // it is how something outside this component says "that list is out of date now".
+  }, [load, canManage, refreshKey]);
 
   /**
    * Split once per render rather than filtered three times in the markup.

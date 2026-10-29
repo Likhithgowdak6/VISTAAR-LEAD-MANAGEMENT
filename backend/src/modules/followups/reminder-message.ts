@@ -135,13 +135,15 @@ export const buildReminderMessage = (
   lines.push(`🕒 Reminder Time: ${when}`);
 
   /*
-   * A tap straight to the lead, replacing "go and find them".
+   * A tap straight to THIS reminder, replacing "go and find it".
    *
-   * There is no reminder-detail screen to link to - reminders render inside the lead panel,
-   * reached by opening the conversation - so this resolves to that thread, which is where the
-   * owner has to be to act on it anyway. Null when the id is unusable or no public origin is
-   * configured, in which case the message keeps the closing sentence it has always ended with
-   * rather than printing something that looks tappable and is not.
+   * Carries both ids: the conversation, which opens the thread, and the task, which opens the
+   * reminder over it with its due time, its reason, and Complete / Reschedule / Cancel. If the
+   * reminder has since gone the thread still opens, so the tap is never wasted.
+   *
+   * Null when the id is unusable or no public origin is configured, in which case the message
+   * keeps the closing sentence it has always ended with rather than printing something that
+   * looks tappable and is not.
    */
   const reminderLink = buildReminderDeepLink({
     taskId: task._id,

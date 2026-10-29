@@ -82,6 +82,12 @@ type Props = {
   onRemindersChanged?: () => void;
   /** Device-alarm health, forwarded to the lead panel's reminder section. */
   reminderAlarms?: ComponentProps<typeof LeadPanel>['reminderAlarms'];
+  /**
+   * Bumped when a reminder changed somewhere other than the lead panel - today, the reminder
+   * dialog a notification link opens. Forwarded so the panel's list refetches instead of
+   * sitting there still showing what was just completed.
+   */
+  remindersRefreshKey?: number;
 };
 
 const ConversationView = ({
@@ -90,6 +96,7 @@ const ConversationView = ({
   onDeleted,
   onRemindersChanged,
   reminderAlarms,
+  remindersRefreshKey,
 }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
@@ -571,6 +578,7 @@ const ConversationView = ({
       {detailsOpen && conversation ? (
         <LeadPanel
           onRemindersChanged={onRemindersChanged}
+          remindersRefreshKey={remindersRefreshKey}
           reminderAlarms={reminderAlarms}
           conversation={{
             ...conversation,

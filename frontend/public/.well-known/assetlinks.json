@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.vistaarverse.leadmanagement",
+      "sha256_cert_fingerprints": [
+        "09:2A:64:B3:AE:2F:D3:CC:98:87:36:61:C0:3D:D3:50:4D:C2:60:C3:96:AC:CE:82:F3:F2:3A:BC:DF:E7:79:EB"
+      ]
+    }
+  }
+]

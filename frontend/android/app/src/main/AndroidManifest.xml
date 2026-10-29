@@ -106,6 +106,41 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+                ANDROID APP LINKS. Makes this app the handler for the `View lead:` and
+                `View reminder:` URLs the server puts in WhatsApp notifications, so tapping one
+                opens Vistaar instead of a browser tab asking the owner to sign in again.
+
+                `autoVerify="true"` is what makes it silent. Without it Android treats these as
+                ordinary web intents: the first tap raises a disambiguation sheet ("open with
+                Chrome / Vistaar Leads"), and whichever the owner picks once becomes the default
+                - which is how a link ends up permanently opening the browser. With it, Android
+                fetches https://vistaarcrm.duckdns.org/.well-known/assetlinks.json at install
+                time and, if this package and signing certificate are listed there, hands the
+                link straight here with no prompt at all.
+
+                VERIFICATION IS A SILENT FAILURE. If the file is missing, served as the wrong
+                content type, served over a redirect, or lists a different signing certificate
+                than the installed build, verification fails and Android falls back to the
+                disambiguation behaviour above - nothing crashes and nothing is logged where
+                anybody would look. `adb shell pm get-app-links com.vistaarverse.leadmanagement`
+                reports the real state; see frontend/public/.well-known/assetlinks.json.
+
+                THE WEBVIEW IS NOT NAVIGATED TO THIS URL. The shell is served from
+                `https://localhost` (capacitor.config.ts); Android delivers the link as an
+                intent and src/lib/capacitor-deep-link.ts reads the ids off it. The host below
+                exists to route the intent, not to be loaded.
+
+                No `pathPrefix`: both link shapes are the site root with a query string, and
+                `android:path*` attributes do not match against a query anyway.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="vistaarcrm.duckdns.org" />
+            </intent-filter>
+
         </activity>
 
         <!--

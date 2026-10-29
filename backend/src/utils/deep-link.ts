@@ -118,13 +118,17 @@ export interface ReminderDeepLinkParams {
 }
 
 /**
- * Opens the lead a reminder is about.
+ * Opens the reminder itself, over the lead it is about.
  *
- * THERE IS NO REMINDER-DETAIL ROUTE TO LINK TO. Reminders are rendered by FollowUpsSection
- * inside LeadPanel, which is reached by opening the conversation; `RemindersPage.tsx` exists but
- * is mounted nowhere outside its own test. So the link resolves to the conversation, which is
- * the fallback the brief asks for, and carries `reminder=<id>` alongside so the app can scroll
- * to or highlight the right one the day that view exists - the frontend ignores it today.
+ * BOTH IDS, AND BOTH ARE USED. `conversation=<id>` opens the thread, which is the destination
+ * and the floor: it is what the link did before a reminder view existed, and it is what still
+ * happens if the reminder has since been completed or deleted. `reminder=<id>` opens
+ * ReminderDetailDialog over it, so a notification that said "follow up with Vaishu at 5" lands
+ * on that reminder rather than on a lead panel with five of them in a collapsed section.
+ *
+ * THE CONVERSATION ID IS NOT DECORATION in the second case either - it scopes the lookup. The
+ * app reads the lead's own follow-up list and picks this id out of it, so a reminder belonging
+ * to a different conversation than the link claims simply is not found.
  *
  * NULL FOR A PERSONAL REMINDER, deliberately. One with no `conversationId` has no lead and no
  * destination; linking it to the inbox root would be a tap that answers nothing.

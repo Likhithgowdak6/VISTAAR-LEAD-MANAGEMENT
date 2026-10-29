@@ -24,9 +24,9 @@ export interface DeepLinkTarget {
   /**
    * The reminder the link was about, when it was a reminder notification.
    *
-   * Carried through but UNUSED TODAY: there is no reminder-detail view to open, so the link
-   * resolves to the lead. Kept so the day that view exists, the links already in people's
-   * WhatsApp history point at the right reminder rather than needing to be re-sent.
+   * OPENS ReminderDetailDialog over the lead. Null for a plain lead link, and null for a
+   * reminder link whose id is malformed - in which case the lead still opens, because landing
+   * on the right conversation is most of what the link was for.
    */
   reminderId: string | null;
 }
@@ -59,6 +59,26 @@ export const readDeepLinkTarget = (
     conversationId,
     reminderId: OBJECT_ID_PATTERN.test(reminderId) ? reminderId : null,
   };
+};
+
+/**
+ * The same read, from a WHOLE URL rather than from the address bar.
+ *
+ * This is the Android path. When the installed app answers an App Link, the URL arrives as an
+ * intent - `App.getLaunchUrl()` on a cold start, `appUrlOpen` when the app was already running -
+ * and the WebView is NOT navigated to it: the shell is served from `https://localhost`, so its
+ * own `window.location` never carries the parameters the link did. Only the query is taken from
+ * the URL; the host has already done its job by matching the intent filter that routed it here,
+ * and the ids are validated below exactly as they are for the browser.
+ */
+export const readDeepLinkTargetFromUrl = (href: string): DeepLinkTarget | null => {
+  try {
+    return readDeepLinkTarget(new URL(href).search);
+  } catch {
+    // Not a URL at all. Nothing to open, and nothing worth throwing over - the app was still
+    // launched, it just has no destination to jump to.
+    return null;
+  }
 };
 
 /** Strips both parameters, leaving any others the app might care about. */

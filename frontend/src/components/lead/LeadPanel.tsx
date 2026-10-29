@@ -37,6 +37,8 @@ type Props = {
   onRemindersChanged?: () => void;
   /** Device-alarm health, shown in the reminder create form. */
   reminderAlarms?: ComponentProps<typeof FollowUpsSection>['alarms'];
+  /** Bumped when a reminder changed outside this panel, so its list refetches. See AppShell. */
+  remindersRefreshKey?: number;
 };
 
 const LeadPanel = ({
@@ -48,6 +50,7 @@ const LeadPanel = ({
   leadName,
   onRemindersChanged,
   reminderAlarms,
+  remindersRefreshKey,
 }: Props) => {
   const { permissions } = useAuth() as AuthValue;
   // Below xl this panel is the whole screen; above it, a reference column beside the thread.
@@ -166,6 +169,7 @@ const LeadPanel = ({
             <FollowUpsSection
               conversationId={conversation.id}
               onRemindersChanged={onRemindersChanged}
+              refreshKey={remindersRefreshKey}
               alarms={reminderAlarms}
             />
           </MobileDisclosure>
@@ -255,6 +259,7 @@ const LeadPanel = ({
           <FollowUpsSection
               conversationId={conversation.id}
               onRemindersChanged={onRemindersChanged}
+              refreshKey={remindersRefreshKey}
               alarms={reminderAlarms}
             />
 
