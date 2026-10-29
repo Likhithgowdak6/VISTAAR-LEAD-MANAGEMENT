@@ -10,6 +10,7 @@ import {
   listConversationFollowUpsForActor,
   createPersonalReminderForActor,
   listMyFollowUps,
+  listOrganizationTasksForActor,
   rescheduleFollowUpForActor,
 } from './followup.service.js';
 import { createReminderSyncService, type ReminderSyncService } from './reminder-sync.service.js';
@@ -18,6 +19,7 @@ import {
   createFollowUpBodySchema,
   createPersonalReminderBodySchema,
   listMyFollowUpsQuerySchema,
+  listOrganizationTasksQuerySchema,
   rescheduleFollowUpBodySchema,
   syncRemindersBodySchema,
   taskIdParamsSchema,
@@ -39,6 +41,13 @@ const followUpErrorMap = {
   FOLLOWUP_NOT_PENDING: {
     statusCode: 409,
     message: 'Only a pending follow-up task can change status.',
+  },
+  // 403 rather than 404: unlike a reminder id, the existence of a team view is not a secret,
+  // and telling somebody "you do not have access" is more useful than pretending the tab is
+  // not there when the UI has already shown it to them.
+  TASKS_TEAM_ACCESS_DENIED: {
+    statusCode: 403,
+    message: 'You do not have access to the team task list.',
   },
 } as const;
 
@@ -134,6 +143,54 @@ export const listMyFollowUpTasks = asyncHandler(async (req, res) => {
     data: tasks,
     meta: { limit: query.limit, skip: query.skip, count: tasks.length },
   });
+});
+
+/**
+ * GET /follow-ups/tasks - the centralised Tasks screen.
+ *
+ * ADDITIVE. `GET /follow-ups` keeps its existing meaning (my pending reminders, used by the
+ * older list) and is untouched, because changing the shape of a live endpoint to serve a new
+ * screen is how an app that was working yesterday stops working today.
+ *
+ * `meta` carries the counts as well as the pagination, in one round trip: the chips and the
+ * list describe the same dataset, and fetching them separately would let them disagree.
+ */
+export const listOrganizationTasks = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const query = parseWithSchema({
+    schema: listOrganizationTasksQuerySchema,
+    value: req.query,
+    source: 'Query',
+  });
+
+  try {
+    const { tasks, matched, counts } = await listOrganizationTasksForActor({
+      organizationId: auth.organization._id,
+      actor: auth.user,
+      permissions: auth.permissions,
+      scope: query.scope,
+      status: query.status ?? null,
+      dueFrom: query.dueFrom ?? null,
+      dueTo: query.dueTo ?? null,
+      search: query.search ?? null,
+      limit: query.limit,
+      skip: query.skip,
+    });
+
+    res.status(200).json({
+      data: tasks,
+      meta: {
+        scope: query.scope,
+        limit: query.limit,
+        skip: query.skip,
+        count: tasks.length,
+        matched,
+        counts,
+      },
+    });
+  } catch (error: unknown) {
+    mapFollowUpError(error);
+  }
 });
 
 export const completeFollowUp = asyncHandler(async (req, res) => {

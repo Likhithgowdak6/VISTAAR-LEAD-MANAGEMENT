@@ -22,6 +22,28 @@ export const listMyFollowUpsQuerySchema = z.object({
   skip: z.coerce.number().int().min(0).default(0),
 });
 
+/**
+ * The centralised Tasks screen's query.
+ *
+ * Note what is NOT here, for the same reason the sync body documents it: no organisation id,
+ * no user id, no assignee. `scope` says MINE or TEAM and the server resolves both from the
+ * auth context, so there is no field here that could point the query at somebody else.
+ *
+ * `limit` caps at 100 like every other list in this module - a screen that asks for ten
+ * thousand rows is a mistake or an attack, and either way the answer is the same.
+ */
+export const listOrganizationTasksQuerySchema = z.object({
+  scope: z.enum(['mine', 'team']).default('mine'),
+  /** `late` is derived (pending + past due), not a stored status. See the repository. */
+  status: z.enum(['pending', 'late', 'completed', 'cancelled']).optional(),
+  dueFrom: z.coerce.date().optional(),
+  dueTo: z.coerce.date().optional(),
+  /** Matched against task title, note and the lead's display name. Regex-escaped server-side. */
+  search: z.string().trim().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  skip: z.coerce.number().int().min(0).default(0),
+});
+
 export const createFollowUpBodySchema = z.object({
   assignedTo: objectIdSchema.optional(),
   type: z.enum(FOLLOWUP_TYPE_VALUES).default(FOLLOWUP_TYPES.CUSTOM),

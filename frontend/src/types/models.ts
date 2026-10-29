@@ -340,6 +340,41 @@ export interface FollowUpTask {
   updatedAt: string | null;
 }
 
+/** Which slice of the Tasks screen. `team` is refused server-side without conversations.read_all. */
+export type TaskScope = 'mine' | 'team';
+
+/** The Tasks screen's chips. `late` is derived (pending + past due), not a stored status. */
+export type TaskStatusFilter = 'pending' | 'late' | 'completed' | 'cancelled';
+
+/**
+ * One row of the centralised Tasks list.
+ *
+ * The follow-up task plus just enough of its lead to draw a card. `lead` is null for a personal
+ * reminder, which has no customer - not an empty object, so the card renders no customer line
+ * rather than a blank one.
+ */
+export interface TaskListItem extends FollowUpTask {
+  lead: {
+    conversationId: string | null;
+    displayName: string | null;
+    leadId: string | null;
+  } | null;
+}
+
+/**
+ * Counts across EVERY status, regardless of which chip is selected.
+ *
+ * That is what lets a chip read "Done 112" while the pending list is on screen. `overdue` is
+ * computed server-side against one clock so the chips and the list cannot disagree.
+ */
+export interface TaskCounts {
+  total: number;
+  pending: number;
+  overdue: number;
+  completed: number;
+  cancelled: number;
+}
+
 export interface ActivityLog {
   id: string;
   organizationId: string | null;

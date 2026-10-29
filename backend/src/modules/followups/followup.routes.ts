@@ -13,6 +13,7 @@ import {
   listConversationFollowUps,
   createPersonalReminder,
   listMyFollowUpTasks,
+  listOrganizationTasks,
   rescheduleFollowUp,
   syncReminders,
 } from './followup.controller.js';
@@ -30,6 +31,9 @@ followUpRouter.use(authenticateRequest);
 followUpRouter.use(requirePasswordChanged);
 
 followUpRouter.get('/', requireCrmTasksManage, listMyFollowUpTasks);
+// The centralised Tasks screen. A literal path, so it is matched before anything could read
+// "tasks" as an id - the same care '/sync' below is mounted with.
+followUpRouter.get('/tasks', requireCrmTasksManage, listOrganizationTasks);
 // The Android app's sync. Mounted before '/:taskId' routes so "sync" is never parsed as an id.
 followUpRouter.post('/sync', requireCrmTasksManage, syncReminders);
 followUpRouter.post('/', requireCrmTasksManage, createPersonalReminder);

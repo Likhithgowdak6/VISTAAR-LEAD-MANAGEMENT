@@ -65,6 +65,10 @@ import {
   type StageKey,
   type StageStatus,
   type Tag,
+  type TaskCounts,
+  type TaskListItem,
+  type TaskScope,
+  type TaskStatusFilter,
   type TestModeStatus,
   type TestOwnerCall,
   type TestOwnerCallOutcome,
@@ -1497,6 +1501,60 @@ export interface CreatePersonalReminderParams extends TokenParams {
 }
 
 /** A reminder about nothing in particular - no lead, no conversation. */
+export interface ListOrganizationTasksParams extends TokenParams {
+  scope: TaskScope;
+  status?: TaskStatusFilter | null;
+  search?: string | null;
+  dueFrom?: string | null;
+  dueTo?: string | null;
+  limit?: number;
+  skip?: number;
+}
+
+export interface OrganizationTasksMeta {
+  scope: TaskScope;
+  limit: number;
+  skip: number;
+  count: number;
+  /** Rows matching AFTER the status chip - what pagination counts against. */
+  matched: number;
+  counts: TaskCounts;
+}
+
+/**
+ * The centralised Tasks screen.
+ *
+ * ONE REQUEST FOR THE LIST AND THE COUNTS. They describe the same dataset, and fetching them
+ * separately is how a chip ends up reporting a number the list below it contradicts.
+ *
+ * `scope: 'team'` is REFUSED server-side (403) without conversations.read_all. The UI hides the
+ * tab too, but that is a courtesy - the gate is in followup.service.ts.
+ */
+export const listOrganizationTasks = ({
+  token,
+  scope,
+  status,
+  search,
+  dueFrom,
+  dueTo,
+  limit,
+  skip,
+}: ListOrganizationTasksParams): Promise<ApiSuccessResponse<TaskListItem[]>> =>
+  apiFetch(
+    `/follow-ups/tasks${buildQuery({
+      scope,
+      status: status ?? undefined,
+      // Omitted rather than sent empty: the server reads an absent term as "do not filter",
+      // which is a different request from searching for the empty string.
+      search: search?.trim() ? search.trim() : undefined,
+      dueFrom: dueFrom ?? undefined,
+      dueTo: dueTo ?? undefined,
+      limit,
+      skip,
+    })}`,
+    { token },
+  );
+
 export const createPersonalReminder = ({
   token,
   title,

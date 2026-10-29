@@ -1,4 +1,4 @@
-import { type QueryFilter, type UpdateQuery } from 'mongoose';
+import { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
 import { FOLLOWUP_PRIORITIES, type FollowupPriority } from '../../constants/followup-priorities.js';
 import { FOLLOWUP_STATUSES, type FollowupStatus } from '../../constants/followup-statuses.js';
@@ -616,3 +616,218 @@ export const markClockAlarmArmed = ({ taskId, now = new Date() }: MarkClockAlarm
     { $set: { clockAlarmArmedAt: now } },
     { returnDocument: 'after' },
   ).exec();
+
+// --------------------------------------------------------------------------
+// The Tasks screen's query.
+//
+// Everything above answers "what does this ONE conversation owe" or "what is due RIGHT NOW
+// across every tenant". The centralised Tasks screen asks a third question - "what does this
+// person, or their team, owe across every lead" - and no existing query answers it:
+// findFollowUpTasksByConversation is conversation-scoped, and findPendingTasksByUser is
+// pending-only, assignee-only, and carries no lead name to put on a card.
+//
+// ONE AGGREGATION, NOT A FAN-OUT. Listing conversations and then fetching each one's reminders
+// is N+1 against the database and - worse - cannot sort, filter or count across the whole set,
+// so page 2 would be meaningless and the counts would describe only what had been fetched. It
+// also could not search by customer name without pulling every task into memory first.
+// --------------------------------------------------------------------------
+
+/**
+ * Regex-escapes a search term.
+ *
+ * NOT OPTIONAL. The term goes into a `$regex`. Unescaped, `(` is a syntax error that surfaces
+ * as a 500, and something like `(a+)+$` is catastrophic backtracking executed inside the
+ * database. Escaped, the string matches literally - which is also what somebody typing a
+ * customer's name expects it to do.
+ */
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Which slice the caller is asking for. See the service for who is allowed to ask for team. */
+export type TaskListScope = 'mine' | 'team';
+
+/** The chips on the Tasks screen. `late` is DERIVED, not a stored status - see below. */
+export type TaskListStatusFilter = 'pending' | 'late' | 'completed' | 'cancelled';
+
+export interface FindOrganizationTasksParams extends PaginationParams {
+  organizationId: ObjectIdLike;
+  /** The caller. `mine` filters on it, and `team` still uses it to protect their own privacy. */
+  actorId: ObjectIdLike;
+  scope: TaskListScope;
+  status?: TaskListStatusFilter | null;
+  dueFrom?: Date | null;
+  dueTo?: Date | null;
+  search?: string | null;
+  now?: Date;
+}
+
+export interface OrganizationTaskCounts {
+  total: number;
+  pending: number;
+  overdue: number;
+  completed: number;
+  cancelled: number;
+}
+
+export interface OrganizationTaskRow extends FollowUpTaskDocument {
+  /** The lead this task is about. Absent on a personal reminder; three fields, never the lot. */
+  conversation?: { _id: Types.ObjectId; displayName?: string; leadId?: string } | null;
+}
+
+export interface FindOrganizationTasksResult {
+  rows: OrganizationTaskRow[];
+  /** How many rows match AFTER the status chip. This is what pagination counts against. */
+  matched: number;
+  /** Counts across every status, so a chip can say "Done 112" while you view the pending list. */
+  counts: OrganizationTaskCounts;
+}
+
+export const findOrganizationTasks = async ({
+  organizationId,
+  actorId,
+  scope,
+  status = null,
+  dueFrom = null,
+  dueTo = null,
+  search = null,
+  limit = 25,
+  skip = 0,
+  now = new Date(),
+}: FindOrganizationTasksParams): Promise<FindOrganizationTasksResult> => {
+  const organization = toObjectId(organizationId);
+  const actor = toObjectId(actorId);
+
+  /*
+   * WHO IS IN THE SET, decided here rather than in the UI.
+   *
+   * `mine` is the actor's own assignments.
+   *
+   * `team` is every LEAD follow-up in the organisation, plus the actor's OWN personal
+   * reminders - and deliberately NOT anybody else's personal reminders. That boundary already
+   * exists and is documented in followup.service.ts: a reminder with no conversation ("call
+   * the bank about the overdraft") belongs to one person, which is why `transitionTask`
+   * refuses to let a colleague close one, and why the device-sync query is assignee-scoped. A
+   * team list that included them would be a brand-new way to read private reminders, added by
+   * a screen whose entire subject is shared work.
+   */
+  const scopeFilter: QueryFilter<FollowUpTaskDocument> =
+    scope === 'mine'
+      ? { assignedTo: actor }
+      : { $or: [{ assignedTo: actor }, { conversationId: { $ne: null } }] };
+
+  const baseMatch: QueryFilter<FollowUpTaskDocument> = {
+    organizationId: organization,
+    ...scopeFilter,
+  };
+
+  // A due-date window narrows the WHOLE set, counts included: it is the caller saying "I only
+  // care about this period", so a count reaching outside it would answer a different question.
+  if (dueFrom || dueTo) {
+    baseMatch.dueAt = {
+      ...(dueFrom ? { $gte: dueFrom } : {}),
+      ...(dueTo ? { $lte: dueTo } : {}),
+    };
+  }
+
+  const term = (search ?? '').trim();
+  const searchStage = term
+    ? [
+        {
+          $match: {
+            $or: [
+              { title: { $regex: escapeRegex(term), $options: 'i' } },
+              { note: { $regex: escapeRegex(term), $options: 'i' } },
+              { 'conversation.displayName': { $regex: escapeRegex(term), $options: 'i' } },
+            ],
+          },
+        },
+      ]
+    : [];
+
+  /*
+   * OVERDUE IS COMPUTED, NOT STORED. `missed` exists in the status enum and NOTHING in this
+   * codebase has ever written it - analytics.repository.ts states that outright - so "late"
+   * has to mean "still pending, and the due instant has passed". Derived against a single
+   * `now` fixed for the whole pipeline, because computing it twice would let the counts and
+   * the page disagree about the same task.
+   */
+  const overdueRank = {
+    $cond: [
+      { $and: [{ $eq: ['$status', FOLLOWUP_STATUSES.PENDING] }, { $lte: ['$dueAt', now] }] },
+      0,
+      1,
+    ],
+  };
+
+  const statusStage =
+    status === 'late'
+      ? [{ $match: { overdueRank: 0 } }]
+      : status
+        ? [{ $match: { status } }]
+        : [];
+
+  const [result] = await FollowUpTask.aggregate([
+    { $match: baseMatch },
+    {
+      // Projected to two fields on purpose. A task card needs the customer's NAME; it has no
+      // use for the thread's messages, AI facts or encrypted lead payload, and pulling them
+      // would drag a whole conversation document through the pipeline for every row.
+      $lookup: {
+        from: 'conversations',
+        localField: 'conversationId',
+        foreignField: '_id',
+        as: 'conversation',
+        pipeline: [{ $project: { displayName: 1, leadId: 1 } }],
+      },
+    },
+    // preserveNull, because a personal reminder has no conversation and must not vanish here.
+    { $unwind: { path: '$conversation', preserveNullAndEmptyArrays: true } },
+    ...searchStage,
+    { $addFields: { overdueRank } },
+    {
+      $facet: {
+        counts: [
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              pending: {
+                $sum: { $cond: [{ $eq: ['$status', FOLLOWUP_STATUSES.PENDING] }, 1, 0] },
+              },
+              overdue: { $sum: { $cond: [{ $eq: ['$overdueRank', 0] }, 1, 0] } },
+              completed: {
+                $sum: { $cond: [{ $eq: ['$status', FOLLOWUP_STATUSES.COMPLETED] }, 1, 0] },
+              },
+              cancelled: {
+                $sum: { $cond: [{ $eq: ['$status', FOLLOWUP_STATUSES.CANCELLED] }, 1, 0] },
+              },
+            },
+          },
+        ],
+        matched: [...statusStage, { $count: 'value' }],
+        rows: [
+          ...statusStage,
+          // Overdue first, then soonest-due. `_id` last is what makes the sort TOTAL: without
+          // it, two tasks sharing a due instant can swap places between pages, so one is shown
+          // twice and the other never appears at all.
+          { $sort: { overdueRank: 1, dueAt: 1, _id: 1 } },
+          { $skip: skip },
+          { $limit: limit },
+        ],
+      },
+    },
+  ]);
+
+  const counts = (result?.counts?.[0] ?? {}) as Partial<OrganizationTaskCounts>;
+
+  return {
+    rows: (result?.rows ?? []) as OrganizationTaskRow[],
+    matched: (result?.matched?.[0]?.value as number | undefined) ?? 0,
+    counts: {
+      total: counts.total ?? 0,
+      pending: counts.pending ?? 0,
+      overdue: counts.overdue ?? 0,
+      completed: counts.completed ?? 0,
+      cancelled: counts.cancelled ?? 0,
+    },
+  };
+};

@@ -4,7 +4,7 @@ import { ACTIVITY_EVENTS, type ActivityEvent } from '../../constants/activity-ev
 import { type FollowupPriority } from '../../constants/followup-priorities.js';
 import { FOLLOWUP_STATUSES, type FollowupStatus } from '../../constants/followup-statuses.js';
 import { FOLLOWUP_TYPES, type FollowupType } from '../../constants/followup-types.js';
-import { type Permission } from '../../constants/permissions.js';
+import { PERMISSIONS, type Permission } from '../../constants/permissions.js';
 import { REMINDER_SOURCES } from '../../constants/reminder-channels.js';
 import { runInTransaction } from '../../config/database.js';
 import { type ObjectIdLike } from '../../types/common.js';
@@ -16,11 +16,14 @@ import {
   createFollowUpTask,
   findFollowUpTaskById,
   findFollowUpTasksByConversation,
+  findOrganizationTasks,
   findPendingTasksByUser,
   rescheduleReminder,
+  type TaskListScope,
+  type TaskListStatusFilter,
   updateTaskStatus,
 } from './followup-task.repository.js';
-import { serializeFollowUpTask } from './followup-task.serializer.js';
+import { serializeFollowUpTask, serializeTaskListItem } from './followup-task.serializer.js';
 
 export interface CreateFollowUpForActorParams {
   organizationId: ObjectIdLike;
@@ -146,6 +149,73 @@ export const listMyFollowUps = async ({
   });
 
   return tasks.map((task) => serializeFollowUpTask(task));
+};
+
+export interface ListOrganizationTasksForActorParams {
+  organizationId: ObjectIdLike;
+  actor: HydratedDocument<UserDocument>;
+  permissions: readonly Permission[];
+  scope: TaskListScope;
+  status?: TaskListStatusFilter | null;
+  dueFrom?: Date | null;
+  dueTo?: Date | null;
+  search?: string | null;
+  limit?: number;
+  skip?: number;
+  now?: Date;
+}
+
+/**
+ * The centralised Tasks screen's list.
+ *
+ * THE TEAM GATE IS HERE, NOT IN THE UI. `scope` arrives from a query string, so hiding the
+ * Team tab client-side would be decoration - anyone can type `?scope=team`. The permission
+ * asked for is CONVERSATIONS_READ_ALL, reused rather than invented: it is already the thing
+ * that decides whether somebody may see work that is not assigned to them
+ * (assertConversationVisible in conversation.service.ts), and a second permission meaning the
+ * same thing is how the two eventually disagree.
+ *
+ * `mine` needs no permission beyond the CRM_TASKS_MANAGE the route already requires - looking
+ * at your own assignments is not a privilege.
+ *
+ * Organisation isolation is unconditional and lives in the repository's base `$match`; there
+ * is no scope, filter or search term that can reach outside it.
+ */
+export const listOrganizationTasksForActor = async ({
+  organizationId,
+  actor,
+  permissions,
+  scope,
+  status = null,
+  dueFrom = null,
+  dueTo = null,
+  search = null,
+  limit,
+  skip,
+  now,
+}: ListOrganizationTasksForActorParams) => {
+  if (scope === 'team' && !permissions.includes(PERMISSIONS.CONVERSATIONS_READ_ALL)) {
+    throw new Error('TASKS_TEAM_ACCESS_DENIED');
+  }
+
+  const { rows, matched, counts } = await findOrganizationTasks({
+    organizationId,
+    actorId: actor._id,
+    scope,
+    status,
+    dueFrom,
+    dueTo,
+    search,
+    limit,
+    skip,
+    now,
+  });
+
+  return {
+    tasks: rows.map((row) => serializeTaskListItem(row)),
+    matched,
+    counts,
+  };
 };
 
 export interface TransitionTaskParams {

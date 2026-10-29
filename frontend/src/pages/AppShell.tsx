@@ -10,11 +10,13 @@ import AnalyticsPage from './AnalyticsPage';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
+import ReminderDetailDialog from '../components/reminders/ReminderDetailDialog';
 import MobileSectionMenu, { type MobileNavItem } from '../components/MobileSectionMenu';
 import MobileAppBar from '../components/mobile/MobileAppBar';
 import MobileBottomNav from '../components/mobile/MobileBottomNav';
 import { useAuth } from '../auth/AuthContext';
 import { getInitials } from '../lib/format';
+import { onDeepLinkOpened } from '../lib/capacitor-deep-link';
 import { clearDeepLinkTarget, readDeepLinkTarget } from '../lib/deep-link';
 import { readMetaConnectReturn } from '../lib/meta-connect';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
@@ -24,10 +26,12 @@ import LeadSourcesPage from './LeadSourcesPage';
 import SettingsPage from './SettingsPage';
 import StagesPage from './StagesPage';
 import TagsPage from './TagsPage';
+import TasksPage from './TasksPage';
 import TeamPage from './TeamPage';
 
 type AppView =
   | 'inbox'
+  | 'tasks'
   | 'analytics'
   | 'accounts'
   | 'team'
@@ -159,8 +163,30 @@ const AppShell = () => {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => deepLink?.conversationId ?? null,
   );
+  /**
+   * The reminder a `View reminder:` link named, if it named one.
+   *
+   * Held as a pair rather than as a bare id because the lookup is scoped by the conversation -
+   * see ReminderDetailDialog - and because the owner can navigate away while this is open,
+   * at which point the dialog should close rather than hang over an unrelated thread.
+   */
+  const [openReminder, setOpenReminder] = useState<{
+    reminderId: string;
+    conversationId: string;
+  } | null>(() =>
+    deepLink?.reminderId
+      ? { reminderId: deepLink.reminderId, conversationId: deepLink.conversationId }
+      : null,
+  );
   // Bumped to force the inbox list to remount and refetch after a delete removes a row from it.
   const [listRefreshKey, setListRefreshKey] = useState(0);
+  /**
+   * Bumped when a reminder changes OUTSIDE the lead panel - which today means from the dialog
+   * above. Without it, completing a reminder from a notification leaves the panel behind it
+   * still listing that reminder as open, which is a stale screen rather than a wrong one, but
+   * is exactly the kind of staleness that gets reported as "it did not work".
+   */
+  const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
   /** The More sheet. Owned here rather than inside the bar so the sheet outlives a tab change. */
   const [moreOpen, setMoreOpen] = useState(false);
@@ -199,6 +225,20 @@ const AppShell = () => {
   }, [deepLink]);
 
   /**
+   * A reminder dialog belongs to ONE thread. Leaving the lead closes it.
+   *
+   * Without this, dismissing the thread would leave the dialog's state set, and coming back to
+   * the same lead later would resurrect a reminder popup the owner had already walked away
+   * from - which reads as the app re-notifying them about something they dealt with.
+   */
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenReminder((current) =>
+      current && current.conversationId === selectedId ? current : null,
+    );
+  }, [selectedId]);
+
+  /**
    * Opens a lead. Used by the reminders list and by a tapped notification, so both land in the
    * same place as clicking the thread in the inbox - no second navigation concept.
    */
@@ -207,6 +247,27 @@ const AppShell = () => {
     setView('inbox');
     setSelectedId(conversationId);
   }, []);
+
+  /**
+   * THE ANDROID HALF OF THE SAME LINK.
+   *
+   * In a browser the parameters are in the address bar and `deepLink` above already has them.
+   * In the APK the WebView is never navigated to the link's URL - it is served from
+   * `https://localhost` - so Android hands the URL over as an intent instead, and this is where
+   * it lands. Same destination, same two ids, arriving through a different door.
+   *
+   * Subscribed HERE rather than in main.tsx because this component is the only thing that knows
+   * how to open a lead, and it only exists once there is a signed-in user. A link that arrived
+   * during the splash screen or before sign-in is buffered until this runs.
+   */
+  useEffect(
+    () =>
+      onDeepLinkOpened(({ conversationId, reminderId }) => {
+        openConversation(conversationId);
+        setOpenReminder(reminderId ? { reminderId, conversationId } : null);
+      }),
+    [openConversation],
+  );
 
   /** Opening a thread from the inbox list itself has no origin to return to beyond the list. */
   const selectConversation = useCallback((conversationId: string) => {
@@ -374,6 +435,33 @@ const AppShell = () => {
   const canManageAiKnowledge = hasPermission(permissions, PERMISSIONS.AI_KNOWLEDGE_MANAGE);
   const canManageLeadSources = hasPermission(permissions, PERMISSIONS.LEAD_SOURCES_MANAGE);
   const canManageSettings = hasPermission(permissions, PERMISSIONS.SETTINGS_MANAGE);
+  // The same permission the lead panel's reminder section gates on, so Tasks appears for
+  // exactly the people who can already see and act on reminders.
+  const canManageTasks = hasPermission(permissions, PERMISSIONS.CRM_TASKS_MANAGE);
+
+  /**
+   * Opening a task from the Tasks screen.
+   *
+   * THE SAME PATH A TAPPED WHATSAPP LINK TAKES. `openConversation` plus `setOpenReminder` is
+   * exactly what the deep-link handler above does, so a task opened here and a reminder opened
+   * from a notification land on the same thread with the same dialog over it - one destination
+   * concept, not two that drift apart.
+   *
+   * `conversationOriginRef` inside `openConversation` is what makes closing the thread return
+   * to Tasks rather than stranding the owner in the inbox.
+   */
+  const openTaskTarget = useCallback(
+    ({ conversationId, reminderId }: { conversationId: string | null; reminderId: string }) => {
+      if (!conversationId) {
+        // A personal reminder has no lead and no destination. The card does not offer this.
+        return;
+      }
+
+      openConversation(conversationId);
+      setOpenReminder({ reminderId, conversationId });
+    },
+    [openConversation],
+  );
 
   /**
    * The same sections the masthead strip offers, as data, for the phone's menu sheet. Built
@@ -420,6 +508,7 @@ const AppShell = () => {
 
   const navItems: MobileNavItem<AppView>[] = [
     { view: 'inbox', label: 'Inbox' },
+    ...(canManageTasks ? ([{ view: 'tasks', label: 'Tasks' }] as const) : []),
     { view: 'analytics', label: 'Analytics' },
     ...(canReadAccounts ? ([{ view: 'accounts', label: 'Accounts' }] as const) : []),
     ...(canReadUsers ? ([{ view: 'team', label: 'Team' }] as const) : []),
@@ -471,6 +560,11 @@ const AppShell = () => {
               <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
                 Inbox
               </NavButton>
+              {canManageTasks ? (
+                <NavButton active={view === 'tasks'} onClick={() => setView('tasks')}>
+                  Tasks
+                </NavButton>
+              ) : null}
               {canReadAccounts ? (
                 <NavButton active={view === 'accounts'} onClick={() => setView('accounts')}>
                   Accounts
@@ -547,7 +641,11 @@ const AppShell = () => {
         <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
       ) : null}
 
-      {view === 'accounts' && canReadAccounts ? (
+      {view === 'tasks' && canManageTasks ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks">
+          <TasksPage onOpenTask={openTaskTarget} />
+        </SectionScreen>
+      ) : view === 'accounts' && canReadAccounts ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="WhatsApp numbers">
           <AccountsPage />
         </SectionScreen>
@@ -617,6 +715,7 @@ const AppShell = () => {
               // Reminders page owned - re-arming device alarms after a change, and telling the
               // owner whether this phone will ring - are handed down to it here.
               onRemindersChanged={syncAlarms}
+              remindersRefreshKey={remindersRefreshKey}
               reminderAlarms={
                 alarmStatus
                   ? {
@@ -664,6 +763,25 @@ const AppShell = () => {
           active={view === 'inbox' ? 'inbox' : 'more'}
           onInbox={goToInbox}
           onMore={() => setMoreOpen(true)}
+        />
+      ) : null}
+
+      {/* The reminder a notification was about, over its lead.
+          Rendered at the shell rather than inside the lead panel on purpose: on a phone that
+          panel is a screen the owner has not opened yet, and its reminder list sits behind a
+          collapsed disclosure inside it - so a dialog mounted there would not be on screen when
+          the link lands. Gated on the selection so it can never hang over a different thread. */}
+      {openReminder && selectedId === openReminder.conversationId ? (
+        <ReminderDetailDialog
+          reminderId={openReminder.reminderId}
+          conversationId={openReminder.conversationId}
+          onClose={() => setOpenReminder(null)}
+          onChanged={() => {
+            // Both halves of "something changed": re-arm the device alarms, and make the lead
+            // panel behind this refetch so it is not still showing what was just completed.
+            syncAlarms();
+            setRemindersRefreshKey((value) => value + 1);
+          }}
         />
       ) : null}
 

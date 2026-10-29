@@ -26,6 +26,10 @@ import type {
   SendableAccount,
   Stage,
   Tag,
+  TaskCounts,
+  TaskListItem,
+  TaskScope,
+  TaskStatusFilter,
   User,
   WhatsAppAccount,
 } from '../types';
@@ -54,6 +58,10 @@ export type {
   SendableAccount,
   Stage,
   Tag,
+  TaskCounts,
+  TaskListItem,
+  TaskScope,
+  TaskStatusFilter,
   User,
   WhatsAppAccount,
 };
