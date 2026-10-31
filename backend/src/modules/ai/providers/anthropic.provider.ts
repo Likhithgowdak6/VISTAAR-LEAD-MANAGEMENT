@@ -4,6 +4,7 @@ import { AiProviderNotReadyError } from '../ai.errors.js';
 import {
   AI_PROVIDER_NAMES,
   assertAiProvider,
+  resolveMaxOutputTokens,
   type AiProvider,
   type GenerateReplyDraftParams,
 } from '../ai-provider.interface.js';
@@ -48,14 +49,19 @@ export const createAnthropicProvider = ({
       systemPrompt,
       threadText,
       instructions,
+      maxOutputTokens: maxOutputTokensOverride,
     }: GenerateReplyDraftParams = {}) {
+      // The configured default unless this call asked for something else, and unusable
+      // overrides are ignored rather than forwarded - see resolveMaxOutputTokens.
+      const outputTokens = resolveMaxOutputTokens(maxOutputTokensOverride, maxOutputTokens);
+
       const anthropic = getClient();
 
       const userContent = [threadText, instructions].filter(Boolean).join('\n\n');
 
       const response = await anthropic.messages.create({
         model,
-        max_tokens: maxOutputTokens,
+        max_tokens: outputTokens,
         system: systemPrompt,
         messages: [
           {

@@ -2,6 +2,7 @@ import { AiProviderError, AiProviderNotReadyError } from '../ai.errors.js';
 import {
   AI_PROVIDER_NAMES,
   assertAiProvider,
+  resolveMaxOutputTokens,
   type AiProvider,
   type GenerateReplyDraftParams,
 } from '../ai-provider.interface.js';
@@ -43,7 +44,12 @@ export const createGroqProvider = ({
       systemPrompt,
       threadText,
       instructions,
+      maxOutputTokens: maxOutputTokensOverride,
     }: GenerateReplyDraftParams = {}) {
+      // The configured default unless this call asked for something else, and unusable
+      // overrides are ignored rather than forwarded - see resolveMaxOutputTokens.
+      const outputTokens = resolveMaxOutputTokens(maxOutputTokensOverride, maxOutputTokens);
+
       if (!apiKey) {
         throw new AiProviderNotReadyError('GROQ_API_KEY is not configured.');
       }
@@ -58,7 +64,7 @@ export const createGroqProvider = ({
         },
         body: JSON.stringify({
           model,
-          max_tokens: maxOutputTokens,
+          max_tokens: outputTokens,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent },
