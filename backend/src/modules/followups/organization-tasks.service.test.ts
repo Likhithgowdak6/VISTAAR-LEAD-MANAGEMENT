@@ -60,7 +60,8 @@ const { listOrganizationTasksForActor } = await import('./followup.service.js');
 const { PERMISSIONS } = await import('../../constants/permissions.js');
 
 const ORG = '6ab4c2037469f65204cfe999';
-const actor = { _id: '6ab4c2037469f65204cfe111' } as never;
+const ACTOR_ID = '6ab4c2037469f65204cfe111';
+const actor = { _id: ACTOR_ID } as never;
 
 const call = (
   scope: 'mine' | 'team',
@@ -123,7 +124,7 @@ describe('what reaches the query', () => {
     await call('mine', [PERMISSIONS.CRM_TASKS_MANAGE]);
 
     expect(mocks.findOrganizationTasks).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: ORG, actorId: actor._id }),
+      expect.objectContaining({ organizationId: ORG, actorId: ACTOR_ID }),
     );
   });
 
@@ -173,7 +174,7 @@ describe('serialisation', () => {
           _id: '6adf2dd59f91cdd63f09e0f3',
           organizationId: ORG,
           conversationId: '68f1a2b3c4d5e6f708192a3b',
-          assignedTo: actor._id,
+          assignedTo: ACTOR_ID,
           title: 'Call vaishu',
           status: 'pending',
           dueAt: new Date('2026-10-30T15:40:00.000Z'),
@@ -206,7 +207,7 @@ describe('serialisation', () => {
           _id: '6adf2dd59f91cdd63f09e0f4',
           organizationId: ORG,
           conversationId: null,
-          assignedTo: actor._id,
+          assignedTo: ACTOR_ID,
           title: 'Review the campaign',
           status: 'pending',
           dueAt: new Date('2026-10-30T11:00:00.000Z'),
