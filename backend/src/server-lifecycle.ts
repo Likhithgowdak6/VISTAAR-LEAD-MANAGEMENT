@@ -18,6 +18,8 @@ import { createNurtureRunner } from './modules/ai-brain/nurture-runner.js';
 import { createPromiseFollowUpRunner } from './modules/followups/promise-follow-up.runner.js';
 import { createReminderRunner } from './modules/followups/reminder-runner.js';
 import { createOwnerCallEscalationRunner } from './modules/ai-brain/owner-call-escalation-runner.js';
+import { createCallProcessingRunner } from './modules/calls/call-processing.runner.js';
+import { createCallRetentionRunner } from './modules/calls/call-retention.runner.js';
 import { createLeadImportRunner } from './modules/lead-sources/lead-import.runner.js';
 import {
   startRealtimeSubscriber,
@@ -45,6 +47,8 @@ let autoGreetRunner: BackgroundRunnerHandle | null = null;
 let paymentFollowUpRunner: BackgroundRunnerHandle | null = null;
 let eventReminderRunner: BackgroundRunnerHandle | null = null;
 let ownerCallEscalationRunner: BackgroundRunnerHandle | null = null;
+let callProcessingRunner: BackgroundRunnerHandle | null = null;
+let callRetentionRunner: BackgroundRunnerHandle | null = null;
 
 export interface ListenForRequestsParams {
   appInstance: Express;
@@ -112,6 +116,8 @@ export interface StartServerParams {
   createRealtimeOutboxRunnerFn?: () => BackgroundRunnerHandle;
   createDeliveryRunnerFn?: () => BackgroundRunnerHandle;
   createLeadImportRunnerFn?: () => BackgroundRunnerHandle;
+  createCallProcessingRunnerFn?: () => BackgroundRunnerHandle;
+  createCallRetentionRunnerFn?: () => BackgroundRunnerHandle;
   createNurtureRunnerFn?: () => BackgroundRunnerHandle;
   createPromiseFollowUpRunnerFn?: () => BackgroundRunnerHandle;
   createReminderRunnerFn?: () => BackgroundRunnerHandle;
@@ -148,6 +154,8 @@ export const startServer = async ({
   createPaymentFollowUpRunnerFn = createPaymentFollowUpRunner,
   createEventReminderRunnerFn = createEventReminderRunner,
   createOwnerCallEscalationRunnerFn = createOwnerCallEscalationRunner,
+  createCallProcessingRunnerFn = createCallProcessingRunner,
+  createCallRetentionRunnerFn = createCallRetentionRunner,
   reconnectSessionsFn = () => getSessionManager().reconnectPersistedSessions(),
   stopSessionsFn = () => getSessionManager().stopAll(),
 }: StartServerParams = {}): Promise<Server> => {
@@ -293,6 +301,32 @@ export const startServer = async ({
     });
     startedOwnerCallEscalationRunner.start();
 
+    // Transcribes uploaded call recordings and summarises them. Harmless with no transcription
+    // provider configured: it claims a call, records TRANSCRIPTION_NOT_CONFIGURED against it and
+    // moves on, which is visible in the UI rather than silent.
+    const startedCallProcessingRunner = createCallProcessingRunnerFn();
+    callProcessingRunner = startedCallProcessingRunner;
+    rollbackSteps.push(() => {
+      startedCallProcessingRunner.stop();
+      if (callProcessingRunner === startedCallProcessingRunner) {
+        callProcessingRunner = null;
+      }
+    });
+    startedCallProcessingRunner.start();
+
+    // Deletes call data past each organisation's retention period. A NO-OP until somebody sets
+    // one: every field defaults to null and null means keep forever, so this can run for
+    // months on a database of real calls and delete nothing. See call-retention.service.ts.
+    const startedCallRetentionRunner = createCallRetentionRunnerFn();
+    callRetentionRunner = startedCallRetentionRunner;
+    rollbackSteps.push(() => {
+      startedCallRetentionRunner.stop();
+      if (callRetentionRunner === startedCallRetentionRunner) {
+        callRetentionRunner = null;
+      }
+    });
+    startedCallRetentionRunner.start();
+
     // Restore sessions for accounts that were connected before the process stopped. Best-effort:
     // a reconnect failure must never prevent the server from coming up.
     rollbackSteps.push(stopSessionsFn);
@@ -341,6 +375,10 @@ export const stopServer = async ({
   let httpServerError: unknown = null;
 
   try {
+    callRetentionRunner?.stop();
+    callRetentionRunner = null;
+    callProcessingRunner?.stop();
+    callProcessingRunner = null;
     ownerCallEscalationRunner?.stop();
     ownerCallEscalationRunner = null;
     eventReminderRunner?.stop();

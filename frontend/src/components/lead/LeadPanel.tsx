@@ -5,7 +5,9 @@ import { useIsMobileViewport } from '../../hooks/useMobileBackLayer';
 import MobileDisclosure from '../mobile/MobileDisclosure';
 import { hasPermission, PERMISSIONS } from '../../lib/permissions';
 import { type AuthValue, type ConversationSummary } from '../types';
+import CallDetailDialog from '../calls/CallDetailDialog';
 import ActivitySection from './ActivitySection';
+import CallAction from './CallAction';
 import AiAutomationSection from './AiAutomationSection';
 import AssignmentControl from './AssignmentControl';
 import DeleteChatSection from './DeleteChatSection';
@@ -60,6 +62,8 @@ const LeadPanel = ({
 
   // Bumping this key re-fetches the activity timeline after a mutating action.
   const [activityKey, setActivityKey] = useState(0);
+  /** The call whose detail is open, opened from a timeline entry. */
+  const [openCallId, setOpenCallId] = useState<string | null>(null);
   const bumpActivity = () => setActivityKey((value) => value + 1);
 
   const handleStageChange = (stage: string) => {
@@ -118,6 +122,19 @@ const LeadPanel = ({
           {/* Open: who they are and what to send them. */}
           <div className="flex flex-col gap-5 rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3">
             {contactId ? <RevealPhone contactId={contactId} /> : null}
+
+          <CallAction
+            conversationId={conversation.id}
+            contactId={contactId ?? null}
+            onCallRecorded={bumpActivity}
+          />
+            {/* Beside the number, because revealing it and ringing it are the same
+                errand. Opens the system dialler - see CallAction. */}
+            <CallAction
+              conversationId={conversation.id}
+              contactId={contactId ?? null}
+              onCallRecorded={bumpActivity}
+            />
             <StageControl
               conversationId={conversation.id}
               stage={conversation.stage}
@@ -185,7 +202,11 @@ const LeadPanel = ({
           ) : null}
 
           <MobileDisclosure title="Activity">
-            <ActivitySection conversationId={conversation.id} refreshKey={activityKey} />
+            <ActivitySection
+              conversationId={conversation.id}
+              refreshKey={activityKey}
+              onOpenCall={setOpenCallId}
+            />
           </MobileDisclosure>
 
           {/* Outside the groups and last, so a destructive action is never one tap from a
@@ -263,7 +284,11 @@ const LeadPanel = ({
               alarms={reminderAlarms}
             />
 
-          <ActivitySection conversationId={conversation.id} refreshKey={activityKey} />
+          <ActivitySection
+              conversationId={conversation.id}
+              refreshKey={activityKey}
+              onOpenCall={setOpenCallId}
+            />
 
           {/* Last, and only for roles that hold the permission - `staff` deliberately cannot delete. */}
           {canDelete ? (
@@ -275,6 +300,9 @@ const LeadPanel = ({
           ) : null}
         </div>
       )}
+      {openCallId ? (
+        <CallDetailDialog callId={openCallId} onClose={() => setOpenCallId(null)} />
+      ) : null}
     </aside>
   );
 };

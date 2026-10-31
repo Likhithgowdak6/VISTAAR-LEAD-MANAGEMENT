@@ -10,9 +10,14 @@ import { type ActivityEntry, type AuthValue, errorMessage } from '../types';
 type Props = {
   conversationId: string;
   refreshKey?: number;
+  /**
+   * Opens a call's detail. Optional, so the timeline still renders anywhere this is not wired -
+   * the entry then reads as a plain line rather than offering a link to nothing.
+   */
+  onOpenCall?: (callId: string) => void;
 };
 
-const ActivitySection = ({ conversationId, refreshKey }: Props) => {
+const ActivitySection = ({ conversationId, refreshKey, onOpenCall }: Props) => {
   const { authedRequest } = useAuth() as AuthValue;
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,14 +61,41 @@ const ActivitySection = ({ conversationId, refreshKey }: Props) => {
       ) : null}
 
       <ul className="space-y-2">
-        {activity.map((entry) => (
-          <li key={entry.id} className="border-l-2 border-slate-200 pl-2 text-sm">
-            <p className="text-slate-700">{entry.summary}</p>
-            <p className="text-[11px] text-slate-400">
-              <RelativeTime value={entry.createdAt} />
-            </p>
-          </li>
-        ))}
+        {activity.map((entry) => {
+          /*
+           * Call entries carry their call id, so the timeline can offer a way into the detail.
+           * Read defensively rather than cast: `metadata` is a free-form bag, older rows
+           * predate these keys, and a missing id must degrade to a plain line rather than
+           * render a button that leads nowhere.
+           */
+          const callId =
+            typeof entry.metadata?.callId === 'string' ? entry.metadata.callId : null;
+          const durationSeconds =
+            typeof entry.metadata?.durationSeconds === 'number'
+              ? entry.metadata.durationSeconds
+              : null;
+
+          return (
+            <li key={entry.id} className="border-l-2 border-slate-200 pl-2 text-sm">
+              <p className="text-slate-700">{entry.summary}</p>
+              <p className="text-[11px] text-slate-400">
+                <RelativeTime value={entry.createdAt} />
+                {/* Only ever shown for a call somebody said connected - the server stores no
+                    duration otherwise, so there is nothing here to invent. */}
+                {durationSeconds ? <span> · {Math.round(durationSeconds / 60)} min</span> : null}
+              </p>
+              {callId && onOpenCall ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenCall(callId)}
+                  className="min-h-11 text-[11px] font-medium text-blue-600 hover:text-blue-700 sm:min-h-0"
+                >
+                  View call
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

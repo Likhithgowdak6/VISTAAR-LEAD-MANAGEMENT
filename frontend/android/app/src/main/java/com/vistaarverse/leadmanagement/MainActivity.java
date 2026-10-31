@@ -15,6 +15,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ClockAlarmPlugin.class);
+        // Opens the system dialler with a lead's number. ACTION_DIAL only - no CALL_PHONE
+        // permission is declared or requested. See NativeDialerPlugin.
+        registerPlugin(NativeDialerPlugin.class);
         super.onCreate(savedInstanceState);
 
         // The channel a reminder push rings on, created here rather than from JS because it

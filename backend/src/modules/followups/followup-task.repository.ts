@@ -91,6 +91,24 @@ export const findFollowUpTaskById = ({ taskId, organizationId }: FindFollowUpTas
     organizationId,
   }).exec();
 
+export interface FindFollowUpTaskByIdempotencyKeyParams {
+  organizationId?: ObjectIdLike;
+  idempotencyKey?: string;
+}
+
+/**
+ * The task a given key already produced, if any.
+ *
+ * The sparse unique index on (organizationId, idempotencyKey) is the real duplicate guarantee;
+ * this lookup exists so a caller can turn a race into a clean "here is the one that already
+ * exists" instead of an E11000 surfacing to a user as "something went wrong".
+ */
+export const findFollowUpTaskByIdempotencyKey = ({
+  organizationId,
+  idempotencyKey,
+}: FindFollowUpTaskByIdempotencyKeyParams = {}) =>
+  FollowUpTask.findOne({ organizationId, idempotencyKey }).exec();
+
 export interface FindFollowUpTasksByConversationParams extends PaginationParams {
   organizationId?: ObjectIdLike;
   conversationId?: ObjectIdLike;

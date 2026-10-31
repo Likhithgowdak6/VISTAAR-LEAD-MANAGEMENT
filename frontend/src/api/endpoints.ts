@@ -27,6 +27,10 @@ import {
   type ApiSuccessResponse,
   type AssignableRole,
   type AuthResponse,
+  type CallAnalysis,
+  type CallRecord,
+  type CallRetentionPolicy,
+  type CallStatus,
   type ClearTestDataResult,
   type Conversation,
   type ConversationAiSummary,
@@ -566,6 +570,29 @@ export const updateSettings = ({
     body: { ownerWhatsappNumber },
   });
 
+export interface UpdateCallRetentionParams extends TokenParams, CallRetentionPolicy {}
+
+/**
+ * Saves the call-retention policy. Null in a field means keep forever.
+ *
+ * ALL THREE ARE ALWAYS SENT. With null meaning "keep forever", an omitted field would be
+ * indistinguishable from "turn this one off", and the UI could never clear a saved setting.
+ *
+ * Its own endpoint rather than a field on PATCH /settings: that one rewrites the owner's phone
+ * number unconditionally, so sending retention through it would clear the number.
+ */
+export const updateCallRetention = ({
+  token,
+  recordingDays,
+  transcriptDays,
+  summaryDays,
+}: UpdateCallRetentionParams): Promise<ApiSuccessResponse<OrganizationSettings>> =>
+  apiFetch('/settings/call-retention', {
+    method: 'PATCH',
+    token,
+    body: { recordingDays, transcriptDays, summaryDays },
+  });
+
 // --- Dev tools (TEST-PHASE ONLY - delete before production) ---
 
 export const getTestModeStatus = ({
@@ -635,6 +662,179 @@ export const cancelFollowUp = ({
   taskId,
 }: FollowUpIdParams): Promise<ApiSuccessResponse<FollowUpTask>> =>
   apiFetch(`/follow-ups/${taskId}/cancel`, { method: 'PATCH', token });
+
+// --- Calls (native cellular, tracked against a lead) ---
+
+export interface StartCallParams extends ConversationIdParams {
+  /**
+   * One per tap, minted by the caller. A phone on a flaky connection retries, and two rows on
+   * a lead's timeline for one tap is a mess somebody has to clean up by hand.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * Records that the dialler was opened. DOES NOT place a call and does not claim one happened.
+ *
+ * Note what is not in the body: no phone number. The client reveals the number through the
+ * existing permissioned route and hands it to the dialler locally; the server never receives it
+ * and nothing about it reaches a URL or a log.
+ */
+export const startCall = ({
+  token,
+  conversationId,
+  idempotencyKey,
+}: StartCallParams): Promise<ApiSuccessResponse<CallRecord>> =>
+  apiFetch(`/conversations/${conversationId}/calls`, {
+    method: 'POST',
+    token,
+    body: { idempotencyKey },
+  });
+
+export const listConversationCalls = ({
+  token,
+  conversationId,
+}: ConversationIdParams): Promise<ApiSuccessResponse<CallRecord[]>> =>
+  apiFetch(`/conversations/${conversationId}/calls`, { token });
+
+export interface CallIdParams extends TokenParams {
+  callId: string;
+}
+
+export const getCall = ({
+  token,
+  callId,
+}: CallIdParams): Promise<ApiSuccessResponse<CallRecord>> =>
+  apiFetch(`/calls/${callId}`, { token });
+
+export interface RecordCallOutcomeParams extends CallIdParams {
+  status: Exclude<CallStatus, 'initiated'>;
+  /** Only meaningful with `completed`; the server refuses it on any other outcome. */
+  durationSeconds?: number;
+  /** How long the app was backgrounded. An upper bound on the call, never the call length. */
+  awaySeconds?: number;
+}
+
+export const recordCallOutcome = ({
+  token,
+  callId,
+  status,
+  durationSeconds,
+  awaySeconds,
+}: RecordCallOutcomeParams): Promise<ApiSuccessResponse<CallRecord>> =>
+  apiFetch(`/calls/${callId}/outcome`, {
+    method: 'PATCH',
+    token,
+    body: { status, durationSeconds, awaySeconds },
+  });
+
+export const getCallAnalysis = ({
+  token,
+  callId,
+}: CallIdParams): Promise<ApiSuccessResponse<CallAnalysis | null>> =>
+  apiFetch(`/calls/${callId}/analysis`, { token });
+
+export interface UploadCallRecordingParams extends CallIdParams {
+  file: Blob;
+  fileName: string;
+  /**
+   * Must be true. The server refuses the upload otherwise.
+   *
+   * Asserted per upload rather than once per account because consent attaches to a particular
+   * conversation, not to a checkbox somebody ticked months ago.
+   */
+  consentAcknowledged: true;
+}
+
+export const uploadCallRecording = ({
+  token,
+  callId,
+  file,
+  fileName,
+  consentAcknowledged,
+}: UploadCallRecordingParams): Promise<ApiSuccessResponse<CallRecord>> =>
+  apiUpload(`/calls/${callId}/recording`, file, fileName, {
+    token,
+    // Travels as a form field beside the bytes, so the server can refuse the upload before
+    // storing anything rather than storing it and then refusing.
+    fields: { consentAcknowledged: String(consentAcknowledged) },
+  });
+
+/**
+ * The audio itself, as a Blob.
+ *
+ * FETCHED, NOT LINKED. An `<audio src>` pointing at the API would be an unauthenticated request
+ * - the session lives in a header, not a cookie the element would send - so the bytes are
+ * fetched with the token and handed to the player as an object URL. That is also why there is
+ * no public or signed recording URL anywhere in this app.
+ */
+export const fetchCallRecording = ({ token, callId }: CallIdParams): Promise<Blob> =>
+  apiFetchBlob(`/calls/${callId}/recording`, { token });
+
+/**
+ * Destroys the audio for a call. Irreversible.
+ *
+ * The server deletes the stored object BEFORE clearing its reference, so a failure here means
+ * the recording is still there - it never reports success it has not earned.
+ */
+export const deleteCallRecording = ({
+  token,
+  callId,
+}: CallIdParams): Promise<ApiSuccessResponse<CallRecord>> =>
+  apiFetch(`/calls/${callId}/recording`, { method: 'DELETE', token });
+
+/**
+ * Destroys the transcript, summary and suggestions. Leaves the recording, and leaves any
+ * follow-up tasks an agent already confirmed - those are cancelled in Tasks, not here.
+ */
+export const deleteCallAnalysis = ({
+  token,
+  callId,
+}: CallIdParams): Promise<ApiSuccessResponse<{ deleted: boolean }>> =>
+  apiFetch(`/calls/${callId}/analysis`, { method: 'DELETE', token });
+
+export interface RetentionPreview {
+  policy: { recordingDays: number | null; transcriptDays: number | null; summaryDays: number | null };
+  /** True when nothing is configured, which means nothing will ever be deleted. */
+  unconfigured: boolean;
+  recordings: { count: number; cutoff: string | null };
+  transcripts: { count: number; cutoff: string | null };
+  summaries: { count: number; cutoff: string | null };
+}
+
+/** What the retention sweep WOULD delete. Counts and dates only; deletes nothing. */
+export const getRetentionPreview = ({
+  token,
+}: TokenParams): Promise<ApiSuccessResponse<RetentionPreview>> =>
+  apiFetch('/calls/retention/preview', { token });
+
+export interface SuggestionParams extends CallIdParams {
+  commitmentId: string;
+}
+
+export interface ConfirmSuggestionParams extends SuggestionParams {
+  /** Required when the suggestion carries no date; the server refuses rather than inventing one. */
+  dueAt?: string;
+}
+
+export const confirmCallSuggestion = ({
+  token,
+  callId,
+  commitmentId,
+  dueAt,
+}: ConfirmSuggestionParams): Promise<ApiSuccessResponse<FollowUpTask>> =>
+  apiFetch(`/calls/${callId}/suggestions/${commitmentId}/confirm`, {
+    method: 'POST',
+    token,
+    body: { dueAt },
+  });
+
+export const dismissCallSuggestion = ({
+  token,
+  callId,
+  commitmentId,
+}: SuggestionParams): Promise<ApiSuccessResponse<CallAnalysis>> =>
+  apiFetch(`/calls/${callId}/suggestions/${commitmentId}/dismiss`, { method: 'POST', token });
 
 export interface RevealPhoneParams extends TokenParams {
   contactId: string;

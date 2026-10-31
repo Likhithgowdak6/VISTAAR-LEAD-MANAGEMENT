@@ -340,6 +340,125 @@ export interface FollowUpTask {
   updatedAt: string | null;
 }
 
+export type CallDirection = 'outbound' | 'inbound';
+
+/**
+ * `initiated` is the only status Vistaar writes by itself.
+ *
+ * The app opens the phone's dialler and Android tells it nothing more - not whether the green
+ * button was pressed, not whether anyone answered, not how long they spoke. Everything beyond
+ * `initiated` is a human's account, collected by CallOutcomeDialog.
+ */
+export type CallStatus = 'initiated' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+
+/**
+ * `unavailable` is the normal case: nothing in Vistaar records or discovers call audio.
+ *
+ * `deleted` is its own state rather than a return to `unavailable`, because the two are
+ * different facts — "never recorded" and "recorded, then destroyed" lead to different
+ * conversations with a customer asking what happened to their recording.
+ */
+export type RecordingStatus = 'unavailable' | 'pending' | 'uploaded' | 'failed' | 'deleted';
+
+/** One shape for both derived artefacts, the transcript and the summary. */
+export type ProcessingStatus =
+  | 'not_applicable'
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+/**
+ * One tracked cellular call.
+ *
+ * NO PHONE NUMBER AND NO STORAGE KEY. The number lives on the contact, encrypted, behind
+ * `client_pii.reveal`; the recording key names a file on the server's disk and the client never
+ * needs it, because audio is fetched by call id from an authenticated route.
+ */
+export interface CallRecord {
+  id: string;
+  organizationId: string | null;
+  conversationId: string | null;
+  contactId: string | null;
+  initiatedBy: string | null;
+  direction: CallDirection;
+  status: CallStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** A human's answer, never a measurement. Null unless somebody said the call connected. */
+  durationSeconds: number | null;
+  recordingStatus: RecordingStatus;
+  /** Whether audio exists, without saying where. Drives playback and nothing else. */
+  hasRecording: boolean;
+  recordingMimeType: string | null;
+  recordingDurationSeconds: number | null;
+  transcriptionStatus: ProcessingStatus;
+  summaryStatus: ProcessingStatus;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * One stretch of transcribed speech.
+ *
+ * `speaker` is NULL unless the provider actually diarised — which is the likely outcome for
+ * Kannada, where the services supporting the language do not offer speaker separation. A
+ * transcript without labels is complete, not degraded.
+ */
+export interface TranscriptSegment {
+  startSeconds: number | null;
+  endSeconds: number | null;
+  text: string;
+  speaker: string | null;
+}
+
+/**
+ * The structured call summary.
+ *
+ * EVERY FIELD CAN BE EMPTY AND EMPTY IS MEANINGFUL — a call where budget never came up has a
+ * null budget, and the UI says "not discussed". `inferences` is kept separate from everything
+ * else so a reader can always tell what the customer said from what a model concluded.
+ */
+export interface CallSummary {
+  overview: string;
+  customerRequirements: string[];
+  budget: string | null;
+  expectedTimeline: string | null;
+  preferences: string[];
+  questionsAsked: string[];
+  concerns: string[];
+  decisions: string[];
+  nextSteps: string[];
+  inferences: string[];
+  /** The model judged the transcript too thin or garbled to summarise reliably. */
+  lowConfidence: boolean;
+}
+
+export interface CallSuggestion {
+  commitmentId: string;
+  title: string;
+  /** The sentence it came from, so an agent can judge it without opening the transcript. */
+  evidence: string | null;
+  /** Only ever set when the transcript stated a date. Null is the common, correct case. */
+  dueAt: string | null;
+  status: 'suggested' | 'confirmed' | 'dismissed';
+  taskId: string | null;
+  decidedAt: string | null;
+}
+
+export interface CallAnalysis {
+  callId: string | null;
+  transcript: {
+    segments: TranscriptSegment[];
+    text: string;
+    detectedLanguage: string | null;
+    diarized: boolean;
+    provider: string | null;
+  } | null;
+  summary: CallSummary | null;
+  suggestions: CallSuggestion[];
+}
+
 /** Which slice of the Tasks screen. `team` is refused server-side without conversations.read_all. */
 export type TaskScope = 'mine' | 'team';
 
@@ -771,9 +890,17 @@ export interface ConversationTagsResult {
 }
 
 /** Organization-level settings an admin edits on the Settings page. */
+/** Null in every field means KEEP FOREVER. That is the default for every organisation. */
+export interface CallRetentionPolicy {
+  recordingDays: number | null;
+  transcriptDays: number | null;
+  summaryDays: number | null;
+}
+
 export interface OrganizationSettings {
   /** The owner's own phone, digits only, or null when the server default is in charge. */
   ownerWhatsappNumber: string | null;
+  callRetention: CallRetentionPolicy;
 }
 
 /** TEST-PHASE ONLY. Whether WHATSAPP_TEST_ALLOWED_NUMBERS is configured, and for whom. */

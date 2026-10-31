@@ -13,6 +13,7 @@ import analyticsRouter from './modules/analytics/analytics.routes.js';
 import conversationRouter from './modules/conversations/conversation.routes.js';
 import messageRouter from './modules/media/media.routes.js';
 import testDataRouter from './modules/dev-tools/test-data.routes.js';
+import callRouter from './modules/calls/call-record.routes.js';
 import followUpRouter from './modules/followups/followup.routes.js';
 import pushRouter from './modules/push/push.routes.js';
 import healthRouter from './modules/health/health.routes.js';
@@ -99,6 +100,7 @@ app.use('/api/v1/templates', messageTemplateRouter);
 app.use('/api/v1/starred-messages', starredMessageRouter);
 app.use('/api/v1/ai-brain', aiBrainRouter);
 app.use('/api/v1/follow-ups', followUpRouter);
+app.use('/api/v1/calls', callRouter);
 app.use('/api/v1/push', pushRouter);
 app.use('/api/v1/lead-sources', leadSourceRouter);
 // Meta calls these two itself, so they carry no session and cannot sit behind authenticateRequest.
