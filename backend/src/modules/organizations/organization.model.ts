@@ -22,6 +22,15 @@ export interface OrganizationDocument {
    *  decide whether a new-lead alert has genuinely gone unanswered, org-wide rather than
    *  per-lead, because the owner being active at all is what the escalation cares about. */
   lastOwnerWhatsAppActivityAt: Date | null;
+  /**
+   * How long this studio keeps call data. Every field null by default, which means KEEP
+   * FOREVER - see CALL_RETENTION_DEFAULTS for why there is no built-in period.
+   */
+  callRetention: {
+    recordingDays: number | null;
+    transcriptDays: number | null;
+    summaryDays: number | null;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,6 +73,20 @@ const organizationSchema = new mongoose.Schema<OrganizationDocument>(
     lastOwnerWhatsAppActivityAt: {
       type: Date,
       default: null,
+    },
+
+    /*
+     * NULL IS THE DEFAULT AND NULL MEANS NEVER DELETE.
+     *
+     * This field is being added to a database that already holds real customer calls. A
+     * numeric default here - any numeric default - would mean the first sweep after deploy
+     * destroys every recording older than it, on a schedule the owner never chose. Deletion is
+     * irreversible, so the safe default is to do nothing until somebody decides otherwise.
+     */
+    callRetention: {
+      recordingDays: { type: Number, default: null, min: 1, max: 3650 },
+      transcriptDays: { type: Number, default: null, min: 1, max: 3650 },
+      summaryDays: { type: Number, default: null, min: 1, max: 3650 },
     },
   },
   {

@@ -86,6 +86,43 @@ export interface UpdateOrganizationSettingsParams {
   ownerWhatsappNumber?: string | null;
 }
 
+export interface UpdateCallRetentionParams {
+  organizationId?: ObjectIdLike;
+  recordingDays?: number | null;
+  transcriptDays?: number | null;
+  summaryDays?: number | null;
+}
+
+/**
+ * Writes one organisation's call-retention policy.
+ *
+ * SEPARATE FROM `updateOrganizationSettings` on purpose. That one `$set`s the owner number
+ * unconditionally, so folding retention into it would mean every retention save also rewrote
+ * the phone number - and a request that omitted it would clear it. Two fields with different
+ * lifetimes, two writes.
+ *
+ * All three values are written together, including nulls: null is a real choice here ("keep
+ * forever"), not an absent field, so a partial write would make it impossible to turn a policy
+ * back off.
+ */
+export const updateCallRetention = ({
+  organizationId,
+  recordingDays = null,
+  transcriptDays = null,
+  summaryDays = null,
+}: UpdateCallRetentionParams = {}) =>
+  Organization.findByIdAndUpdate(
+    organizationId,
+    {
+      $set: {
+        'callRetention.recordingDays': recordingDays,
+        'callRetention.transcriptDays': transcriptDays,
+        'callRetention.summaryDays': summaryDays,
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  ).exec();
+
 export const updateOrganizationSettings = ({
   organizationId,
   ownerWhatsappNumber,

@@ -23,19 +23,49 @@ import { type ObjectIdLike } from '../../types/common.js';
 import {
   findOrganizationById as defaultFindOrganizationById,
   normalizeOwnerWhatsappNumber,
+  updateCallRetention as defaultUpdateCallRetention,
   updateOrganizationSettings as defaultUpdateOrganizationSettings,
 } from './organization.repository.js';
+
+/**
+ * Reads a stored policy, defaulting every field to null.
+ *
+ * NULL IS THE ANSWER FOR EVERYTHING MISSING - an organisation created before this field
+ * existed, a partially-written document, a null subdocument. That is the safe direction: an
+ * unreadable policy must mean "keep forever", never "delete on some assumed schedule".
+ */
+const readCallRetention = (
+  record: OrganizationSettingsRecord | null,
+): OrganizationSettingsDto['callRetention'] => ({
+  recordingDays: record?.callRetention?.recordingDays ?? null,
+  transcriptDays: record?.callRetention?.transcriptDays ?? null,
+  summaryDays: record?.callRetention?.summaryDays ?? null,
+});
 
 export const OWNER_NUMBER_CACHE_TTL_MS = 10_000;
 
 /** The stored settings the dashboard reads and writes. */
 export interface OrganizationSettingsDto {
   ownerWhatsappNumber: string | null;
+  /**
+   * How long call data is kept. Every field null means KEEP FOREVER, which is the default for
+   * every organisation and the only safe default for a feature that deletes irreversibly.
+   */
+  callRetention: {
+    recordingDays: number | null;
+    transcriptDays: number | null;
+    summaryDays: number | null;
+  };
 }
 
 /** The slice of the organization document this needs, so tests can pass a plain object. */
 export interface OrganizationSettingsRecord {
   ownerWhatsappNumber?: string | null;
+  callRetention?: {
+    recordingDays?: number | null;
+    transcriptDays?: number | null;
+    summaryDays?: number | null;
+  } | null;
 }
 
 export interface OrganizationSettingsRepositoryLike {
@@ -45,6 +75,12 @@ export interface OrganizationSettingsRepositoryLike {
   updateOrganizationSettings: (options: {
     organizationId?: ObjectIdLike;
     ownerWhatsappNumber?: string | null;
+  }) => Promise<OrganizationSettingsRecord | null>;
+  updateCallRetention: (options: {
+    organizationId?: ObjectIdLike;
+    recordingDays?: number | null;
+    transcriptDays?: number | null;
+    summaryDays?: number | null;
   }) => Promise<OrganizationSettingsRecord | null>;
 }
 
@@ -69,6 +105,13 @@ export interface SetOwnerNumberParams {
   ownerWhatsappNumber?: string | null;
 }
 
+export interface SetCallRetentionParams {
+  organizationId?: ObjectIdLike;
+  recordingDays: number | null;
+  transcriptDays: number | null;
+  summaryDays: number | null;
+}
+
 export interface ClearOwnerNumberCacheParams {
   organizationId?: ObjectIdLike;
 }
@@ -81,6 +124,7 @@ export interface OrganizationSettingsServiceHandle {
     params?: GetOrganizationSettingsParams,
   ) => Promise<OrganizationSettingsDto>;
   setOwnerNumber: (params?: SetOwnerNumberParams) => Promise<OrganizationSettingsDto>;
+  setCallRetention: (params: SetCallRetentionParams) => Promise<OrganizationSettingsDto>;
   /** Drops one organization's cached value, or the whole cache when no id is given. */
   clearOwnerNumberCache: (params?: ClearOwnerNumberCacheParams) => void;
 }
@@ -96,6 +140,8 @@ export const createOrganizationSettingsService = ({
       defaultFindOrganizationById as OrganizationSettingsRepositoryLike['findOrganizationById'],
     updateOrganizationSettings:
       defaultUpdateOrganizationSettings as OrganizationSettingsRepositoryLike['updateOrganizationSettings'],
+    updateCallRetention:
+      defaultUpdateCallRetention as OrganizationSettingsRepositoryLike['updateCallRetention'],
   },
   config = env,
   logger = defaultLogger,
@@ -158,6 +204,7 @@ export const createOrganizationSettingsService = ({
 
     return {
       ownerWhatsappNumber: normalizeOwnerWhatsappNumber(organization?.ownerWhatsappNumber),
+      callRetention: readCallRetention(organization),
     };
   };
 
@@ -180,11 +227,43 @@ export const createOrganizationSettingsService = ({
 
     return {
       ownerWhatsappNumber: normalizeOwnerWhatsappNumber(updated.ownerWhatsappNumber),
+      callRetention: readCallRetention(updated),
+    };
+  };
+
+  /**
+   * Saves a retention policy.
+   *
+   * NO CACHE TO CLEAR, unlike the owner number: the retention sweep reads the policy fresh on
+   * every pass, because it runs hourly rather than per-message and a stale policy here would
+   * mean deleting on a schedule the owner has already changed.
+   */
+  const setCallRetention = async ({
+    organizationId,
+    recordingDays,
+    transcriptDays,
+    summaryDays,
+  }: SetCallRetentionParams): Promise<OrganizationSettingsDto> => {
+    const updated = await repository.updateCallRetention({
+      organizationId,
+      recordingDays,
+      transcriptDays,
+      summaryDays,
+    });
+
+    if (!updated) {
+      throw new Error('ORGANIZATION_NOT_FOUND');
+    }
+
+    return {
+      ownerWhatsappNumber: normalizeOwnerWhatsappNumber(updated.ownerWhatsappNumber),
+      callRetention: readCallRetention(updated),
     };
   };
 
   return {
     getOwnerNumber,
+    setCallRetention,
     getOrganizationSettings,
     setOwnerNumber,
     clearOwnerNumberCache,

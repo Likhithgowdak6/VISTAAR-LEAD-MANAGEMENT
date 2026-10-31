@@ -10,6 +10,7 @@ import {
 } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import Spinner from '../components/Spinner';
+import CallRetentionSection from '../components/settings/CallRetentionSection';
 import { errorMessage } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
@@ -182,6 +183,10 @@ const SettingsPage = () => {
           Organization-wide settings for the AI sales agent.
         </p>
       </div>
+
+      {/* Sits beside the other organization-wide settings rather than in a screen of its own -
+          it is the same kind of decision, made by the same person, under the same permission. */}
+      <CallRetentionSection />
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (
