@@ -32,13 +32,6 @@ const createHarness = ({
       .mockImplementation(({ ownerWhatsappNumber: next }: { ownerWhatsappNumber?: string | null }) =>
         Promise.resolve({ ownerWhatsappNumber: String(next ?? '').replace(/\D/g, '') || null }),
       ),
-    // Echoes back what it was given, so the service's own null-defaulting is what is under
-    // test rather than the repository's.
-    updateCallRetention: vi
-      .fn()
-      .mockImplementation((params: Record<string, unknown>) =>
-        Promise.resolve({ ownerWhatsappNumber: null, callRetention: params }),
-      ),
   };
   const logger = { error: vi.fn() };
 
@@ -144,7 +137,7 @@ describe('setOwnerNumber', () => {
 
     await expect(
       service.setOwnerNumber({ organizationId: 'org-1', ownerWhatsappNumber: '+91 81830 03081' }),
-    ).resolves.toEqual({ ownerWhatsappNumber: DB_NUMBER, callRetention: { recordingDays: null, transcriptDays: null, summaryDays: null } });
+    ).resolves.toEqual({ ownerWhatsappNumber: DB_NUMBER });
     expect(repository.updateOrganizationSettings).toHaveBeenCalledWith({
       organizationId: 'org-1',
       ownerWhatsappNumber: '+91 81830 03081',
@@ -171,7 +164,7 @@ describe('setOwnerNumber', () => {
     repository.findOrganizationById.mockResolvedValue({ ownerWhatsappNumber: null });
     await expect(
       service.setOwnerNumber({ organizationId: 'org-1', ownerWhatsappNumber: null }),
-    ).resolves.toEqual({ ownerWhatsappNumber: null, callRetention: { recordingDays: null, transcriptDays: null, summaryDays: null } });
+    ).resolves.toEqual({ ownerWhatsappNumber: null });
 
     await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe(ENV_NUMBER);
   });
@@ -192,9 +185,6 @@ describe('getOrganizationSettings', () => {
 
     await expect(service.getOrganizationSettings({ organizationId: 'org-1' })).resolves.toEqual({
       ownerWhatsappNumber: null,
-      // Added with the retention feature. Null across the board is the default for every
-      // organisation and means "keep forever".
-      callRetention: { recordingDays: null, transcriptDays: null, summaryDays: null },
     });
   });
 });

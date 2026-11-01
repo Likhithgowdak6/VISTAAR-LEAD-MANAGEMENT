@@ -47,39 +47,6 @@ export const recordCallOutcomeBodySchema = z
     { message: 'A duration can only be given for a call that connected.', path: ['durationSeconds'] },
   );
 
-export const suggestionParamsSchema = z.object({
-  callId: objectIdSchema,
-  /** Positional and short by construction - see parseSummaryResponse. */
-  commitmentId: z.string().trim().min(1).max(64),
-});
-
-/**
- * Confirming a suggestion into a real task.
- *
- * `dueAt` is OPTIONAL HERE but REQUIRED IN EFFECT when the transcript stated no date: the
- * service refuses rather than inventing one. Expressed this way because a suggestion that
- * already carries a date needs nothing from the agent, and demanding one anyway would make the
- * common case worse.
- */
-export const confirmSuggestionBodySchema = z.object({
-  dueAt: z.coerce.date().optional(),
-});
-
-/**
- * The recording upload's non-file fields.
- *
- * `consentAcknowledged` must be literally true. It is the checkpoint that the agent has
- * confirmed the call's participants were told it was being recorded - asserted per upload
- * rather than once per account, because consent attaches to a conversation and not to a
- * setting somebody ticked months ago. This is a product control, NOT legal advice, and does not
- * by itself discharge any obligation under Indian law.
- */
-export const uploadCallRecordingBodySchema = z.object({
-  consentAcknowledged: z
-    .union([z.literal('true'), z.literal(true)])
-    .transform(() => true as const),
-});
-
 export const listConversationCallsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   skip: z.coerce.number().int().min(0).default(0),

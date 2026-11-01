@@ -2,26 +2,15 @@ import { Router } from 'express';
 
 import {
   authenticateRequest,
-  requireConversationsDelete,
   requireConversationsRead,
-  requireCrmTasksManage,
   requirePasswordChanged,
 } from '../../middleware/auth.middleware.js';
 
 import {
-  confirmCallSuggestion,
-  deleteCallAnalysisHandler,
-  deleteCallRecording,
-  getRetentionPreview,
-  dismissCallSuggestion,
-  downloadCallRecording,
   getCall,
-  getCallAnalysis,
   listConversationCalls,
-  receiveCallRecordingFile,
   recordCallOutcome,
   startCall,
-  uploadCallRecording,
 } from './call-record.controller.js';
 
 /**
@@ -51,65 +40,7 @@ const callRouter = Router();
 callRouter.use(authenticateRequest);
 callRouter.use(requirePasswordChanged);
 
-/*
- * A LITERAL PATH, mounted before '/:callId' so "retention" can never be parsed as a call id -
- * the same care '/sync' is mounted with in the follow-up router.
- */
-callRouter.get('/retention/preview', requireConversationsRead, getRetentionPreview);
-
 callRouter.get('/:callId', requireConversationsRead, getCall);
 callRouter.patch('/:callId/outcome', requireConversationsRead, recordCallOutcome);
-
-// `receiveCallRecordingFile` runs AFTER the auth middleware above, so an unauthenticated
-// request is refused before multer reads a single byte of the body.
-callRouter.post(
-  '/:callId/recording',
-  requireConversationsRead,
-  receiveCallRecordingFile,
-  uploadCallRecording,
-);
-callRouter.get('/:callId/recording', requireConversationsRead, downloadCallRecording);
-
-/*
- * DESTRUCTIVE AND IRREVERSIBLE, so both carry conversations.delete on top of the read gate.
- *
- * That permission already means "may remove a lead's data" in this codebase and is deliberately
- * withheld from `staff`. Destroying the recording of a customer conversation belongs with it:
- * an agent who can read a lead should not be able to erase the evidence of what was said on it.
- */
-callRouter.delete(
-  '/:callId/recording',
-  requireConversationsRead,
-  requireConversationsDelete,
-  deleteCallRecording,
-);
-callRouter.delete(
-  '/:callId/analysis',
-  requireConversationsRead,
-  requireConversationsDelete,
-  deleteCallAnalysisHandler,
-);
-
-callRouter.get('/:callId/analysis', requireConversationsRead, getCallAnalysis);
-
-/*
- * Confirming a suggestion CREATES A REMINDER, so it carries the task permission as well as the
- * conversation one. Reading a lead and scheduling work on it are different privileges, and
- * `staff` holds one without necessarily holding the other.
- *
- * Dismissing creates nothing and needs only the read gate - refusing to let somebody clear a
- * suggestion they can see would leave it on screen forever.
- */
-callRouter.post(
-  '/:callId/suggestions/:commitmentId/confirm',
-  requireConversationsRead,
-  requireCrmTasksManage,
-  confirmCallSuggestion,
-);
-callRouter.post(
-  '/:callId/suggestions/:commitmentId/dismiss',
-  requireConversationsRead,
-  dismissCallSuggestion,
-);
 
 export default callRouter;

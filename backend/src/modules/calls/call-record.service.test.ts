@@ -28,7 +28,6 @@ const mocks = vi.hoisted(() => ({
   findCallRecordByIdempotencyKey: vi.fn(),
   findCallRecordsByConversation: vi.fn(),
   updateCallOutcome: vi.fn(),
-  attachCallRecording: vi.fn(),
   createActivity: vi.fn(),
   loadVisibleConversationForActor: vi.fn(),
 }));
@@ -39,7 +38,6 @@ vi.mock('./call-record.repository.js', () => ({
   findCallRecordByIdempotencyKey: mocks.findCallRecordByIdempotencyKey,
   findCallRecordsByConversation: mocks.findCallRecordsByConversation,
   updateCallOutcome: mocks.updateCallOutcome,
-  attachCallRecording: mocks.attachCallRecording,
 }));
 
 vi.mock('../activity/activity-log.repository.js', () => ({ createActivity: mocks.createActivity }));
@@ -49,7 +47,6 @@ vi.mock('../conversations/conversation.service.js', () => ({
 }));
 
 const {
-  attachRecordingForActor,
   getCallForActor,
   listConversationCallsForActor,
   recordCallOutcomeForActor,
@@ -100,7 +97,6 @@ beforeEach(() => {
   mocks.updateCallOutcome.mockImplementation(async ({ status, durationSeconds, endedAt }) =>
     callRow({ status, durationSeconds, endedAt }),
   );
-  mocks.attachCallRecording.mockResolvedValue(callRow({ recordingStatus: 'uploaded' }));
   mocks.findCallRecordsByConversation.mockResolvedValue([callRow()]);
 });
 
@@ -258,82 +254,9 @@ describe('reading calls', () => {
     );
   });
 
-  it('NEVER SERIALISES THE RECORDING KEY', async () => {
-    // The key names a file on the server's disk. The client fetches audio by CALL id from an
-    // authenticated route and the server resolves the key itself, so sending it out would turn
-    // an internal path into something a client can hold and leak, for no capability gained.
-    mocks.findCallRecordsByConversation.mockResolvedValue([
-      callRow({ recordingObjectKey: `${ORG}/${CONVERSATION}/abc.m4a`, recordingStatus: 'uploaded' }),
-    ]);
-
-    const calls = await listConversationCallsForActor({ ...base, conversationId: CONVERSATION });
-
-    expect(JSON.stringify(calls)).not.toContain('.m4a');
-    // It still says audio EXISTS, which is what the player needs.
-    expect(calls[0]?.hasRecording).toBe(true);
-  });
-
-  it('reports hasRecording false when there is no audio', async () => {
-    const calls = await listConversationCallsForActor({ ...base, conversationId: CONVERSATION });
-
-    expect(calls[0]?.hasRecording).toBe(false);
-    expect(calls[0]?.recordingStatus).toBe('unavailable');
-  });
-
   it('refuses a single call from another organisation', async () => {
     mocks.findCallRecordById.mockResolvedValue(null);
 
     await expect(getCallForActor({ ...base, callId: CALL })).rejects.toThrow('CALL_NOT_FOUND');
-  });
-});
-
-describe('attaching a recording', () => {
-  it('arms the transcript pipeline IN THE SAME WRITE as the audio', async () => {
-    // A row with audio but `not_applicable` is invisible to the sweep forever; one that says
-    // `pending` with no audio is a job that can never succeed. They have to land together.
-    await attachRecordingForActor({
-      ...base,
-      callId: CALL,
-      objectKey: `${ORG}/${CONVERSATION}/abc.m4a`,
-      mimeType: 'audio/mp4',
-      sizeBytes: 512_000,
-    });
-
-    expect(mocks.attachCallRecording).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recordingStatus: 'uploaded',
-        transcriptionStatus: 'pending',
-      }),
-    );
-  });
-
-  it('applies the same authorisation as everything else', async () => {
-    mocks.findCallRecordById.mockResolvedValue(null);
-
-    await expect(
-      attachRecordingForActor({
-        ...base,
-        callId: CALL,
-        objectKey: 'x',
-        mimeType: 'audio/mp4',
-        sizeBytes: 1,
-      }),
-    ).rejects.toThrow('CALL_NOT_FOUND');
-    expect(mocks.attachCallRecording).not.toHaveBeenCalled();
-  });
-
-  it('logs the size and type but NOT the storage key', async () => {
-    await attachRecordingForActor({
-      ...base,
-      callId: CALL,
-      objectKey: `${ORG}/${CONVERSATION}/secret.m4a`,
-      mimeType: 'audio/mp4',
-      sizeBytes: 512_000,
-    });
-
-    const metadata = mocks.createActivity.mock.calls[0]![0].metadata as Record<string, unknown>;
-
-    expect(Object.keys(metadata).sort()).toEqual(['callId', 'mimeType', 'sizeBytes']);
-    expect(JSON.stringify(metadata)).not.toContain('secret');
   });
 });

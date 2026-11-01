@@ -1,16 +1,21 @@
 /**
- * The states a tracked cellular call can be in, and the states its processing pipeline can be in.
+ * The states a tracked cellular call can be in.
  *
  * WHY `unknown` IS A FIRST-CLASS VALUE AND NOT A GAP. Vistaar opens the phone's dialler with
  * `Intent.ACTION_DIAL` and then loses sight of what happens: Android gives an ordinary app no
  * reliable evidence of whether the agent pressed the green button, whether the customer picked
  * up, or how long they spoke. Detecting that needs `READ_PHONE_STATE` plus a foreground service
  * to survive the app being backgrounded during the call - a permission and a Play-policy
- * commitment this phase deliberately does not make.
+ * commitment this app deliberately does not make.
  *
  * So opening the dialler records `initiated` and NOTHING ELSE. It is not a completed call, it is
  * not a connected call, and it is not a missed one. The outcome is `unknown` until a human says
  * otherwise. Anything else would be the CRM inventing a fact about a customer conversation.
+ *
+ * THERE IS NO RECORDING OR PROCESSING STATUS HERE, BY DESIGN. Vistaar does not capture call
+ * audio, does not accept uploaded audio, and derives nothing from it - no transcript, no
+ * summary, no suggested follow-up. A call record is what a human says happened on a call, and
+ * that is the whole of it.
  */
 
 export const CALL_DIRECTIONS = Object.freeze({
@@ -57,91 +62,3 @@ export const CALL_OUTCOME_VALUES = Object.freeze([
   CALL_STATUSES.CANCELLED,
   CALL_STATUSES.UNKNOWN,
 ]) as readonly [CallStatus, ...CallStatus[]];
-
-/**
- * Whether audio exists for this call.
- *
- * `unavailable` is the DEFAULT and the common case. Android gives no third-party app the two
- * sides of a cellular call - see the feasibility report - so audio only ever exists here because
- * a human attached a recording the phone's own dialler made. A call with no audio is normal and
- * the UI must say so plainly rather than looking broken.
- */
-export const RECORDING_STATUSES = Object.freeze({
-  UNAVAILABLE: 'unavailable',
-  /** A recording is expected - the agent said one exists - but the bytes have not arrived. */
-  PENDING: 'pending',
-  UPLOADED: 'uploaded',
-  FAILED: 'failed',
-  /**
-   * There WAS audio and it has been destroyed - by a person, or by the retention sweep.
-   *
-   * ITS OWN STATE, NOT A RETURN TO `unavailable`. The two are different facts and a reader has
-   * to be able to tell them apart: "this call was never recorded" and "this call was recorded
-   * and the recording is gone" lead to different conversations with a customer asking what
-   * happened to it. Reverting to `unavailable` would quietly erase the second one.
-   */
-  DELETED: 'deleted',
-} as const);
-
-export type RecordingStatus = (typeof RECORDING_STATUSES)[keyof typeof RECORDING_STATUSES];
-
-export const RECORDING_STATUS_VALUES = Object.freeze(Object.values(RECORDING_STATUSES)) as readonly [
-  RecordingStatus,
-  ...RecordingStatus[],
-];
-
-/**
- * One shape for both derived artefacts - the transcript and the summary.
- *
- * Shared because they are the same kind of thing: a background job that has not started, is
- * running, finished, or failed. Two parallel enums that mean the same thing is how one of them
- * grows a fifth state the other does not have.
- */
-export const PROCESSING_STATUSES = Object.freeze({
-  /** Nothing to do - there is no recording, so there is nothing to transcribe or summarise. */
-  NOT_APPLICABLE: 'not_applicable',
-  PENDING: 'pending',
-  PROCESSING: 'processing',
-  COMPLETED: 'completed',
-  FAILED: 'failed',
-} as const);
-
-export type ProcessingStatus = (typeof PROCESSING_STATUSES)[keyof typeof PROCESSING_STATUSES];
-
-export const PROCESSING_STATUS_VALUES = Object.freeze(
-  Object.values(PROCESSING_STATUSES),
-) as readonly [ProcessingStatus, ...ProcessingStatus[]];
-
-/**
- * How long call data is kept, per organisation.
- *
- * NULL MEANS UNCONFIGURED, AND UNCONFIGURED MEANS KEEP FOREVER. That is the single most
- * important decision in this file, and it is deliberately the opposite of what a "retention
- * policy" usually implies.
- *
- * The reasoning: this feature is being added to a system that already holds real customer
- * calls. Shipping a default of, say, 90 days would mean the first time the sweep runs it
- * silently destroys every recording older than that - data nobody agreed to delete, on a
- * schedule nobody chose. Deletion is irreversible and the bytes are a record of a conversation
- * with a real person.
- *
- * SO THERE IS NO DEFAULT PERIOD, AND THERE IS NO LEGALLY-CORRECT ONE HERE EITHER. What Indian
- * law, a customer contract or an insurer requires is not something this codebase can know. The
- * owner sets a number; until they do, the sweep finds nothing and does nothing.
- */
-export const CALL_RETENTION_DEFAULTS = Object.freeze({
-  recordingDays: null,
-  transcriptDays: null,
-  summaryDays: null,
-} as const);
-
-export interface CallRetentionPolicy {
-  /** Days to keep the audio. Null = keep indefinitely. */
-  recordingDays: number | null;
-  transcriptDays: number | null;
-  summaryDays: number | null;
-}
-
-/** A day is the smallest sensible unit, and ten years is longer than this business has existed. */
-export const MIN_RETENTION_DAYS = 1;
-export const MAX_RETENTION_DAYS = 3650;

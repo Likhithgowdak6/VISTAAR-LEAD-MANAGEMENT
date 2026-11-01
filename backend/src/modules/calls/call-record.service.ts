@@ -1,19 +1,13 @@
 import { type HydratedDocument } from 'mongoose';
 
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
-import {
-  CALL_STATUSES,
-  PROCESSING_STATUSES,
-  RECORDING_STATUSES,
-  type CallStatus,
-} from '../../constants/call-statuses.js';
+import { CALL_STATUSES, type CallStatus } from '../../constants/call-statuses.js';
 import { type Permission } from '../../constants/permissions.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { createActivity } from '../activity/activity-log.repository.js';
 import { loadVisibleConversationForActor } from '../conversations/conversation.service.js';
 import { type UserDocument } from '../users/user.model.js';
 import {
-  attachCallRecording,
   createCallRecord,
   findCallRecordById,
   findCallRecordByIdempotencyKey,
@@ -264,63 +258,4 @@ export const getCallForActor = async ({
   });
 
   return call;
-};
-
-export interface AttachRecordingForActorParams {
-  organizationId: ObjectIdLike;
-  callId: ObjectIdLike;
-  actor: HydratedDocument<UserDocument>;
-  permissions: readonly Permission[];
-  objectKey: string;
-  mimeType: string;
-  sizeBytes: number;
-}
-
-/**
- * Points a call at audio that has already been stored.
- *
- * THE UPLOAD IS NOT AUTOMATIC AND IS NOT DISCOVERED. Nothing in Vistaar scans device storage,
- * holds All Files Access, or hunts for an OEM recording folder - a human chooses a file and
- * sends it. That is the whole of the recording story in this phase, and the modular seam the
- * later Storage Access Framework work plugs into.
- *
- * Marks the transcript PENDING rather than running it, so ingestion and processing fail
- * independently: audio that arrived is kept even when no transcription provider is configured.
- */
-export const attachRecordingForActor = async ({
-  organizationId,
-  callId,
-  actor,
-  permissions,
-  objectKey,
-  mimeType,
-  sizeBytes,
-}: AttachRecordingForActorParams) => {
-  const call = await getCallForActor({ organizationId, callId, actor, permissions });
-
-  const updated = await attachCallRecording({
-    callId: call._id,
-    organizationId,
-    recordingObjectKey: objectKey,
-    recordingMimeType: mimeType,
-    recordingSizeBytes: sizeBytes,
-    recordingStatus: RECORDING_STATUSES.UPLOADED,
-    transcriptionStatus: PROCESSING_STATUSES.PENDING,
-  });
-
-  if (call.whatsappAccountId) {
-    await createActivity({
-      organizationId,
-      whatsappAccountId: call.whatsappAccountId,
-      conversationId: call.conversationId,
-      actorId: actor._id,
-      eventType: ACTIVITY_EVENTS.CALL_RECORDING_ATTACHED,
-      summary: 'A recording was attached to this call.',
-      // Size and type only. Never the key - it names a file on disk - and never anything the
-      // audio contains.
-      metadata: { callId: String(call._id), sizeBytes, mimeType },
-    });
-  }
-
-  return serializeCallRecord(updated);
 };

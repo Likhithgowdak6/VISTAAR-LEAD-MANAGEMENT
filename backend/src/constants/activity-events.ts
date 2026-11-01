@@ -22,12 +22,6 @@ export const ACTIVITY_EVENTS = Object.freeze({
   CALL_STARTED: 'call.started',
   /** An agent said what happened - spoke, no answer, or never dialled. A human's account. */
   CALL_COMPLETED: 'call.completed',
-  /** A recording was attached BY HAND. Nothing in Vistaar records or discovers call audio. */
-  CALL_RECORDING_ATTACHED: 'call.recording_attached',
-  /** Audio destroyed. Metadata records WHO and WHY, never anything the audio contained. */
-  CALL_RECORDING_DELETED: 'call.recording_deleted',
-  /** Transcript and summary destroyed. Confirmed tasks are NOT touched - see the service. */
-  CALL_ANALYSIS_DELETED: 'call.analysis_deleted',
   FOLLOWUP_CREATED: 'followup.created',
   FOLLOWUP_COMPLETED: 'followup.completed',
   FOLLOWUP_CANCELLED: 'followup.cancelled',

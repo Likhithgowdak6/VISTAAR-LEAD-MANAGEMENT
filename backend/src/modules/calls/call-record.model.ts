@@ -5,14 +5,8 @@ import {
   CALL_DIRECTIONS,
   CALL_STATUS_VALUES,
   CALL_STATUSES,
-  PROCESSING_STATUS_VALUES,
-  PROCESSING_STATUSES,
-  RECORDING_STATUS_VALUES,
-  RECORDING_STATUSES,
   type CallDirection,
   type CallStatus,
-  type ProcessingStatus,
-  type RecordingStatus,
 } from '../../constants/call-statuses.js';
 
 /**
@@ -39,7 +33,7 @@ export interface CallRecordDocument {
   organizationId: Types.ObjectId;
   /** The lead's thread. Every call belongs to one; this is what scopes reads and the timeline. */
   conversationId: Types.ObjectId;
-  /** Denormalised from the conversation at creation so a recording key can be built offline. */
+  /** Denormalised from the conversation at creation, so the timeline write needs no second read. */
   whatsappAccountId: Types.ObjectId | null;
   /** Who the call was with. Null when the thread has no contact row yet. */
   contactId: Types.ObjectId | null;
@@ -63,18 +57,6 @@ export interface CallRecordDocument {
    * be rendered as "call duration".
    */
   awaySeconds: number | null;
-
-  recordingStatus: RecordingStatus;
-  /** Storage key, same shape and same service as message attachments. Never a URL. */
-  recordingObjectKey: string | null;
-  recordingMimeType: string | null;
-  recordingSizeBytes: number | null;
-  recordingDurationSeconds: number | null;
-
-  transcriptionStatus: ProcessingStatus;
-  transcriptionError: string | null;
-  summaryStatus: ProcessingStatus;
-  summaryError: string | null;
 
   /**
    * Duplicate protection across retries, in the shape the follow-up model already uses.
@@ -165,69 +147,6 @@ const callRecordSchema = new mongoose.Schema<CallRecordDocument>(
       max: 14_400,
     },
 
-    recordingStatus: {
-      type: String,
-      required: true,
-      enum: RECORDING_STATUS_VALUES,
-      default: RECORDING_STATUSES.UNAVAILABLE,
-    },
-
-    recordingObjectKey: {
-      type: String,
-      trim: true,
-      maxlength: 255,
-      default: null,
-    },
-
-    recordingMimeType: {
-      type: String,
-      trim: true,
-      maxlength: 128,
-      default: null,
-    },
-
-    recordingSizeBytes: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
-
-    recordingDurationSeconds: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
-
-    transcriptionStatus: {
-      type: String,
-      required: true,
-      enum: PROCESSING_STATUS_VALUES,
-      // Not `pending`: with no recording there is nothing to transcribe, and a job queue full of
-      // work that can never run is indistinguishable from a stuck one.
-      default: PROCESSING_STATUSES.NOT_APPLICABLE,
-    },
-
-    transcriptionError: {
-      type: String,
-      trim: true,
-      maxlength: 500,
-      default: null,
-    },
-
-    summaryStatus: {
-      type: String,
-      required: true,
-      enum: PROCESSING_STATUS_VALUES,
-      default: PROCESSING_STATUSES.NOT_APPLICABLE,
-    },
-
-    summaryError: {
-      type: String,
-      trim: true,
-      maxlength: 500,
-      default: null,
-    },
-
     idempotencyKey: {
       type: String,
       trim: true,
@@ -251,18 +170,6 @@ callRecordSchema.index({
   organizationId: 1,
   initiatedBy: 1,
   startedAt: -1,
-});
-
-/**
- * The future transcription sweep's index: what has audio and has not been processed.
- *
- * Added now rather than with the worker, because adding an index to a collection that has grown
- * is a foreground build on a live database, and this one is free while the collection is empty.
- */
-callRecordSchema.index({
-  recordingStatus: 1,
-  transcriptionStatus: 1,
-  startedAt: 1,
 });
 
 callRecordSchema.index({ organizationId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
