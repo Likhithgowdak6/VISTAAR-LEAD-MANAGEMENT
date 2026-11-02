@@ -126,6 +126,7 @@ export const listConversations = asyncHandler(async (req, res) => {
     enquiryClass: query.enquiryClass,
     aiStatus: query.aiStatus,
     needsAttention: query.needsAttention,
+    search: query.search,
     limit: query.limit,
     skip: query.skip,
   });

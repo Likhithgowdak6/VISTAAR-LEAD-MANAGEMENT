@@ -1,9 +1,10 @@
 import { type ReactNode } from 'react';
 
-export type BottomNavKey = 'inbox' | 'more';
+export type BottomNavKey = 'leads' | 'inbox' | 'more';
 
 interface Props {
   active: BottomNavKey;
+  onLeads: () => void;
   onInbox: () => void;
   onMore: () => void;
 }
@@ -36,9 +37,14 @@ const STROKE = {
  * things touched once a week. They live behind More, one tap away, in a sheet that lists all
  * of them.
  *
- * DELIBERATELY NOT A "LEADS" TAB. Leads are not a separate screen in this product - a lead IS
- * a conversation, and the inbox is the list of them. A fourth tab would have to either
- * duplicate the inbox or lead somewhere that does not exist.
+ * THERE IS NOW A LEADS TAB, and it is the first one. The note that used to sit here argued
+ * against it - "a lead IS a conversation, and the inbox is the list of them" - which is still
+ * true of the DATA and is exactly why Leads reads the same endpoint and creates no second
+ * record. What changed is the QUESTION each screen answers. The inbox is a work queue: sorted
+ * by what happened last, unread counts, an AI switch per row, worked top to bottom. Leads is a
+ * directory: you arrive knowing whose name you want, so it leads with search that reaches the
+ * whole database rather than the fifty rows in hand. Those are different jobs, and the old note
+ * was right that a tab merely DUPLICATING the inbox would have earned nothing.
  *
  * THE ONLY NAVIGATION ON A PHONE. The masthead's inline section tabs are gone below `lg`, so
  * there is one way to change screens rather than two competing ones.
@@ -50,8 +56,21 @@ const STROKE = {
  * A real badge needs a count the server can answer for, which is an API change and out of
  * scope here.
  */
-const MobileBottomNav = ({ active, onInbox, onMore }: Props) => (
+const MobileBottomNav = ({ active, onLeads, onInbox, onMore }: Props) => (
   <nav aria-label="Primary" className="m-bottomnav lg:hidden">
+    <button
+      type="button"
+      onClick={onLeads}
+      aria-current={active === 'leads'}
+      className="m-bottomnav-item"
+    >
+      <Icon>
+        <path d="M4 6.5h16M4 12h16M4 17.5h10" {...STROKE} />
+        <circle cx="18.5" cy="17.5" r="2.5" {...STROKE} />
+      </Icon>
+      Leads
+    </button>
+
     <button
       type="button"
       onClick={onInbox}

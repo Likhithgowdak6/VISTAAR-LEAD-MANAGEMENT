@@ -44,6 +44,7 @@ const {
   findGoingColdConversations,
   findConversationsWithUpcomingEvents,
   findNurturableConversations,
+  listConversations,
   findParkedConversations,
   markConversationCold,
   markOptedOut,
@@ -919,5 +920,83 @@ describe('updateConversationPreview and the nurture step', () => {
     });
 
     expect(callArgs()?.[0]).toMatchObject({ organizationId: 'org-1' });
+  });
+});
+
+/**
+ * The Leads screen's search box, as a database filter.
+ *
+ * WHY THIS IS A SERVER-SIDE FILTER AT ALL. The inbox's existing box searches only the page it
+ * has already loaded - it literally says "Search loaded leads" - so lead fifty-one is
+ * unfindable by name. These tests pin the three properties that make the server-side version
+ * trustworthy: it narrows rather than replaces the other filters, it cannot be turned into a
+ * regex by whatever somebody types, and an empty box is not a filter.
+ */
+describe('listConversations search', () => {
+  const createFindChain = (result: unknown[] = []) => {
+    const exec = vi.fn().mockResolvedValue(result);
+    const limit = vi.fn().mockReturnValue({ exec });
+    const skip = vi.fn().mockReturnValue({ limit });
+    const sort = vi.fn().mockReturnValue({ skip });
+    return { sort, skip, limit, exec };
+  };
+
+  /** The `$and` clauses the call ended up building, or [] when it built none. */
+  const andClauses = (): Record<string, unknown>[] =>
+    (mocks.find.mock.calls[0]?.[0]?.$and ?? []) as Record<string, unknown>[];
+
+  it('matches the display name case-insensitively', async () => {
+    mocks.find.mockReturnValue(createFindChain());
+
+    await listConversations({ organizationId, search: 'priya' });
+
+    expect(andClauses()).toContainEqual({
+      displayName: { $regex: 'priya', $options: 'i' },
+    });
+  });
+
+  it('ESCAPES REGEX METACHARACTERS instead of running them', async () => {
+    // Unescaped, `.*` matches every lead in the organisation and `(((` throws an invalid-regex
+    // error straight from the driver. Both are reachable by typing into a search box.
+    mocks.find.mockReturnValue(createFindChain());
+
+    await listConversations({ organizationId, search: '.*' });
+
+    expect(andClauses()).toContainEqual({
+      displayName: { $regex: '\\.\\*', $options: 'i' },
+    });
+  });
+
+  it('NARROWS the other filters rather than replacing them', async () => {
+    // "Priya, among the contacted leads" has to mean both. Assigning instead of ANDing would
+    // silently drop whichever was applied first.
+    mocks.find.mockReturnValue(createFindChain());
+
+    await listConversations({ organizationId, stage: 'contacted', search: 'priya' });
+
+    const filter = mocks.find.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(filter.stage).toBe('contacted');
+    expect(andClauses()).toContainEqual({
+      displayName: { $regex: 'priya', $options: 'i' },
+    });
+  });
+
+  it('treats an ALL-WHITESPACE box as no search at all', async () => {
+    // An empty pattern matches every row, which on screen is indistinguishable from the search
+    // having silently failed.
+    mocks.find.mockReturnValue(createFindChain());
+
+    await listConversations({ organizationId, search: '   ' });
+
+    expect(andClauses()).toHaveLength(0);
+  });
+
+  it('applies no search filter when none was asked for', async () => {
+    mocks.find.mockReturnValue(createFindChain());
+
+    await listConversations({ organizationId });
+
+    expect(andClauses()).toHaveLength(0);
   });
 });

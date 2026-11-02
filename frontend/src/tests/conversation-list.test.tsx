@@ -79,9 +79,22 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+
+/**
+ * Renders the app and navigates to the INBOX.
+ *
+ * Needed since Leads became the landing screen. These tests are about inbox and thread
+ * behaviour, not about which screen the app opens on - that is asserted once, on its own, in
+ * leads-page.test.tsx - so they say where they want to be rather than relying on the default.
+ */
+const renderInbox = async () => {
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Inbox' }));
+};
+
 describe('inbox and thread', () => {
   it('renders conversations with unread and stage, and opens a thread on select', async () => {
-    render(<App />);
+    await renderInbox();
 
     const [riyaRow] = await screen.findAllByText('Riya Sharma');
     expect(riyaRow).toBeInTheDocument();
@@ -103,7 +116,7 @@ describe('inbox and thread', () => {
   });
 
   it('shows how warm a lead is in the list, so a hot one is visible without opening it', async () => {
-    render(<App />);
+    await renderInbox();
 
     await screen.findAllByText('Riya Sharma');
 
@@ -131,7 +144,7 @@ describe('inbox and thread', () => {
       meta: { queued: true },
     });
 
-    render(<App />);
+    await renderInbox();
     const [riyaRow] = await screen.findAllByText('Riya Sharma');
     fireEvent.click(riyaRow);
 
@@ -150,7 +163,7 @@ describe('inbox and thread', () => {
   it('turns the AI off for one lead straight from the row', async () => {
     endpoints.setAiAutomation.mockResolvedValue({ data: {} });
 
-    render(<App />);
+    await renderInbox();
     await screen.findAllByText('Riya Sharma');
 
     const toggle = await screen.findByRole('switch', {
@@ -170,7 +183,7 @@ describe('inbox and thread', () => {
   it('does not open the thread when the switch is clicked', async () => {
     endpoints.setAiAutomation.mockResolvedValue({ data: {} });
 
-    render(<App />);
+    await renderInbox();
     await screen.findAllByText('Riya Sharma');
 
     fireEvent.click(
@@ -186,7 +199,7 @@ describe('inbox and thread', () => {
   it('puts the switch back when the server refuses', async () => {
     endpoints.setAiAutomation.mockRejectedValue(new Error('nope'));
 
-    render(<App />);
+    await renderInbox();
     await screen.findAllByText('Riya Sharma');
 
     const toggle = await screen.findByRole('switch', {

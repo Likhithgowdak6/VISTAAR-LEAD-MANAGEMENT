@@ -369,3 +369,57 @@ describe('LeadPanel — the lead score', () => {
     expect(screen.getByText('Long-term nurture')).toBeInTheDocument();
   });
 });
+
+/**
+ * How many Call buttons a lead has. The answer is one, at every breakpoint.
+ *
+ * THE BUG THIS EXISTS FOR actually shipped: LeadPanel's mobile branch rendered <CallAction>
+ * twice in a row - a paste that landed above the explaining comment rather than below it - so
+ * every lead on a phone showed two identical Call buttons stacked on top of each other. The
+ * desktop branch had the opposite fault and rendered none at all.
+ *
+ * Neither was caught, because the existing call test mounts CallAction ON ITS OWN. A component
+ * tested in isolation cannot tell you how many times its parent renders it, so the count has to
+ * be asserted HERE, against the panel, at BOTH widths - a test that only checked a phone would
+ * have passed happily while desktop users had no way to ring anybody.
+ */
+describe('LeadPanel — the Call button count', () => {
+  /** Makes `useIsMobileViewport` report a narrow screen, the way a real phone would. */
+  const stubViewport = (narrow: boolean) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: narrow,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('renders EXACTLY ONE on a phone', async () => {
+    // The regression. Before the fix this found two.
+    stubViewport(true);
+
+    renderAuthed(<LeadPanel conversation={conversation as never} contactId="ct1" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Call this lead' })).toHaveLength(1);
+    });
+  });
+
+  it('renders EXACTLY ONE on a desktop viewport', async () => {
+    // The other half of the same bug: this branch used to render none, so a desktop user had
+    // no way to ring a lead at all.
+    stubViewport(false);
+
+    renderAuthed(<LeadPanel conversation={conversation as never} contactId="ct1" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Call this lead' })).toHaveLength(1);
+    });
+  });
+});

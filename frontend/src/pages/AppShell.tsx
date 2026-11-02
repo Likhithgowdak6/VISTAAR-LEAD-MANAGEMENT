@@ -28,8 +28,11 @@ import StagesPage from './StagesPage';
 import TagsPage from './TagsPage';
 import TasksPage from './TasksPage';
 import TeamPage from './TeamPage';
+import LeadsPage from './LeadsPage';
+import LeadDetailPage from './LeadDetailPage';
 
 type AppView =
+  | 'leads'
   | 'inbox'
   | 'tasks'
   | 'analytics'
@@ -152,14 +155,24 @@ const AppShell = () => {
   const deepLink = useMemo(() => readDeepLinkTarget(), []);
 
   const [view, setView] = useState<AppView>(() => {
-    // An explicit lead link wins over the Meta return: it names one record, which is a stronger
-    // instruction than "you just came back from Facebook".
+    // An explicit lead link wins over the Meta return AND over the default landing screen: it
+    // names one record, which is a stronger instruction than either "you just came back from
+    // Facebook" or "show me the usual first screen". A notification that opens a thread must
+    // still open that thread, so this stays 'inbox'.
     if (deepLink) {
       return 'inbox';
     }
 
-    return readMetaConnectReturn() ? 'lead-sources' : 'inbox';
+    // Leads is the landing screen. The inbox is one tap away and entirely unchanged.
+    return readMetaConnectReturn() ? 'lead-sources' : 'leads';
   });
+
+  /**
+   * The lead whose profile is open, if any. Separate from `selectedId`, which is the open
+   * THREAD - the two are different screens about the same record and can be open independently:
+   * Message on a profile hands over to the thread without closing anything behind it.
+   */
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(
     () => deepLink?.conversationId ?? null,
   );
@@ -293,6 +306,31 @@ const AppShell = () => {
   }, []);
 
   /**
+   * Returns to the LEADS ROOT - the list, not whatever profile was last open.
+   *
+   * The counterpart of `goToInbox`, and root-ness is the reason it clears the selection for the
+   * same reason that one does: landing on an open profile with the Leads tab lit is a dead end,
+   * because the screen it would return to is the one the tab claims to be showing.
+   */
+  const goToLeads = useCallback(() => {
+    setSelectedLeadId(null);
+    setView('leads');
+  }, []);
+
+  /**
+   * Message, from a lead's profile. Hands straight to `openConversation`, which is the SAME
+   * call the reminders list and a tapped notification make - so the thread opens with its deep
+   * link, unread state and back behaviour identical to arriving any other way. Deliberately not
+   * a second navigation concept.
+   */
+  const openLeadConversation = useCallback(
+    (conversationId: string) => {
+      openConversation(conversationId);
+    },
+    [openConversation],
+  );
+
+  /**
    * The open thread was deleted. Clears the selection WITHOUT the origin restore that
    * `closeConversation` performs.
    *
@@ -326,11 +364,22 @@ const AppShell = () => {
    * changes how the dashboard behaves on a laptop.
    */
   useMobileBackLayer({
-    // Any section other than the inbox is a screen the person navigated INTO, so back returns
-    // to the inbox rather than leaving the app. The inbox itself is the root: back from there
-    // exits, which is what Android expects.
-    active: view !== 'inbox',
-    onBack: useCallback(() => setView('inbox'), []),
+    // Any section other than LEADS is a screen the person navigated INTO, so back returns to
+    // Leads rather than leaving the app. Leads is now the root - it is the landing screen and
+    // the first tab - so back from there exits, which is what Android expects. The inbox is an
+    // ordinary section again by this rule: back out of it lands on Leads rather than quitting.
+    active: view !== 'leads',
+    onBack: useCallback(() => {
+      setSelectedId(null);
+      setView('leads');
+    }, []),
+  });
+
+  useMobileBackLayer({
+    // An open lead profile, which sits OVER the leads list. Registered before the thread layer
+    // below so the stacking order matches the screen: the profile closes back to the list.
+    active: view === 'leads' && selectedLeadId !== null,
+    onBack: useCallback(() => setSelectedLeadId(null), []),
   });
 
   useMobileBackLayer({
@@ -507,6 +556,7 @@ const AppShell = () => {
   );
 
   const navItems: MobileNavItem<AppView>[] = [
+    { view: 'leads', label: 'Leads' },
     { view: 'inbox', label: 'Inbox' },
     ...(canManageTasks ? ([{ view: 'tasks', label: 'Tasks' }] as const) : []),
     { view: 'analytics', label: 'Analytics' },
@@ -556,6 +606,9 @@ const AppShell = () => {
             >
               <NavButton active={view === 'analytics'} onClick={() => setView('analytics')}>
                 Analytics
+              </NavButton>
+              <NavButton active={view === 'leads'} onClick={() => setView('leads')}>
+                Leads
               </NavButton>
               <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
                 Inbox
@@ -641,7 +694,24 @@ const AppShell = () => {
         <ChangePasswordDialog onClose={() => setChangingPassword(false)} />
       ) : null}
 
-      {view === 'tasks' && canManageTasks ? (
+      {view === 'leads' ? (
+        /* The list stays mounted under the profile? NO - and deliberately not. Unlike the
+           inbox, where the list and thread sit side by side from `lg`, a lead profile replaces
+           the list at every width: it is a page about one record, not a detail pane. Remounting
+           the list on back costs one request and keeps this branch honest about what is on
+           screen. */
+        selectedLeadId ? (
+          <LeadDetailPage
+            conversationId={selectedLeadId}
+            onMessage={openLeadConversation}
+            onBack={() => setSelectedLeadId(null)}
+          />
+        ) : (
+          <div className={isMobileViewport ? 'min-h-0 flex-1 m-nav-clearance' : 'min-h-0 flex-1'}>
+            <LeadsPage onOpenLead={setSelectedLeadId} />
+          </div>
+        )
+      ) : view === 'tasks' && canManageTasks ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks">
           <TasksPage onOpenTask={openTaskTarget} />
         </SectionScreen>
@@ -760,7 +830,8 @@ const AppShell = () => {
           being typed. Back returns to the list, which brings the bar back with it. */}
       {isMobileViewport && !(view === 'inbox' && selectedId) ? (
         <MobileBottomNav
-          active={view === 'inbox' ? 'inbox' : 'more'}
+          active={view === 'leads' ? 'leads' : view === 'inbox' ? 'inbox' : 'more'}
+          onLeads={goToLeads}
           onInbox={goToInbox}
           onMore={() => setMoreOpen(true)}
         />

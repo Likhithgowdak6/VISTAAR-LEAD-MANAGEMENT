@@ -120,6 +120,8 @@ export interface ListConversationsForActorParams {
   enquiryClass?: EnquiryClass;
   aiStatus?: AiResponseStatus;
   needsAttention?: boolean;
+  /** Free text matched against the lead's display name. See the repository for why only that. */
+  search?: string;
   limit?: number;
   skip?: number;
 }
@@ -135,6 +137,7 @@ export const listConversationsForActor = async ({
   enquiryClass,
   aiStatus,
   needsAttention,
+  search,
   limit,
   skip,
 }: ListConversationsForActorParams) => {
@@ -150,6 +153,9 @@ export const listConversationsForActor = async ({
     enquiryClass,
     aiStatus,
     needsAttention,
+    // Passed THROUGH the same assignment gate above, never around it: an agent without
+    // read-all still only searches their own leads, so search can never widen what they see.
+    search,
     limit,
     skip,
   });

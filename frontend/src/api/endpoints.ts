@@ -135,6 +135,15 @@ export interface ListConversationsParams extends TokenParams {
    * the filter.
    */
   needsAttention?: boolean | null;
+  /**
+   * Free text matched against the lead's display name, IN THE DATABASE.
+   *
+   * The Leads screen's box, and deliberately not the inbox's: that one filters the fifty rows
+   * already in hand and says "Search loaded leads" on its own label, so lead fifty-one is
+   * unfindable by name. This one reaches every lead the caller is allowed to see. The server
+   * applies it inside the same assignment scope as everything else, so it cannot widen that.
+   */
+  search?: string | null;
   limit?: number;
   skip?: number;
 }
@@ -147,6 +156,7 @@ export const listConversations = ({
   enquiryClass,
   aiStatus,
   needsAttention,
+  search,
   limit,
   skip,
 }: ListConversationsParams = {}): Promise<ApiSuccessResponse<Conversation[]>> =>
@@ -159,6 +169,9 @@ export const listConversations = ({
       enquiryClass,
       aiStatus,
       needsAttention: needsAttention ? 'true' : undefined,
+      // Trimmed to undefined rather than sent empty: the server rejects a blank `search`, and
+      // an empty box means "no search", not "search for nothing".
+      search: search?.trim() ? search.trim() : undefined,
       limit,
       skip,
     })}`,

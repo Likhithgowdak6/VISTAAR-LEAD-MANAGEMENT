@@ -88,9 +88,35 @@ export interface ListConversationsParams {
   aiStatus?: AiResponseStatus;
   /** Conversations a human should look at, whatever the AI made of them. */
   needsAttention?: boolean;
+  /**
+   * Free text matched against the lead's display name, for the Leads screen's search box.
+   *
+   * DISPLAY NAME ONLY, AND THAT IS A DELIBERATE LIMIT. The obvious next field is the phone
+   * number, and it cannot be searched: the contact holds it encrypted and `select: false`, so
+   * there is no plaintext for a regex to match and building one would mean decrypting every
+   * contact in the organisation on every keystroke. Message bodies are out for the same reason
+   * plus volume. `displayName` is a plain, required, indexed-adjacent string on the
+   * conversation itself, which is why it is the one field this can honestly offer.
+   */
+  search?: string;
   limit?: number;
   skip?: number;
 }
+
+/**
+ * A case-insensitive "contains" match on the lead's name.
+ *
+ * THE INPUT IS ESCAPED, NOT TRUSTED. It arrives from a search box, so a user typing `.*` or
+ * `(((` would otherwise either match everything or throw an invalid-regex error from the driver.
+ * Escaping every metacharacter makes the query mean exactly what was typed.
+ *
+ * NOT ANCHORED, because people search for a surname as readily as a first name. That costs an
+ * index on this field - the organisation filter still narrows it first, and this runs as a
+ * residual match over one studio's conversations rather than a full-collection scan.
+ */
+const displayNameSearchFilter = (search: string) => ({
+  displayName: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
+});
 
 export const listConversations = ({
   organizationId,
@@ -102,6 +128,7 @@ export const listConversations = ({
   enquiryClass,
   aiStatus,
   needsAttention,
+  search,
   limit = 50,
   skip = 0,
   now = new Date(),
@@ -139,6 +166,11 @@ export const listConversations = ({
     ...(enquiryClass ? [enquiryClassFilter(enquiryClass)] : []),
     ...(aiStatus ? [aiResponseStatusFilter(aiStatus)] : []),
     ...(needsAttention ? [needsAttentionFilter(now)] : []),
+    // ANDed with the rest, so searching inside a filtered list narrows it rather than
+    // replacing it: "show me Priya, among the contacted leads" has to mean both.
+    // An all-whitespace box is NOT a filter - it would match every row through the empty
+    // pattern and look like the search silently failed.
+    ...(search && search.trim() ? [displayNameSearchFilter(search.trim())] : []),
   ];
 
   if (derived.length > 0) {

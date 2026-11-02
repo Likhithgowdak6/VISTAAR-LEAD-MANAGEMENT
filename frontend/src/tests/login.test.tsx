@@ -50,7 +50,10 @@ describe('login flow', () => {
       }),
     );
 
-    expect(await screen.findByText('Conversations')).toBeInTheDocument();
+    // LANDS ON LEADS, not the inbox. That is the point of the change, so the sign-in test is
+    // where it gets asserted - a default landing screen nobody checks is one that can quietly
+    // revert.
+    expect(await screen.findByRole('heading', { name: 'Leads' })).toBeInTheDocument();
     expect(screen.getByText('Asha Menon')).toBeInTheDocument();
   });
 

@@ -123,13 +123,13 @@ const LeadPanel = ({
           <div className="flex flex-col gap-5 rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3">
             {contactId ? <RevealPhone contactId={contactId} /> : null}
 
-          <CallAction
-            conversationId={conversation.id}
-            contactId={contactId ?? null}
-            onCallRecorded={bumpActivity}
-          />
             {/* Beside the number, because revealing it and ringing it are the same
-                errand. Opens the system dialler - see CallAction. */}
+                errand. Opens the system dialler - see CallAction.
+
+                EXACTLY ONE PER BREAKPOINT. This block briefly rendered CallAction twice - a
+                paste that landed above this comment rather than below it - which put two
+                identical Call buttons on every lead on a phone. lead-panel.test.tsx now counts
+                them, at both breakpoints, so a second one cannot come back unnoticed. */}
             <CallAction
               conversationId={conversation.id}
               contactId={contactId ?? null}
@@ -265,6 +265,16 @@ const LeadPanel = ({
           ) : null}
 
           {contactId ? <RevealPhone contactId={contactId} /> : null}
+
+          {/* The desktop counterpart of the mobile block above, and for a while the only
+              breakpoint with NO Call button at all - the mobile branch had two and this had
+              none. Same component, same dialler handover; the panel is just a flat column here
+              rather than a set of disclosures. */}
+          <CallAction
+            conversationId={conversation.id}
+            contactId={contactId ?? null}
+            onCallRecorded={bumpActivity}
+          />
 
           {/* Renders nothing unless this lead came in through a form. */}
           <LeadFormSection conversationId={conversation.id} />

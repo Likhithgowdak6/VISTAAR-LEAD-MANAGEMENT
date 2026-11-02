@@ -47,6 +47,17 @@ export const listConversationsQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((value) => value === 'true')
     .optional(),
+  /**
+   * The Leads screen's search box, matched against the lead's display name.
+   *
+   * Applied in the DATABASE for the same reason the classification filters above are: the list
+   * pages, so searching the loaded page would be wrong about every lead after the first 50 -
+   * which is exactly the limitation the inbox's "Search loaded leads" box still has.
+   *
+   * Bounded at 120 characters. Nothing legitimate is longer than a name, and the value becomes
+   * a regex downstream, so the length is capped before it gets anywhere near the driver.
+   */
+  search: z.string().trim().min(1).max(120).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   skip: z.coerce.number().int().min(0).default(0),
 });

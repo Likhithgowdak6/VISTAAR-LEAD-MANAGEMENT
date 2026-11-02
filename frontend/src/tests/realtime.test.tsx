@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '../App';
@@ -84,8 +84,12 @@ describe('realtime inbox refresh', () => {
   it('refetches the inbox when a conversation.changed event arrives', async () => {
     render(<App />);
 
-    // Inbox loaded once after sign-in restore.
-    await waitFor(() => expect(endpoints.listConversations).toHaveBeenCalledTimes(1));
+    // Leads is the landing screen now, so get to the inbox first - and count calls RELATIVE to
+    // whatever that navigation cost, since both screens read the same endpoint. An absolute
+    // count here would be asserting how many times the app happens to fetch on startup, which
+    // is not what this test is about.
+    fireEvent.click(await screen.findByRole('button', { name: 'Inbox' }));
+    await waitFor(() => expect(endpoints.listConversations).toHaveBeenCalled());
 
     // The realtime stream connected via fetch.
     await waitFor(() =>
@@ -95,8 +99,12 @@ describe('realtime inbox refresh', () => {
       ),
     );
 
+    const before = endpoints.listConversations.mock.calls.length;
+
     streamController.emit({ type: 'conversation.changed', conversationId: 'c1' });
 
-    await waitFor(() => expect(endpoints.listConversations).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(endpoints.listConversations.mock.calls.length).toBe(before + 1),
+    );
   });
 });
