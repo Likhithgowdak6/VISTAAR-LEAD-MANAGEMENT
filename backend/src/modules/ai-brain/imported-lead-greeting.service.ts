@@ -67,6 +67,47 @@ export interface GreetImportedLeadParams {
  * written, and the ordinary variant's "confirm we do the thing they asked about" is if anything
  * the stronger invitation to invent an occasion.
  */
+/**
+ * Who the opening message signs off as.
+ *
+ * ONE PLACE, because it is the studio's identity and it appears in the single message a stranger
+ * judges the business by. A named sign-off is normal for a one- or two-person studio and is a
+ * large part of why the opening reads as a person rather than a broadcast - but it also means
+ * the agent is writing under a real person's name, so it is stated here plainly rather than
+ * buried in a prompt string.
+ *
+ * Deliberately NOT applied to later replies: signing every message in a back-and-forth is
+ * something no human does, and it would turn an ordinary chat into a letter exchange.
+ */
+const GREETING_SIGNATURE = ['Himanshu', 'Creative Director/Cinematographer'];
+
+/**
+ * How the opening message is laid out.
+ *
+ * WHY THIS OVERRIDES THE HOUSE VOICE. prompts.py's VOICE block asks for one short WhatsApp
+ * paragraph under forty words, which is right for every mid-conversation reply and wrong for
+ * this one: the first message has to carry a greeting, what they enquired about, why we are
+ * worth a conversation, and an ask - and delivered as a single block, all four arrive as a wall
+ * of text from an unknown number. The owner-instruction channel is explicitly an order that
+ * outranks the house rules, which is why the layout can be specified here at all.
+ *
+ * The SHAPE is prescribed and the WORDS are not. Fixing the sentences would send every lead an
+ * identical message, which is the definition of a mass campaign and reads as one the moment two
+ * recipients compare notes.
+ */
+const openingMessageLayout = (): string[] => [
+  'LAYOUT - this message only, and it OVERRIDES the usual "one short paragraph" rule:',
+  'write it as SHORT LINES SEPARATED BY BLANK LINES, not as a single block of prose.',
+  'Roughly: a one-line greeting with their name; then one line saying what they enquired',
+  'about and when, where you actually know it; then one or two short lines on what we care',
+  'about for an occasion like theirs; then the ask; then the sign-off.',
+  'Up to about 90 words total - longer than a normal reply, because it is doing more.',
+  'Still no bullet points, no headings and no bold - blank lines are the only structure.',
+  'At most one emoji, in the greeting line if anywhere.',
+  `Sign off on its own lines, exactly: "${GREETING_SIGNATURE.join('", then "')}".`,
+  'Vary the wording every time. The shape is fixed; the sentences are yours.',
+];
+
 const doNotInferTheServiceFromTheFormName = (sourceLabel: string): string[] => [
   'YOU DO NOT KNOW WHAT THEY WANT. The form is called',
   `"${sourceLabel}", and that is OUR name for it, not something they told us -`,
@@ -141,7 +182,13 @@ export const buildGreetingDirective = ({
       'ONE clear ask: the call. Do not also ask your usual qualifying questions in this message.',
       'No prices, no packages, no availability, no deliverables, no discounts and no urgency -',
       'you have been given none of those and must not imply any.',
-      'Keep it short, warm and human, and do not apologise for messaging them.',
+      // Said explicitly because a package or budget ANSWER off the form is something the lead
+      // did tell us, so the rule above reads as satisfiable by quoting it back. It is not: a
+      // number in the first message turns an introduction into a quote.
+      'That holds even if the form answers mention a package or a budget - acknowledge the',
+      'enquiry without repeating any figure back at them.',
+      'Warm and human, and do not apologise for messaging them.',
+      ...openingMessageLayout(),
     ].join(' ');
   }
 

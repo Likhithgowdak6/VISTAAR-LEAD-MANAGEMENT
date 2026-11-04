@@ -353,3 +353,60 @@ describe('the form name is not an answer the customer gave', () => {
     }
   });
 });
+
+/**
+ * The shape of the opening message.
+ *
+ * WHY THESE ARE WORTH PINNING. The first message is the only one a stranger judges the studio
+ * by, and two of its properties are easy to lose silently: the layout instruction has to beat
+ * prompts.py's "one short paragraph under forty words", and the no-prices rule has to survive a
+ * form answer that mentions a package - the real greeting that prompted this work quoted a
+ * "12,120 package" straight back at the lead because the figure came off their own form and so
+ * read as something they had already told us.
+ */
+describe('the call-scheduling opening', () => {
+  const callScheduling = (over: Record<string, unknown> = {}) =>
+    buildGreetingDirective({
+      sourceLabel: 'Baby shower Sept-Dec',
+      category: 'baby_shower',
+      origin: 'form_call_scheduling',
+      ...over,
+    });
+
+  it('ASKS FOR LINE BREAKS, overriding the one-paragraph house voice', () => {
+    const directive = callScheduling();
+
+    expect(directive).toContain('SHORT LINES SEPARATED BY BLANK LINES');
+    expect(directive).toMatch(/OVERRIDES/);
+  });
+
+  it('signs off as a named person', () => {
+    expect(callScheduling()).toContain('Creative Director/Cinematographer');
+  });
+
+  it('REFUSES A FIGURE even when the form answers carry one', () => {
+    // The actual regression. "No prices" alone was satisfiable by quoting the lead's own
+    // package answer back at them, which turns an introduction into a quote.
+    expect(callScheduling()).toMatch(/package or a budget/);
+    expect(callScheduling()).toMatch(/without repeating any figure/);
+  });
+
+  it('keeps the shape fixed but the wording free, so leads do not receive one message', () => {
+    expect(callScheduling()).toMatch(/Vary the wording every time/);
+  });
+
+  it('still refuses to infer the occasion from the form name when nothing was answered', () => {
+    const directive = callScheduling({ category: 'unknown' });
+
+    expect(directive).toContain('YOU DO NOT KNOW WHAT THEY WANT');
+  });
+
+  it('does NOT impose the layout on an ordinary qualifying opening', () => {
+    // That variant asks questions mid-flow and is answered in the usual WhatsApp register;
+    // a signed, multi-line letter would be the wrong shape for it.
+    const ordinary = buildGreetingDirective({ sourceLabel: 'F', category: 'baby_shower' });
+
+    expect(ordinary).not.toContain('SHORT LINES SEPARATED BY BLANK LINES');
+    expect(ordinary).not.toContain('Creative Director/Cinematographer');
+  });
+});
