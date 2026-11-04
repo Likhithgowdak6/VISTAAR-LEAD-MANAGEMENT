@@ -5,8 +5,10 @@ import { useAuth } from '../auth/AuthContext';
 import EmptyState from '../components/EmptyState';
 import Spinner from '../components/Spinner';
 import ConversationFilters from '../components/inbox/ConversationFilters';
+import PullToRefreshIndicator from '../components/PullToRefreshIndicator';
 import LeadCard from '../components/leads/LeadCard';
 import { mergeStages } from '../lib/stages';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import {
   type AuthValue,
   type Conversation,
@@ -70,6 +72,20 @@ const LeadsPage = ({ onOpenLead }: Props) => {
    * showing what was typed three letters ago. Every load takes a ticket; only the newest writes.
    */
   const loadTicket = useRef(0);
+
+  /**
+   * The scroll container, so pull-to-refresh can watch it. Held here rather than inside the
+   * list because the hook needs the element that actually scrolls, which is the wrapper below
+   * and not the <ul>.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Resolves the pull gesture's promise once the refetch it triggered has actually landed.
+   * Without it the spinner would retract the instant the gesture ended, while the list below
+   * still showed the old rows - which reads as "refresh did nothing".
+   */
+  const refreshResolveRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -139,6 +155,11 @@ const LeadsPage = ({ onOpenLead }: Props) => {
         if (active && loadTicket.current === ticket) {
           setLoading(false);
         }
+
+        // Always settled, even for a superseded or failed load: a pull whose promise never
+        // resolves leaves the spinner on screen forever.
+        refreshResolveRef.current?.();
+        refreshResolveRef.current = null;
       });
 
     return () => {
@@ -152,6 +173,29 @@ const LeadsPage = ({ onOpenLead }: Props) => {
   const filtering = Boolean(enquiryClass) || Boolean(aiStatus) || needsAttention;
 
   const retry = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  /**
+   * Pull down to refetch, the same gesture the inbox already has.
+   *
+   * Refetching through `reloadKey` rather than calling the loader directly keeps ONE path to the
+   * server: the effect above owns the request, its ticket guard, and the loading flag, so a pull
+   * that lands mid-request cannot race the response it is already waiting for.
+   *
+   * The promise has to resolve only once the new rows are in, or the spinner snaps away while
+   * the screen still shows the old list - so this waits for `loading` to go false rather than
+   * resolving immediately.
+   */
+  const pull = usePullToRefresh({
+    scrollRef,
+    onRefresh: useCallback(
+      () =>
+        new Promise<void>((resolve) => {
+          setReloadKey((key) => key + 1);
+          refreshResolveRef.current = resolve;
+        }),
+      [],
+    ),
+  });
 
   return (
     <div className="flex h-full flex-col">
@@ -181,7 +225,17 @@ const LeadsPage = ({ onOpenLead }: Props) => {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        data-testid="leads-scroll"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
+        <PullToRefreshIndicator
+          distance={pull.pullDistance}
+          armed={pull.armed}
+          refreshing={pull.refreshing}
+        />
+
         {loading ? <Spinner label="Loading leads…" /> : null}
 
         {error && !loading ? (

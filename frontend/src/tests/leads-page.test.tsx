@@ -164,3 +164,40 @@ describe('searching', () => {
     expect(await screen.findByText('No leads yet')).toBeInTheDocument();
   });
 });
+
+describe('pull to refresh', () => {
+  /** The same gesture shape pull-to-refresh.test.tsx uses against the hook directly. */
+  const pullBy = (element: HTMLElement, deltaY: number) => {
+    fireEvent.touchStart(element, { touches: [{ clientY: 100, clientX: 50 }] });
+    fireEvent.touchMove(element, { touches: [{ clientY: 100 + deltaY, clientX: 50 }] });
+    fireEvent.touchEnd(element, { touches: [] });
+  };
+
+  it('REFETCHES on a deliberate pull, so the list is not stuck on load-time data', async () => {
+    // The inbox has had this gesture for a while; a leads screen without it is the one people
+    // reach for first when a lead they just created is missing.
+    render();
+
+    await screen.findByText('Riya Sharma');
+
+    const before = endpoints.listConversations.mock.calls.length;
+
+    pullBy(screen.getByTestId('leads-scroll'), 400);
+
+    await waitFor(() =>
+      expect(endpoints.listConversations.mock.calls.length).toBe(before + 1),
+    );
+  });
+
+  it('does NOT refetch on a short drag, which is just a hesitant scroll', async () => {
+    render();
+
+    await screen.findByText('Riya Sharma');
+
+    const before = endpoints.listConversations.mock.calls.length;
+
+    pullBy(screen.getByTestId('leads-scroll'), 40);
+
+    expect(endpoints.listConversations.mock.calls.length).toBe(before);
+  });
+});

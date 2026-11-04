@@ -784,5 +784,17 @@
   [data-mobile-sheet-backdrop] {
     align-items: flex-end !important;
     padding: 0 !important;
+
+    /* ABOVE THE BOTTOM NAV, which is `z-index: 40`.
+       The two previous lines are what make this necessary: anchoring a sheet to
+       the bottom of the screen puts its Back/Next row at exactly the height the
+       fixed nav occupies. The dialogs themselves sit on z-10/z-20, so the nav
+       painted straight over their actions and the buttons could be seen but not
+       tapped - reported on the Meta connect wizard, but true of every sheet
+       opened on a screen that shows the nav.
+       Fixed HERE rather than per dialog so one rule covers all of them and a new
+       sheet cannot reintroduce it by picking another z-index. Covering the nav
+       while a modal is open is the correct behaviour, not a side effect. */
+    z-index: 50 !important;
   }
 }

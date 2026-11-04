@@ -89,7 +89,10 @@ const LeadDetailPage = ({ conversationId, onMessage, onBack }: Props) => {
         asHeading
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      {/* `m-nav-clearance` because the bottom nav stays visible over this screen - unlike a
+          message thread, which hides it so the composer owns the bottom edge. Without the
+          padding the last section sits under the nav bar. */}
+      <div className="m-nav-clearance min-h-0 flex-1 overflow-y-auto p-4">
         {loading ? <Spinner label="Loading lead…" /> : null}
 
         {error && !loading ? (
