@@ -1000,3 +1000,55 @@ describe('listConversations search', () => {
     expect(andClauses()).toHaveLength(0);
   });
 });
+
+/**
+ * The per-lead nurture switch, as a database filter.
+ *
+ * ENFORCED IN THE QUERY, not in the sweep's loop, which is what makes "off" immediate: a
+ * disabled lead is never read, never claimed and never stepped. There are no pre-queued nurture
+ * messages in this design - every send is decided at sweep time - so excluding the row IS the
+ * cancellation.
+ */
+describe('findNurturableConversations and the per-lead switch', () => {
+  const createFindChain = (result: unknown[] = []) => {
+    const exec = vi.fn().mockResolvedValue(result);
+    const limit = vi.fn().mockReturnValue({ exec });
+    const sort = vi.fn().mockReturnValue({ limit });
+    return { sort, limit, exec };
+  };
+
+  const filterUsed = (): Record<string, unknown> =>
+    (mocks.find.mock.calls[0]?.[0] ?? {}) as Record<string, unknown>;
+
+  it('EXCLUDES A LEAD WHOSE OWNER TURNED CHASING OFF', () => {
+    mocks.find.mockReturnValue(createFindChain());
+
+    findNurturableConversations({ organizationId });
+
+    expect(filterUsed().nurtureEnabled).toEqual({ $ne: false });
+  });
+
+  it('INCLUDES CONVERSATIONS WRITTEN BEFORE THE FIELD EXISTED', () => {
+    // `$ne: false` rather than `true` on purpose: an older row has no `nurtureEnabled` key at
+    // all, and matching on `true` would silently drop every one of them - a feature that
+    // quietly stops nurturing the entire existing database.
+    mocks.find.mockReturnValue(createFindChain());
+
+    findNurturableConversations({ organizationId });
+
+    expect(filterUsed().nurtureEnabled).not.toBe(true);
+  });
+
+  it('keeps every existing safety rule alongside it', () => {
+    // The switch narrows; it must not have replaced anything.
+    mocks.find.mockReturnValue(createFindChain());
+
+    findNurturableConversations({ organizationId });
+
+    const filter = filterUsed();
+
+    expect(filter.aiAutomationEnabled).toBe(true);
+    expect(filter.optedOutAt).toBeNull();
+    expect(filter.salesRejectedAt).toBeNull();
+  });
+});

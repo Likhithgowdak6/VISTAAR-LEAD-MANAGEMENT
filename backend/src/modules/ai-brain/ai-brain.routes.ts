@@ -18,6 +18,7 @@ import {
   resolveApproval,
   reviseProposal,
   setAutomation,
+  setNurture,
 } from './ai-brain.controller.js';
 
 // Mounted at /api/v1/ai-brain
@@ -48,6 +49,15 @@ aiBrainRouter.post(
   '/conversations/:conversationId/automation',
   requireAiAutomationManage,
   setAutomation,
+);
+
+// Turn silence-chasing on/off for one lead. Same permission as automation - it is the same
+// class of decision about what the AI may do on a lead - but a different switch: turning this
+// off stops the chasing and leaves replies alone.
+aiBrainRouter.post(
+  '/conversations/:conversationId/nurture',
+  requireAiAutomationManage,
+  setNurture,
 );
 
 // Ask the AI's won/lost/needs-attention classifier to re-read this conversation right now.

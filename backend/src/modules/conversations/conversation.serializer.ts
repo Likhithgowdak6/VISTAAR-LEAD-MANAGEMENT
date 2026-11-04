@@ -43,6 +43,8 @@ export interface SerializedConversation {
   aiAutomationPausedReason: unknown;
   /** What the agent is FOR here: qualifying, post_booking, or off. */
   aiMode: unknown;
+  /** Whether the silence sequence may chase this lead. Separate from aiAutomationEnabled. */
+  nurtureEnabled: unknown;
   optedOutAt: string | null;
   /** The day the lead's event happens, when they have told us one. The lead panel counts down
    *  to it, and the nurture cadence stops at it. */
@@ -192,6 +194,9 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     // Defaulted for rows written before the field existed, which read as the ordinary agent -
     // exactly what they have been doing.
     aiMode: value.aiMode ?? AI_MODES.QUALIFYING,
+    // Defaults to ON for rows written before the field existed, matching the model and the
+    // eligibility query's `$ne: false`. No backfill, and none implied.
+    nurtureEnabled: value.nurtureEnabled ?? true,
     optedOutAt: serializeDate(value.optedOutAt),
     eventDate: serializeDate(value.eventDate),
     aiCategory: value.aiCategory ?? 'unknown',

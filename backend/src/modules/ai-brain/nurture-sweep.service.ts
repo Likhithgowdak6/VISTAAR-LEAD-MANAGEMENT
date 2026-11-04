@@ -318,6 +318,9 @@ export const createNurtureSweepService = ({
       lastInboundAt: conversation.lastInboundAt ?? null,
       lastOutboundAt: conversation.lastOutboundAt ?? null,
       createdAt: conversation.createdAt ?? null,
+      // Anchors the sequence on the resume when the owner has switched this lead back on, so a
+      // pause does not come back as a backlog of overdue nudges. See silenceAnchor.
+      nurtureResumedAt: conversation.nurtureResumedAt ?? null,
       nurtureStep: currentStep,
       eventDate,
       now: reference,
@@ -326,6 +329,7 @@ export const createNurtureSweepService = ({
     const anchor = silenceAnchor({
       lastInboundAt: conversation.lastInboundAt ?? null,
       createdAt: conversation.createdAt ?? null,
+      nurtureResumedAt: conversation.nurtureResumedAt ?? null,
       now: reference,
     });
 

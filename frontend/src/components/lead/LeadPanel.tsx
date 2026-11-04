@@ -9,6 +9,7 @@ import CallDetailDialog from '../calls/CallDetailDialog';
 import ActivitySection from './ActivitySection';
 import CallAction from './CallAction';
 import AiAutomationSection from './AiAutomationSection';
+import NurtureSection from './NurtureSection';
 import AssignmentControl from './AssignmentControl';
 import DeleteChatSection from './DeleteChatSection';
 import EventDateSection from './EventDateSection';
@@ -162,6 +163,15 @@ const LeadPanel = ({
               optedOutAt={conversation.optedOutAt ?? null}
               onAutomationChange={bumpActivity}
             />
+            {/* Beside the automation switch because they are the same kind of decision about
+                the same lead - and next to it precisely so the difference is visible: one
+                stops the AI speaking, the other only stops it chasing. */}
+            <NurtureSection
+              conversationId={conversation.id}
+              nurtureEnabled={conversation.nurtureEnabled ?? true}
+              optedOutAt={conversation.optedOutAt ?? null}
+              onNurtureChange={bumpActivity}
+            />
           </MobileDisclosure>
 
           <MobileDisclosure title="Lead score" hint={`${conversation.leadScore ?? 0}/100`}>
@@ -251,6 +261,13 @@ const LeadPanel = ({
             aiAutomationPausedReason={conversation.aiAutomationPausedReason ?? null}
             optedOutAt={conversation.optedOutAt ?? null}
             onAutomationChange={bumpActivity}
+          />
+
+          <NurtureSection
+            conversationId={conversation.id}
+            nurtureEnabled={conversation.nurtureEnabled ?? true}
+            optedOutAt={conversation.optedOutAt ?? null}
+            onNurtureChange={bumpActivity}
           />
 
           {/* The template writer moved to the composer - see MessageTemplatesDialog. It belongs

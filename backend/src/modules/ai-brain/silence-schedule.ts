@@ -81,6 +81,13 @@ export interface SilenceScheduleInput {
   lastOutboundAt?: Date | null;
   /** Fallback anchor for a lead who has never replied. */
   createdAt?: Date | null;
+  /**
+   * When the owner last switched nurture back on for this lead, if ever.
+   *
+   * Treated as an anchor candidate so a resumed sequence starts from the resume rather than
+   * replaying the weeks it was paused for. See `silenceAnchor`.
+   */
+  nurtureResumedAt?: Date | null;
   /** How many silence nudges have already gone out on the current anchor. */
   nurtureStep?: number | null;
   /** The lead's event day, when they have told us one. Day-only, UTC midnight. */
@@ -100,8 +107,30 @@ export type SilenceDecision =
  * Exported because the stop rules and the due times must agree about it - computing it twice in
  * two places is how a 7-day window and a due time end up disagreeing by a day.
  */
-export const silenceAnchor = (input: SilenceScheduleInput): Date | null =>
-  input.lastInboundAt ?? input.createdAt ?? null;
+export const silenceAnchor = (input: SilenceScheduleInput): Date | null => {
+  /*
+   * THE LATER OF "THEY WROTE" AND "WE RESUMED", which keeps one meaning for the anchor: the
+   * most recent moment from which waiting is a fair thing to measure.
+   *
+   * Taking the maximum rather than preferring either one is what makes both directions work. A
+   * lead paused for a week and switched back on anchors on the resume, so the sequence starts
+   * at +2h from now instead of firing every overdue step in turn - roughly fourteen messages
+   * over seven hours, which is the burst this exists to prevent. If that same lead then writes
+   * to us, their message is newer and takes the anchor back, exactly as it always did.
+   *
+   * Still never `lastOutboundAt`: our own sends must not move the clock they are measured
+   * against. That was the original bug, and nothing here reintroduces it.
+   */
+  const candidates = [input.nurtureResumedAt, input.lastInboundAt].filter(
+    (value): value is Date => value instanceof Date,
+  );
+
+  if (candidates.length === 0) {
+    return input.createdAt ?? null;
+  }
+
+  return candidates.reduce((latest, value) => (value.getTime() > latest.getTime() ? value : latest));
+};
 
 /**
  * The first local slot strictly after `after`.
@@ -202,11 +231,23 @@ export const decideSilenceFollowUp = (input: SilenceScheduleInput): SilenceDecis
     return { send: false, reason: 'event_reached' };
   }
 
-  // THE CUSTOMER SPOKE LAST AND WE HAVE NOT ANSWERED. Not silence on their part - silence on
-  // ours, and a "still there?" would be absurd. The ordinary inbound path owns this moment.
+  /*
+   * THE CUSTOMER SPOKE LAST AND WE HAVE NOT ANSWERED. Not silence on their part - silence on
+   * ours, and a "still there?" would be absurd. The ordinary inbound path owns this moment.
+   *
+   * MEASURED AGAINST THEIR MESSAGE, NOT AGAINST THE SCHEDULE ANCHOR, and the two are no longer
+   * the same thing. Once a resume can move the anchor forward, our last send is by definition
+   * older than it - so comparing to the anchor would read every resumed lead as "waiting on
+   * us" and silently never chase any of them again. This question is only ever about the
+   * conversation: has anything gone out since they last wrote?
+   *
+   * Falls back to `createdAt` for a lead who has never written, which is what the anchor used
+   * to be in that case - so a conversation with no resume behaves exactly as it always did.
+   */
   const lastOutboundAt = input.lastOutboundAt ?? null;
+  const theirLastWord = input.lastInboundAt ?? input.createdAt ?? null;
 
-  if (!lastOutboundAt || lastOutboundAt.getTime() <= anchor.getTime()) {
+  if (!lastOutboundAt || (theirLastWord && lastOutboundAt.getTime() <= theirLastWord.getTime())) {
     return { send: false, reason: 'awaiting_our_reply' };
   }
 

@@ -1391,6 +1391,29 @@ export const setAiAutomation = ({
     body: { enabled },
   });
 
+export interface SetNurtureParams extends ConversationIdParams {
+  enabled: boolean;
+}
+
+/**
+ * The per-lead chasing switch.
+ *
+ * Its own endpoint rather than a field on `setAiAutomation`: that one decides whether the AI
+ * may speak at all, and an owner needs to stop the chasing without silencing replies. Enabling
+ * re-anchors the sequence server-side, so a lead paused for a week resumes at +2h from now
+ * rather than replaying every missed step.
+ */
+export const setNurture = ({
+  token,
+  conversationId,
+  enabled,
+}: SetNurtureParams): Promise<ApiSuccessResponse<Conversation>> =>
+  apiFetch(`/ai-brain/conversations/${conversationId}/nurture`, {
+    method: 'POST',
+    token,
+    body: { enabled },
+  });
+
 export const checkAiOutcome = ({
   token,
   conversationId,

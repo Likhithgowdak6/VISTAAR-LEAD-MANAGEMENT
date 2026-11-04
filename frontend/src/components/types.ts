@@ -92,6 +92,7 @@ export type ConversationSummary = Pick<
       | 'unreadCount'
       | 'status'
       | 'aiAutomationEnabled'
+      | 'nurtureEnabled'
       | 'aiAutomationPausedReason'
       | 'optedOutAt'
       | 'eventDate'

@@ -13,6 +13,7 @@ import {
   resolveApprovalForActor,
   reviseProposalForActor,
   setAutomationForActor,
+  setNurtureForActor,
 } from './ai-brain.service.js';
 import {
   conversationIdParamsSchema,
@@ -22,6 +23,7 @@ import {
   resolveApprovalBodySchema,
   reviseProposalBodySchema,
   setAutomationBodySchema,
+  setNurtureBodySchema,
 } from './ai-brain.validation.js';
 
 const aiBrainErrorMap = {
@@ -159,6 +161,41 @@ export const setAutomation = asyncHandler(async (req, res) => {
 
   try {
     const conversation = await setAutomationForActor({
+      organizationId: auth.organization._id,
+      conversationId: params.conversationId,
+      permissions: auth.permissions,
+      actor: auth.user,
+      enabled: body.enabled,
+    });
+
+    res.status(200).json({ data: conversation });
+  } catch (error: unknown) {
+    mapAiBrainError(error);
+  }
+});
+
+/**
+ * POST /ai-brain/conversations/:conversationId/nurture
+ *
+ * The per-lead chasing switch. Separate endpoint from `/automation` because it answers a
+ * different question - may the AI CHASE this lead, rather than may it speak at all - and an
+ * owner needs to set one without the other.
+ */
+export const setNurture = asyncHandler(async (req, res) => {
+  const auth = requireAuthContext(req);
+  const params = parseWithSchema({
+    schema: conversationIdParamsSchema,
+    value: req.params,
+    source: 'Params',
+  });
+  const body = parseWithSchema({
+    schema: setNurtureBodySchema,
+    value: req.body,
+    source: 'Body',
+  });
+
+  try {
+    const conversation = await setNurtureForActor({
       organizationId: auth.organization._id,
       conversationId: params.conversationId,
       permissions: auth.permissions,

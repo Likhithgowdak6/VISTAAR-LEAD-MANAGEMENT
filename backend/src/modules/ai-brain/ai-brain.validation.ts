@@ -22,6 +22,11 @@ export const setAutomationBodySchema = z.object({
   enabled: z.boolean(),
 });
 
+/** The per-lead nurture switch. Same shape as automation above, a different question. */
+export const setNurtureBodySchema = z.object({
+  enabled: z.boolean(),
+});
+
 // The proposal JSON's exact shape is decided by ai-brain-service's prompt schema, not by this
 // repo - it's a loosely-typed document that gets round-tripped (generate -> revise -> render)
 // without wam-crm-ai needing to understand every field.

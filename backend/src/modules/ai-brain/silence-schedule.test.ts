@@ -315,3 +315,90 @@ describe('a fresh customer message', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Pausing a lead, and coming back.
+ *
+ * THE HAZARD THIS FILE EXISTS TO RULE OUT. The schedule is anchored to the customer's last
+ * message and our own sends cannot move it - that is what stops the cadence drifting. The cost
+ * is that a lead switched off for a week returns with EVERY intervening step already overdue,
+ * and the sweep works through them one per tick: roughly fourteen messages over seven hours to
+ * somebody who has heard nothing for days. On an unofficial WhatsApp connection that is the
+ * shape of a spam run.
+ *
+ * Resetting the step alone does not fix it: step 0 is `anchor + 2h`, and that is still a week
+ * in the past. The resume needs its own timestamp, and the anchor has to prefer it.
+ */
+describe('pausing and resuming a lead', () => {
+  const WEEK = 7 * 24 * HOUR;
+
+  it('RESUMING RE-ANCHORS, so a week off does not become a backlog', () => {
+    const resumedAt = new Date(INBOUND.getTime() + WEEK);
+
+    expect(silenceAnchor({ ...base, nurtureResumedAt: resumedAt, now: resumedAt })).toEqual(
+      resumedAt,
+    );
+  });
+
+  it('SENDS EXACTLY ONE MESSAGE, at +2h from the resume - not fourteen', () => {
+    // The assertion the whole design turns on, stated as the owner would check it.
+    const resumedAt = new Date(INBOUND.getTime() + WEEK);
+    const input = {
+      ...base,
+      nurtureStep: 0,
+      nurtureResumedAt: resumedAt,
+      lastOutboundAt: new Date(resumedAt.getTime() - HOUR),
+    };
+
+    // Nothing owed in the first two hours after resuming...
+    expect(
+      decideSilenceFollowUp({ ...input, now: new Date(resumedAt.getTime() + HOUR) }).send,
+    ).toBe(false);
+
+    // ...one message at the two-hour mark...
+    const due = decideSilenceFollowUp({
+      ...input,
+      now: new Date(resumedAt.getTime() + 2 * HOUR),
+    });
+
+    expect(due).toMatchObject({ send: true, step: 1 });
+
+    // ...and the next is not owed for another two hours, exactly as a fresh lead.
+    expect(
+      decideSilenceFollowUp({
+        ...input,
+        nurtureStep: 1,
+        now: new Date(resumedAt.getTime() + 3 * HOUR),
+      }).send,
+    ).toBe(false);
+  });
+
+  it('A LATER CUSTOMER REPLY TAKES THE ANCHOR BACK', () => {
+    // The resume is not sticky. Once they write, their message is the most recent moment from
+    // which waiting is fair to measure - which is what the anchor has always meant.
+    const resumedAt = new Date(INBOUND.getTime() + WEEK);
+    const theyReplied = new Date(resumedAt.getTime() + 3 * HOUR);
+
+    expect(
+      silenceAnchor({
+        ...base,
+        nurtureResumedAt: resumedAt,
+        lastInboundAt: theyReplied,
+        now: theyReplied,
+      }),
+    ).toEqual(theyReplied);
+  });
+
+  it('a resume OLDER than the last inbound does not drag the anchor backwards', () => {
+    // Toggled on months ago, then the lead wrote yesterday: the reply wins.
+    const resumedAt = new Date(INBOUND.getTime() - WEEK);
+
+    expect(silenceAnchor({ ...base, nurtureResumedAt: resumedAt })).toEqual(INBOUND);
+  });
+
+  it('falls back to createdAt when there is neither a reply nor a resume', () => {
+    expect(
+      silenceAnchor({ ...base, lastInboundAt: null, nurtureResumedAt: null }),
+    ).toEqual(base.createdAt);
+  });
+});

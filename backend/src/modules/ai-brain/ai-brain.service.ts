@@ -47,6 +47,7 @@ import {
   rejectLeadQualification,
   setAiIntent,
   clearSalesRejection,
+  setNurtureEnabled,
   updateAutomationState,
   updateStage as updateConversationStage,
 } from '../conversations/conversation.repository.js';
@@ -892,6 +893,71 @@ export const resolveApprovalForActor = async ({
 // --------------------------------------------------------------------------
 // Toggle automation on/off for one conversation.
 // --------------------------------------------------------------------------
+/**
+ * Turns the silence sequence on or off for ONE lead.
+ *
+ * NOT A VARIANT OF `setAutomationForActor` BELOW, and deliberately kept apart from it. That one
+ * decides whether the agent may speak at all; this decides only whether it may CHASE. An owner
+ * who wants "stop pestering them, but still answer if they write back" needs exactly this
+ * distinction, and folding the two together would take it away.
+ *
+ * So this touches neither `aiAutomationEnabled` nor `optedOutAt` nor `salesRejectedAt`. It also
+ * does NOT clear a sales rejection the way the automation toggle does: reopening a rejected
+ * lead is a decision about the deal, and turning chasing back on is not that decision.
+ *
+ * RESUMING RE-ANCHORS. See conversation.model.ts and silenceAnchor: without a fresh timestamp a
+ * lead paused for a week returns with every step overdue and is chased once per tick until it
+ * catches up. The repository writes the resume time and resets the step together.
+ */
+export const setNurtureForActor = async ({
+  organizationId,
+  conversationId,
+  permissions,
+  actor,
+  enabled,
+  now = new Date(),
+}: {
+  organizationId: ObjectIdLike;
+  conversationId: ObjectIdLike;
+  permissions: readonly Permission[];
+  actor: HydratedDocument<UserDocument>;
+  enabled: boolean;
+  now?: Date;
+}) => {
+  const conversation = await loadVisibleConversationForActor({
+    organizationId,
+    conversationId,
+    permissions,
+    actorId: actor._id,
+  });
+
+  return runInTransaction(async (session) => {
+    const updated = await setNurtureEnabled({
+      conversationId,
+      organizationId,
+      nurtureEnabled: enabled,
+      // Only meaningful when switching on; the repository ignores it otherwise.
+      nurtureResumedAt: enabled ? now : null,
+      session,
+    });
+
+    await createActivity({
+      organizationId,
+      whatsappAccountId: conversation.whatsappAccountId,
+      conversationId,
+      actorId: actor._id,
+      eventType: ACTIVITY_EVENTS.AI_BRAIN_NURTURE_TOGGLED,
+      summary: enabled
+        ? 'Follow-up chasing turned on for this lead.'
+        : 'Follow-up chasing turned off for this lead. The AI will still reply if they write.',
+      metadata: { enabled },
+      session,
+    });
+
+    return updated;
+  });
+};
+
 export const setAutomationForActor = async ({
   organizationId,
   conversationId,

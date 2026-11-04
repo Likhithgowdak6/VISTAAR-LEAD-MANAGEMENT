@@ -150,6 +150,33 @@ export interface ConversationDocument {
   /** How many nurture follow-ups (day-2/5/9/15 style) have already fired for this conversation. */
   nurtureStep: number;
   /**
+   * Whether the silence sequence may chase THIS lead. On unless the owner says otherwise.
+   *
+   * DELIBERATELY NOT `aiAutomationEnabled`. That flag decides whether the agent may speak at
+   * all, so using it to stop chasing would also stop the agent REPLYING to a lead who writes in
+   * - and "stop pestering them, but still answer if they come back" is the thing an owner
+   * actually wants. Two different questions, two fields.
+   *
+   * The global NURTURE_ENABLED still outranks this: per-lead `true` on a deployment with the
+   * sweep switched off sends nothing. This can only ever subtract.
+   */
+  nurtureEnabled: boolean;
+  /**
+   * When the owner last switched nurture back ON, and the reason this is a timestamp rather
+   * than a boolean's side effect.
+   *
+   * The schedule is anchored to the customer's last message and our own sends cannot move it -
+   * which is the property that stops the cadence drifting. The cost is that a lead paused for a
+   * week comes back with every intervening step already overdue, and the sweep would work
+   * through them one per tick: roughly fourteen messages over seven hours. Resetting the step
+   * alone does not help, because step 0 is `anchor + 2h` and that is still weeks in the past.
+   *
+   * So resuming records its own moment, and the anchor becomes the LATER of this and the
+   * customer's last message. Re-enabling restarts the sequence at +2h from now; a reply after
+   * that takes the anchor back, exactly as it always did.
+   */
+  nurtureResumedAt: Date | null;
+  /**
    * When a follow-up the lead was PROMISED is due to be sent to them. Null means none is owed.
    *
    * This is the durable record of a promise - "I'll send the packages tomorrow at 5", or the
@@ -518,6 +545,21 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       required: true,
       min: 0,
       default: 0,
+    },
+
+    nurtureEnabled: {
+      type: Boolean,
+      required: true,
+      // ON for every new lead, and for every conversation written before this field existed -
+      // Mongoose returns the default for an absent field, so no backfill is needed and none is
+      // implied. Both creation paths inherit it: `Conversation.create` directly, and
+      // `upsertConversationForContact` through its `setDefaultsOnInsert: true`.
+      default: true,
+    },
+
+    nurtureResumedAt: {
+      type: Date,
+      default: null,
     },
 
     promisedFollowUpAt: {

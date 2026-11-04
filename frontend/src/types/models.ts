@@ -192,6 +192,14 @@ export interface Conversation {
   aiAutomationPausedReason: string | null;
   /** What the agent is for here. `post_booking` never sells; `off` is silent. */
   aiMode: AiMode;
+  /**
+   * Whether the AI may CHASE this lead when they go quiet.
+   *
+   * Separate from `aiAutomationEnabled`, which decides whether it may speak at all. Turning
+   * this off stops the follow-up sequence and leaves replies working - "stop pestering them,
+   * but still answer if they write back". The global nurture switch still outranks it.
+   */
+  nurtureEnabled: boolean;
   /** When this lead asked to stop being contacted. Non-null means no automation may ever message
    *  them again - unlike a paused conversation, this is not a state a human can simply toggle off. */
   optedOutAt: string | null;

@@ -31,6 +31,8 @@ export const ACTIVITY_EVENTS = Object.freeze({
   AI_BRAIN_ESCALATED: 'ai_brain.escalated',
   AI_BRAIN_STAGE_SUGGESTED: 'ai_brain.stage_suggested',
   AI_BRAIN_AUTOMATION_TOGGLED: 'ai_brain.automation_toggled',
+  /** The per-lead silence-chasing switch. Separate from automation: see conversation.model.ts. */
+  AI_BRAIN_NURTURE_TOGGLED: 'ai_brain.nurture_toggled',
   AI_BRAIN_PROPOSAL_DRAFTED: 'ai_brain.proposal_drafted',
   AI_BRAIN_PROPOSAL_RENDERED: 'ai_brain.proposal_rendered',
   AI_BRAIN_NURTURE_SENT: 'ai_brain.nurture_sent',

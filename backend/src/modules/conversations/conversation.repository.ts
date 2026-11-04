@@ -574,6 +574,50 @@ export const setAiMode = ({
     { returnDocument: 'after', runValidators: true, session },
   ).exec();
 
+export interface SetNurtureEnabledParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  nurtureEnabled: boolean;
+  /**
+   * The moment of resuming, written only when switching ON.
+   *
+   * See the model: the schedule is anchored to the customer's last message and our sends cannot
+   * move it, so a lead paused for a week returns with every step overdue and would be chased
+   * once per tick until it caught up. Recording when we resumed gives the anchor something
+   * newer to use.
+   */
+  nurtureResumedAt?: Date | null;
+  session?: DatabaseSession;
+}
+
+/**
+ * Turns the silence sequence on or off for ONE lead.
+ *
+ * `nurtureStep` is reset alongside the resume timestamp rather than left where it was, so the
+ * sequence restarts at +2h instead of resuming mid-cadence - the two have to move together or
+ * the step count outlives the anchor it was counted against.
+ *
+ * Switching OFF deliberately leaves both alone: nothing is chasing the lead while it is off, so
+ * there is nothing to reset, and preserving them means an owner who toggles off and straight
+ * back on has not silently lost their place to a mis-tap.
+ */
+export const setNurtureEnabled = ({
+  conversationId,
+  organizationId,
+  nurtureEnabled,
+  nurtureResumedAt = null,
+  session,
+}: SetNurtureEnabledParams) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    {
+      $set: nurtureEnabled
+        ? { nurtureEnabled: true, nurtureResumedAt, nurtureStep: 0 }
+        : { nurtureEnabled: false },
+    } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after', runValidators: true, session },
+  ).exec();
+
 export interface UpdateAutomationStateParams {
   conversationId?: ObjectIdLike;
   organizationId?: ObjectIdLike;
@@ -1267,6 +1311,15 @@ export const findNurturableConversations = ({
     ...NOT_DELETED,
     stage: { $in: ACTIVE_PIPELINE_STAGES },
     aiAutomationEnabled: true,
+    // THE PER-LEAD SWITCH, enforced in the QUERY rather than in the sweep's loop. A disabled
+    // lead is never read, never claimed and never stepped, so turning it off takes effect on
+    // the next tick with nothing queued to cancel - there is no pre-queued nurture message in
+    // this design, every send is decided at sweep time.
+    //
+    // `$ne: false` rather than `true`: a conversation written before this field existed has no
+    // `nurtureEnabled` key at all, and `{ nurtureEnabled: true }` would silently exclude every
+    // one of them. The model defaults it to true on read; this makes the query agree.
+    nurtureEnabled: { $ne: false },
     lastOutboundAt: { $ne: null },
     // Never chase someone the gate has read as not a customer. `lastOutboundAt` above already
     // keeps out threads the AI has never spoken in, but a staff member answering a vendor by
