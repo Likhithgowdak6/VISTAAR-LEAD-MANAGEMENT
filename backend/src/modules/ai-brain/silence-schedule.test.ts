@@ -14,7 +14,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   SILENCE_FIRST_FOLLOW_UP_MS,
-  SILENCE_MAX_WINDOW_MS,
+  SILENCE_MAX_FOLLOW_UPS,
+  SILENCE_SECOND_FOLLOW_UP_MS,
   SILENCE_SUBSEQUENT_INTERVAL_MS,
   decideSilenceFollowUp,
   dueAtForStep,
@@ -86,42 +87,65 @@ describe('when the first nudge is due', () => {
   });
 });
 
-describe('the 24-hour cadence', () => {
-  it('puts the second nudge 26 hours after the customer wrote', () => {
-    // 2h for the first, then a day. Cumulative from the anchor, not from the last send.
-    expect(dueAtForStep(INBOUND, 1)).toEqual(
-      after(SILENCE_FIRST_FOLLOW_UP_MS + SILENCE_SUBSEQUENT_INTERVAL_MS),
-    );
+describe('the cadence', () => {
+  /**
+   * 2h, 4h, then a morning and an evening slot every day.
+   *
+   * The two short steps are relative to the customer's message; everything after lands on the
+   * WALL CLOCK, which is the property worth protecting. A relative interval would drift - a
+   * conversation starting at 03:00 would be nudged at 03:00 forever - and a 3am "still there?"
+   * is the message that gets a number reported.
+   */
+  it('puts the second nudge four hours after the customer wrote', () => {
+    expect(dueAtForStep(INBOUND, 1)).toEqual(after(SILENCE_SECOND_FOLLOW_UP_MS));
   });
 
   it('does not fire the second nudge early', () => {
-    const justBefore = after(SILENCE_FIRST_FOLLOW_UP_MS + SILENCE_SUBSEQUENT_INTERVAL_MS - 1);
+    const justBefore = after(SILENCE_SECOND_FOLLOW_UP_MS - 1);
 
     expect(decideSilenceFollowUp({ ...base, nurtureStep: 1, now: justBefore }).send).toBe(false);
   });
 
-  it('spaces every later nudge exactly a day apart', () => {
-    for (let step = 1; step < 5; step += 1) {
-      const gap = dueAtForStep(INBOUND, step).getTime() - dueAtForStep(INBOUND, step - 1).getTime();
+  it('LANDS EVERY LATER NUDGE ON A MORNING OR EVENING SLOT, never on the anchor time', () => {
+    // 09:00 UTC is 14:30 in Asia/Kolkata, so the slots must come out at 18:00 then 10:00 local
+    // on the following days - not at 14:30.
+    const localHour = (d: Date) =>
+      Number(
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Kolkata',
+          hour: '2-digit',
+          hour12: false,
+        }).format(d),
+      );
 
-      expect(gap).toBe(SILENCE_SUBSEQUENT_INTERVAL_MS);
+    for (let step = 2; step <= 8; step += 1) {
+      expect([10, 18]).toContain(localHour(dueAtForStep(INBOUND, step)));
+    }
+  });
+
+  it('alternates morning and evening, strictly forward in time', () => {
+    let previous = dueAtForStep(INBOUND, 1).getTime();
+
+    for (let step = 2; step <= 10; step += 1) {
+      const due = dueAtForStep(INBOUND, step).getTime();
+
+      expect(due).toBeGreaterThan(previous);
+      previous = due;
     }
   });
 
   it('REGRESSION: our own sending cannot move the schedule', () => {
-    // The old bug in one assertion. The due time for a step depends only on the anchor, so a
-    // nudge going out - which re-stamps lastOutboundAt - changes nothing about when the next
-    // one is owed. Under the previous cadence this is exactly what slipped "daily" to ~2-daily.
+    // The old bug in one assertion. A step's due time depends only on the anchor, so a nudge
+    // going out - which re-stamps lastOutboundAt - changes nothing about when the next is owed.
     const before = dueAtForStep(INBOUND, 1);
-    const afterWeSent = dueAtForStep(INBOUND, 1);
 
-    expect(afterWeSent).toEqual(before);
+    expect(dueAtForStep(INBOUND, 1)).toEqual(before);
 
     const withLaterOutbound = decideSilenceFollowUp({
       ...base,
       nurtureStep: 1,
       lastOutboundAt: after(3 * HOUR),
-      now: after(SILENCE_FIRST_FOLLOW_UP_MS + SILENCE_SUBSEQUENT_INTERVAL_MS),
+      now: after(SILENCE_SECOND_FOLLOW_UP_MS),
     });
 
     expect(withLaterOutbound).toMatchObject({ send: true, step: 2 });
@@ -170,30 +194,35 @@ describe('when we have not answered yet', () => {
 });
 
 describe('stopping rules', () => {
-  it('stops after seven days when no event date is known', () => {
-    expect(
-      decideSilenceFollowUp({ ...base, nurtureStep: 6, now: after(SILENCE_MAX_WINDOW_MS) }),
-    ).toEqual({ send: false, reason: 'window_expired' });
-  });
-
-  it('still sends just inside the seven-day window', () => {
+  it('STOPS AT THE FOLLOW-UP CEILING when no event date is known', () => {
+    // The only bound an undated lead has. Replying, opting out and reaching the event are all
+    // things the LEAD does; one who simply never answers triggers none of them.
     expect(
       decideSilenceFollowUp({
         ...base,
-        nurtureStep: 6,
-        now: after(SILENCE_MAX_WINDOW_MS - HOUR),
+        nurtureStep: SILENCE_MAX_FOLLOW_UPS,
+        now: after(400 * 24 * HOUR),
+      }),
+    ).toEqual({ send: false, reason: 'window_expired' });
+  });
+
+  it('still sends on the last permitted step', () => {
+    expect(
+      decideSilenceFollowUp({
+        ...base,
+        nurtureStep: SILENCE_MAX_FOLLOW_UPS - 1,
+        now: after(400 * 24 * HOUR),
       }),
     ).toMatchObject({ send: true });
   });
 
-  it('is deterministic across restarts - the window is a function of the anchor alone', () => {
-    // Two sweeps at different times give the same expiry, so a crash and restart cannot shift it.
-    const expiry = INBOUND.getTime() + SILENCE_MAX_WINDOW_MS;
+  it('is deterministic across restarts - the ceiling is a function of the step alone', () => {
+    // The bound is now COUNTED, not timed, so no amount of elapsed clock changes the answer and
+    // a crash mid-sequence cannot shift where it stops.
+    const atCeiling = { ...base, nurtureStep: SILENCE_MAX_FOLLOW_UPS };
 
-    expect(decideSilenceFollowUp({ ...base, nurtureStep: 3, now: new Date(expiry) }).send).toBe(false);
-    expect(
-      decideSilenceFollowUp({ ...base, nurtureStep: 3, now: new Date(expiry + 86_400_000) }).send,
-    ).toBe(false);
+    expect(decideSilenceFollowUp({ ...atCeiling, now: after(8 * 24 * HOUR) }).send).toBe(false);
+    expect(decideSilenceFollowUp({ ...atCeiling, now: after(99 * 24 * HOUR) }).send).toBe(false);
   });
 
   it('stops ON the event day, not after it', () => {
@@ -214,30 +243,30 @@ describe('stopping rules', () => {
     ).toMatchObject({ send: true });
   });
 
-  it('a KNOWN event date overrides the seven-day window', () => {
-    // A lead whose wedding is five weeks out should still be followed up in week two; the
-    // 7-day cap exists only for leads who have given us nothing to aim at.
-    const decision = decideSilenceFollowUp({
-      ...base,
-      // Step 6 is owed at anchor + 6d2h, which is inside the clock below; step 9 would not be
-      // due yet and the test would pass for the wrong reason.
-      nurtureStep: 6,
-      eventDate: at('2026-11-30T00:00:00.000Z'),
-      now: after(SILENCE_MAX_WINDOW_MS + 86_400_000),
-    });
-
-    expect(decision).toMatchObject({ send: true });
+  it('a distant event date keeps the sequence running well past a week', () => {
+    // A lead whose event is five weeks out is still worth following up in week two.
+    expect(
+      decideSilenceFollowUp({
+        ...base,
+        nurtureStep: 20,
+        eventDate: at('2026-11-30T00:00:00.000Z'),
+        now: after(10 * 24 * HOUR),
+      }),
+    ).toMatchObject({ send: true });
   });
 
-  it('a newly supplied event date takes effect immediately', () => {
-    // The stop condition is recomputed from current state on every pass, so a date the lead
-    // gives us today changes the answer on the next sweep with no migration or rescheduling.
-    const expired = { ...base, nurtureStep: 6, now: after(SILENCE_MAX_WINDOW_MS + HOUR) };
-
-    expect(decideSilenceFollowUp(expired).send).toBe(false);
+  it('THE CEILING BINDS EVEN WITH AN EVENT DATE', () => {
+    // The inverted case, and the one that protects the number. An event six months out would
+    // otherwise authorise hundreds of messages to somebody who has never replied - so the count
+    // stops it first, whatever the date says.
     expect(
-      decideSilenceFollowUp({ ...expired, eventDate: at('2026-12-01T00:00:00.000Z') }).send,
-    ).toBe(true);
+      decideSilenceFollowUp({
+        ...base,
+        nurtureStep: SILENCE_MAX_FOLLOW_UPS,
+        eventDate: at('2027-06-01T00:00:00.000Z'),
+        now: after(30 * 24 * HOUR),
+      }),
+    ).toEqual({ send: false, reason: 'window_expired' });
   });
 
   it('a date moved into the past stops the sequence', () => {

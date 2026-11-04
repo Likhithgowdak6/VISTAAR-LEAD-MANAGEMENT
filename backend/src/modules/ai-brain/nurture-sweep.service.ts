@@ -51,7 +51,7 @@ import { type UserDocument } from '../users/user.model.js';
 import * as defaultAiBrainClient from './ai-brain.client.js';
 import { buildAiBrainContext as defaultBuildAiBrainContext } from './ai-brain-context.service.js';
 import {
-  SILENCE_MAX_WINDOW_MS,
+  SILENCE_MAX_FOLLOW_UPS,
   decideSilenceFollowUp,
   silenceAnchor,
 } from './silence-schedule.js';
@@ -59,8 +59,13 @@ import { getOrCreateAiSystemUser as defaultGetOrCreateAiSystemUser } from './ai-
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** The seven-day unknown-event window, in whole days, for the prompt's "step N of M". */
-const SILENCE_WINDOW_DAYS = Math.round(SILENCE_MAX_WINDOW_MS / MS_PER_DAY);
+/**
+ * The ceiling, for the prompt's "step N of M".
+ *
+ * Presentational only - nothing schedules off it. It used to be the seven-day window expressed
+ * in days; the bound is now a follow-up COUNT, so the figure the prompt sees is that count.
+ */
+const SILENCE_WINDOW_DAYS = SILENCE_MAX_FOLLOW_UPS;
 const NURTURABLE_BATCH_SIZE = 200;
 
 /**

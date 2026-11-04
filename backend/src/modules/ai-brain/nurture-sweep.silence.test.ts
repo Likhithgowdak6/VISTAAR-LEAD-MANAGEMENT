@@ -25,6 +25,7 @@ vi.mock('../../config/logger.js', () => ({
 }));
 
 const { createNurtureSweepService } = await import('./nurture-sweep.service.js');
+const { SILENCE_MAX_FOLLOW_UPS } = await import('./silence-schedule.js');
 
 const NOW = new Date('2026-08-25T10:00:00.000Z');
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
@@ -202,10 +203,14 @@ describe('the cadence', () => {
 });
 
 describe('stopping', () => {
-  it('marks a lead cold once the seven-day window closes', async () => {
+  it('marks a lead cold once the follow-up ceiling is reached', async () => {
     const { service, conversationRepository, outboundMessageService } = createHarness();
     withOneBatch(conversationRepository.findNurturableConversations, [
-      conversationFixture({ nurtureStep: 7, lastInboundAt: daysAgo(8), lastOutboundAt: daysAgo(7) }),
+      conversationFixture({
+        nurtureStep: SILENCE_MAX_FOLLOW_UPS,
+        lastInboundAt: daysAgo(40),
+        lastOutboundAt: daysAgo(30),
+      }),
     ]);
 
     const result = await service.sweepOnce({});

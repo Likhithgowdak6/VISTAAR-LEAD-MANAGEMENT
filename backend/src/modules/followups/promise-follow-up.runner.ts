@@ -30,10 +30,18 @@ export interface CreatePromiseFollowUpRunnerOptions {
  * re-entrancy guarded so a slow sweep cannot overlap itself, tick errors logged rather than
  * thrown.
  *
- * GATED ON THE SAME THREE FLAGS AS NURTURE, rather than on a new one. Both send unprompted
- * AI-authored messages to leads, which is the thing those flags exist to keep switched off, and
- * a second switch for the same class of risk is a second thing to get wrong. NURTURE_ENABLED is
- * the honest name for "the AI may message a lead who did not just write to us".
+ * GATED ON ITS OWN FLAG, which reverses an earlier decision to share NURTURE_ENABLED on the
+ * grounds that both "send unprompted AI-authored messages to leads". That grouping was wrong
+ * about this one. A nurture nudge is unsolicited - we decided to chase. This is a message the
+ * lead was TOLD to expect, at the time they were told it, because a human promised it. Those
+ * have opposite consent postures, and only one of them is a thing to be cautious about sending.
+ *
+ * The practical cost of the coupling: promise-keeping could not be enabled without also turning
+ * on cold chasing of every existing lead, so it stayed off - and the customer heard nothing
+ * while the owner got a reminder they had to be holding their phone to act on.
+ *
+ * The WhatsApp transport flags still gate it, because those are about whether this deployment
+ * may send at all.
  */
 export const createPromiseFollowUpRunner = ({
   config = env,
@@ -43,7 +51,7 @@ export const createPromiseFollowUpRunner = ({
   let running = false;
 
   const enabled =
-    asBoolean(config.NURTURE_ENABLED) &&
+    asBoolean(config.PROMISE_FOLLOW_UP_ENABLED) &&
     asBoolean(config.WHATSAPP_ENABLED) &&
     asBoolean(config.WHATSAPP_OUTBOUND_DELIVERY_ENABLED);
 

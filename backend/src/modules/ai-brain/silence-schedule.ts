@@ -28,11 +28,41 @@
  * re-stamping caused the original bug.
  */
 
+import {
+  getLocalDateParts,
+  zonedTimeToUtc,
+} from '../whatsapp/automation/quiet-hours.js';
+
+/** Matches WHATSAPP_BUSINESS_TIMEZONE's own default; callers pass the configured value. */
+export const DEFAULT_SILENCE_TIMEZONE = 'Asia/Kolkata';
+
 export const SILENCE_FIRST_FOLLOW_UP_MS = 2 * 60 * 60 * 1000;
+/** The second nudge, four hours after the customer's last message - two after the first. */
+export const SILENCE_SECOND_FOLLOW_UP_MS = 4 * 60 * 60 * 1000;
+/** Kept for the legacy helpers below, which the silence path no longer consults. */
 export const SILENCE_SUBSEQUENT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-/** How long a sequence may run when the lead has given us no event date. */
-export const SILENCE_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * From the third nudge on, the sequence stops being relative and lands on the clock: a morning
+ * slot and an evening slot, every day, in the business's own timezone.
+ *
+ * WHY FIXED LOCAL TIMES RATHER THAN "every 12 hours". A relative interval drifts - a sequence
+ * anchored at 03:00 would send at 03:00 and 15:00 forever, and the 03:00 one is the message
+ * that gets a number reported. Pinning the slots to the wall clock means every nudge after the
+ * first day lands somewhere a person would actually choose to be messaged, whatever time the
+ * conversation happened to start.
+ */
+export const SILENCE_SLOT_HOURS: readonly number[] = Object.freeze([10, 18]);
+
+/**
+ * The hard ceiling on one sequence, and the only bound for a lead who never gives a date.
+ *
+ * Twice daily, this is roughly thirty days. It is deliberately finite for the reason the
+ * original cadence's own comment gives: replying, opting out and the event day are all things
+ * the LEAD has to do, and a lead who simply never answers triggers none of them. Without a
+ * count, "follow up until they respond" means messaging a silent stranger forever.
+ */
+export const SILENCE_MAX_FOLLOW_UPS = 60;
 
 /**
  * A minimum gap since OUR last message, independent of the schedule above.
@@ -55,6 +85,8 @@ export interface SilenceScheduleInput {
   nurtureStep?: number | null;
   /** The lead's event day, when they have told us one. Day-only, UTC midnight. */
   eventDate?: Date | null;
+  /** The business timezone the morning/evening slots are read in. */
+  timeZone?: string;
   now: Date;
 }
 
@@ -71,11 +103,75 @@ export type SilenceDecision =
 export const silenceAnchor = (input: SilenceScheduleInput): Date | null =>
   input.lastInboundAt ?? input.createdAt ?? null;
 
-/** When the nudge for `step` becomes due, counted from the anchor. */
-export const dueAtForStep = (anchor: Date, step: number): Date =>
-  new Date(
-    anchor.getTime() + SILENCE_FIRST_FOLLOW_UP_MS + Math.max(0, step) * SILENCE_SUBSEQUENT_INTERVAL_MS,
-  );
+/**
+ * The first local slot strictly after `after`.
+ *
+ * Strictly, so a due time that already sits exactly on 10:00 advances to 18:00 instead of
+ * resolving to itself and firing the same slot twice.
+ */
+const nextSlotAfter = (after: Date, timeZone: string): Date => {
+  const parts = getLocalDateParts(after, timeZone);
+
+  // Two days is always enough for two slots a day, and bounding the search means a bad timezone
+  // can never spin here.
+  for (let dayOffset = 0; dayOffset <= 2; dayOffset += 1) {
+    for (const hour of SILENCE_SLOT_HOURS) {
+      const candidate = zonedTimeToUtc(
+        { ...parts, day: parts.day + dayOffset, hour, minute: 0, second: 0 },
+        timeZone,
+      );
+
+      if (candidate.getTime() > after.getTime()) {
+        return candidate;
+      }
+    }
+  }
+
+  // Unreachable with sane slot hours; falls back to a day later rather than throwing inside a
+  // sweep that is processing a batch.
+  return new Date(after.getTime() + 24 * 60 * 60 * 1000);
+};
+
+/**
+ * When the nudge for `step` becomes due.
+ *
+ *     step 0 -> anchor + 2h
+ *     step 1 -> anchor + 4h
+ *     step 2 -> the first 10:00 or 18:00 local after step 1
+ *     step n -> the (n-1)th slot after step 1, alternating morning and evening
+ *
+ * CUMULATIVE FROM THE ANCHOR, never from our own last send. That is the property the original
+ * rewrite was for: our nudges must not move the clock they are measured against, or the
+ * schedule stretches by one interval every time it fires.
+ */
+export const dueAtForStep = (
+  anchor: Date,
+  step: number,
+  timeZone: string = DEFAULT_SILENCE_TIMEZONE,
+): Date => {
+  const normalized = Math.max(0, Math.floor(step));
+
+  if (normalized === 0) {
+    return new Date(anchor.getTime() + SILENCE_FIRST_FOLLOW_UP_MS);
+  }
+
+  const second = new Date(anchor.getTime() + SILENCE_SECOND_FOLLOW_UP_MS);
+
+  if (normalized === 1) {
+    return second;
+  }
+
+  // Walked rather than computed in closed form: the slot list is short, the step ceiling is 60,
+  // and a loop that obviously matches the rule above is worth more here than arithmetic that
+  // has to be re-derived to be checked.
+  let due = second;
+
+  for (let i = 2; i <= normalized; i += 1) {
+    due = nextSlotAfter(due, timeZone);
+  }
+
+  return due;
+};
 
 /**
  * Whether the event day has arrived.
@@ -114,15 +210,23 @@ export const decideSilenceFollowUp = (input: SilenceScheduleInput): SilenceDecis
     return { send: false, reason: 'awaiting_our_reply' };
   }
 
-  // With no event date the sequence is bounded by a fixed window from the anchor, so it is
-  // deterministic across retries and restarts: the same anchor always expires at the same
-  // instant, whatever time the sweep happens to run.
-  if (!input.eventDate && input.now.getTime() >= anchor.getTime() + SILENCE_MAX_WINDOW_MS) {
+  const step = Math.max(0, Math.floor(input.nurtureStep ?? 0));
+
+  /*
+   * THE COUNT IS THE BACKSTOP, and it applies whether or not we know their event day.
+   *
+   * A dated lead is bounded by the event itself, which is the honest limit - but a date six
+   * months out would otherwise authorise hundreds of messages, so the ceiling binds first. An
+   * undated lead has no other bound at all: every stop rule above (replying, opting out,
+   * reaching the event) is something the LEAD does, and the one who never answers does none of
+   * them. Reported as `window_expired` so the existing callers, logs and tests keep their
+   * vocabulary - the bound changed from a duration to a count, not the meaning.
+   */
+  if (step >= SILENCE_MAX_FOLLOW_UPS) {
     return { send: false, reason: 'window_expired' };
   }
 
-  const step = Math.max(0, Math.floor(input.nurtureStep ?? 0));
-  const dueAt = dueAtForStep(anchor, step);
+  const dueAt = dueAtForStep(anchor, step, input.timeZone ?? DEFAULT_SILENCE_TIMEZONE);
 
   // THE FLOOR ONLY BITES WHEN OUR REPLY CAME LATE. If we answered within the window - the
   // ordinary case - the schedule stands untouched and the nudge lands exactly two hours after

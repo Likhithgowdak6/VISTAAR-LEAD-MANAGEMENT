@@ -382,6 +382,24 @@ export const envSchema = z.object({
   // and the plain API server never run it, same gating style as WHATSAPP_OUTBOUND_DELIVERY_ENABLED.
   NURTURE_ENABLED: booleanString.default(false),
 
+  /**
+   * Keeping a promise, as its own switch.
+   *
+   * SPLIT OUT OF NURTURE_ENABLED DELIBERATELY, reversing an earlier decision that grouped them
+   * as "the AI may message a lead who did not just write to us". They are not the same class of
+   * risk. A nurture nudge is unsolicited - we decided to chase. A promise follow-up is a message
+   * the lead was TOLD to expect, at the time they were told it ("I'll send the packages at 5").
+   * Withholding that is not caution, it is breaking a commitment a human made on our behalf.
+   *
+   * Coupling them meant promise-keeping could not be switched on without also switching on cold
+   * chasing of every existing lead - so in practice it stayed off, and the customer heard
+   * nothing while the owner got a reminder they had to be holding their phone to see.
+   *
+   * Still defaults to false: it sends AI-authored messages to customers, so it is opt-in like
+   * every other flag here.
+   */
+  PROMISE_FOLLOW_UP_ENABLED: booleanString.default(false),
+
   NURTURE_SWEEP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(1_800_000),
 
   // Prepended to a manually typed number that has no country code. A ten-digit Indian number is

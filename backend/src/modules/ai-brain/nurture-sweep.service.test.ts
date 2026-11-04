@@ -25,6 +25,7 @@ const {
   scheduleForBand,
 } = await import('./nurture-sweep.service.js');
 const { LEAD_SCORE_BANDS } = await import('../conversations/lead-score.js');
+const { SILENCE_MAX_FOLLOW_UPS } = await import('./silence-schedule.js');
 
 const NOW = new Date('2026-08-25T10:00:00.000Z');
 const daysAgo = (days: number) => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
@@ -218,7 +219,9 @@ describe('sweepOnce', () => {
 
   it('marks a conversation cold once the full cadence has been sent and silence passes the cold threshold', async () => {
     const conversation = baseConversation({
-      nurtureStep: 4, // full schedule already sent
+      // The cadence is bounded by a follow-up COUNT now, not a seven-day window, so "the full
+      // schedule has been sent" means the ceiling has been reached rather than a week elapsing.
+      nurtureStep: SILENCE_MAX_FOLLOW_UPS,
       lastOutboundAt: daysAgo(21),
       lastInboundAt: daysAgo(40),
     });
@@ -390,7 +393,7 @@ describe('sweepOnce — a lead with no event date is untouched by any of this', 
 
   it('still goes cold on silence alone at the configured threshold', async () => {
     const conversation = baseConversation({
-      nurtureStep: 4,
+      nurtureStep: SILENCE_MAX_FOLLOW_UPS,
       lastOutboundAt: daysAgo(21),
       lastInboundAt: daysAgo(40),
       eventDate: null,
