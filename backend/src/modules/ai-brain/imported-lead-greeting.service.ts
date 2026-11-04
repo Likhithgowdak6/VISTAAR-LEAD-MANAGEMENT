@@ -115,6 +115,10 @@ const doNotInferTheServiceFromTheFormName = (sourceLabel: string): string[] => [
   'Do not call it "the wedding form" or name any service they did not ask for.',
   'Acknowledge the enquiry in neutral terms, say briefly what we do, and ASK what',
   'they are looking for. Keep the warmth general rather than about "the day".',
+  // The same trap one step further in. With no occasion established, a package label is the
+  // most occasion-shaped string in front of the model, and it is ours rather than theirs.
+  'The same goes for any package or product name you have been given: that is OUR catalogue',
+  'wording, it may name an occasion or a price, and it is not what they told you they want.',
 ];
 
 export const buildGreetingDirective = ({
@@ -133,8 +137,30 @@ export const buildGreetingDirective = ({
   // message telling a stranger they wanted a wedding shoot.
   const hasVerifiedService = Boolean(category && category !== 'unknown');
 
+  /*
+   * STATED AS THE ANSWER, NOT AS ONE CLUE AMONG SEVERAL.
+   *
+   * Observed in production: a lead who selected "Baby Shower" was greeted about their "1st year
+   * anniversary". The category was derived correctly - it is classified from the answers before
+   * this runs - but the facts blob also carried their chosen PACKAGE, and a package label is our
+   * catalogue wording ("... - 1st Year Anniversary - 12,120"), not a statement about them. Faced
+   * with a one-word category and a long specific-looking package string, the model believed the
+   * package.
+   *
+   * So the occasion is now given as settled and everything else is ruled out by name. This is
+   * the same failure the form-name rule below already guards against - our own filing being read
+   * back to the lead as their intent - and it needed saying about the catalogue too.
+   */
   const about = hasVerifiedService
-    ? `They enquired about ${category!.replace(/_/g, ' ')}.`
+    ? [
+        `They enquired about ${category!.replace(/_/g, ' ')}.`,
+        `THAT IS THE OCCASION AND IT IS SETTLED: it came from what they themselves selected.`,
+        `Do not call it anything else, and do not let any other wording you have been given`,
+        `override it - a package or product name is OUR catalogue's wording and may well mention`,
+        `a different occasion, a price or a tier. It describes what we sell, never what they are`,
+        `celebrating. If anything you have contradicts "${category!.replace(/_/g, ' ')}", the`,
+        `contradiction is ours to ignore, not theirs to be corrected about.`,
+      ].join(' ')
     : 'They did not say which service.';
 
   if (origin === 'manual') {

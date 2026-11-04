@@ -410,3 +410,59 @@ describe('the call-scheduling opening', () => {
     expect(ordinary).not.toContain('Creative Director/Cinematographer');
   });
 });
+
+/**
+ * The occasion, against a contradicting package name.
+ *
+ * THE PRODUCTION FAILURE THIS PINS: a lead selected "Baby Shower" and was greeted about their
+ * "1st year anniversary". The category was derived correctly - the classifier reads the answers
+ * before any of this runs - but the facts also carried the package they picked, whose label is
+ * our catalogue's wording and happened to name a different occasion and a price. Given a
+ * one-word category and a long, specific-looking package string, the model believed the package.
+ *
+ * Telling a stranger what they are celebrating, and getting it wrong, is the single worst thing
+ * the first message can do - so the directive has to rule the catalogue out by name rather than
+ * merely state the occasion and hope.
+ */
+describe('the occasion versus the catalogue', () => {
+  it('states a known occasion as SETTLED, not as one clue among several', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'Baby shower Sept-Dec',
+      category: 'baby_shower',
+      origin: 'form_call_scheduling',
+    });
+
+    expect(directive).toContain('baby shower');
+    expect(directive).toMatch(/THAT IS THE OCCASION AND IT IS SETTLED/);
+  });
+
+  it('RULES OUT A PACKAGE NAME as evidence of the occasion', () => {
+    const directive = buildGreetingDirective({
+      sourceLabel: 'Baby shower Sept-Dec',
+      category: 'baby_shower',
+      origin: 'form_call_scheduling',
+    });
+
+    expect(directive).toMatch(/package or product name is OUR catalogue/);
+    expect(directive).toMatch(/never what they are\s+celebrating/);
+  });
+
+  it('rules the catalogue out on the UNKNOWN path too, where the temptation is greater', () => {
+    // With no occasion established, a package label is the most occasion-shaped string the
+    // model can see.
+    const directive = buildGreetingDirective({
+      sourceLabel: 'Baby shower Sept-Dec',
+      category: 'unknown',
+      origin: 'form_call_scheduling',
+    });
+
+    expect(directive).toContain('YOU DO NOT KNOW WHAT THEY WANT');
+    expect(directive).toMatch(/OUR catalogue\s+wording/);
+  });
+
+  it('carries the rule into the ordinary qualifying opening as well', () => {
+    const directive = buildGreetingDirective({ sourceLabel: 'F', category: 'baby_shower' });
+
+    expect(directive).toMatch(/THAT IS THE OCCASION AND IT IS SETTLED/);
+  });
+});
