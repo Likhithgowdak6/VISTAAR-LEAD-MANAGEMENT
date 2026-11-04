@@ -190,6 +190,8 @@ export interface Conversation {
   aiAutomationEnabled: boolean;
   /** Set when the AI escalated and stopped automating; cleared when a human re-enables it. */
   aiAutomationPausedReason: string | null;
+  /** What the agent is for here. `post_booking` never sells; `off` is silent. */
+  aiMode: AiMode;
   /** When this lead asked to stop being contacted. Non-null means no automation may ever message
    *  them again - unlike a paused conversation, this is not a state a human can simply toggle off. */
   optedOutAt: string | null;
@@ -350,6 +352,31 @@ export type CallDirection = 'outbound' | 'inbound';
  * `initiated` is a human's account, collected by CallOutcomeDialog.
  */
 export type CallStatus = 'initiated' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+
+/**
+ * What the owner reports after ringing a lead.
+ *
+ * SIX OPTIONS ACROSS TWO AXES, which is why this is not the same type as CallStatus. Whether
+ * the phone connected and where the sale now stands are different questions - a customer who
+ * answers and says "let me think" is a completed call and a qualified lead, and conflating the
+ * two would mark somebody booked for picking up. The server owns the mapping; see
+ * backend/src/constants/call-outcomes.ts.
+ */
+export type CallOutcome =
+  | 'contacted'
+  | 'not_received'
+  | 'call_later'
+  | 'interested'
+  | 'booking_confirmed'
+  | 'not_interested';
+
+/**
+ * What the AI is FOR on a conversation - a different question from whether it may speak.
+ *
+ * `aiAutomationEnabled` answers "at all?" and carries every existing pause. Both must allow a
+ * send, so a mode can only ever make the agent quieter.
+ */
+export type AiMode = 'qualifying' | 'post_booking' | 'off';
 
 /**
  * One tracked cellular call.

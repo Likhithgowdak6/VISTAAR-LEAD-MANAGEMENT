@@ -27,6 +27,8 @@ import {
   type ApiSuccessResponse,
   type AssignableRole,
   type AuthResponse,
+  type AiMode,
+  type CallOutcome,
   type CallRecord,
   type CallStatus,
   type ClearTestDataResult,
@@ -714,6 +716,48 @@ export const recordCallOutcome = ({
     method: 'PATCH',
     token,
     body: { status, durationSeconds, awaySeconds },
+  });
+
+export interface RecordConversationCallOutcomeParams extends TokenParams {
+  conversationId: string;
+  outcome: CallOutcome;
+  /** The owner's answer to "should AI messaging be enabled again?". Never defaulted. */
+  resumeAi?: boolean;
+  /** ISO. Required for the outcomes that are asking for another attempt. */
+  callbackAt?: string;
+  /** The call being reported on. Omitted when the owner dialled from their own handset. */
+  callId?: string;
+  /** The reminder this answer came from, which is then completed or moved. */
+  reminderTaskId?: string;
+  durationSeconds?: number;
+  awaySeconds?: number;
+}
+
+export interface CallOutcomeResult {
+  call: CallRecord | null;
+  outcome: CallOutcome;
+  stage: string | null;
+  aiMode: AiMode;
+  callbackAt: string | null;
+}
+
+/**
+ * The owner's account of a call, and everything that follows from it.
+ *
+ * CONVERSATION-SCOPED, not call-scoped, because the owner often rings a lead straight from the
+ * reminder notification without going through the app's dialler - in which case there is no
+ * call record to attach the answer to. The server creates one. One request moves the call, the
+ * sales stage, the AI mode and the reminder together, so none of them can be left behind.
+ */
+export const recordConversationCallOutcome = ({
+  token,
+  conversationId,
+  ...body
+}: RecordConversationCallOutcomeParams): Promise<ApiSuccessResponse<CallOutcomeResult>> =>
+  apiFetch(`/conversations/${conversationId}/call-outcome`, {
+    method: 'POST',
+    token,
+    body,
   });
 
 export interface RevealPhoneParams extends TokenParams {

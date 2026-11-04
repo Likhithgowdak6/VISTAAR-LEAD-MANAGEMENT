@@ -1,6 +1,7 @@
 import mongoose, { type Model, type Types } from 'mongoose';
 
 import { type AiIntent, DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
+import { AI_MODE_VALUES, AI_MODES, type AiMode } from '../../constants/call-outcomes.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
   SALES_REJECTION_SOURCE_VALUES,
@@ -74,6 +75,16 @@ export interface ConversationDocument {
   aiAutomationEnabled: boolean;
   /** Set when the AI escalated and stopped automating; cleared when a human re-enables it. */
   aiAutomationPausedReason: string | null;
+  /**
+   * What the agent is FOR on this thread - a different question from whether it may speak.
+   *
+   * `aiAutomationEnabled` above answers "at all?" and carries every existing pause. This
+   * answers "doing what?", and BOTH have to allow a send. Ordered that way on purpose: a mode
+   * can only ever make the agent quieter than it is today, so no existing guard can be widened
+   * by adding one. `post_booking` is the reason this exists - resuming the ordinary qualifying
+   * agent after somebody books would start selling to a customer who has already bought.
+   */
+  aiMode: AiMode;
   /** When the owner was last detected typing manually into this chat from their own phone. */
   ownerLastTypedAt: Date | null;
   /** When this lead asked to stop being contacted ("stop", "band karo", ...). Once set, no
@@ -414,6 +425,15 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       trim: true,
       maxlength: 500,
       default: null,
+    },
+
+    aiMode: {
+      type: String,
+      required: true,
+      enum: AI_MODE_VALUES,
+      // Every conversation that already exists reads as `qualifying`, which is exactly what it
+      // has been doing. Adding this field changes no live behaviour on deploy.
+      default: AI_MODES.QUALIFYING,
     },
 
     ownerLastTypedAt: {

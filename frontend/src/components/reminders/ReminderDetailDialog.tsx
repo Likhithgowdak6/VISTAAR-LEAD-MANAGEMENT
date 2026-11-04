@@ -19,6 +19,7 @@ import {
   errorMessage,
   type FollowUpTask,
 } from '../types';
+import CallOutcomeDialog from '../calls/CallOutcomeDialog';
 import RescheduleReminderDialog from './RescheduleReminderDialog';
 
 /**
@@ -82,6 +83,15 @@ const ReminderDetailDialog = ({ reminderId, conversationId, onClose, onChanged }
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
+  /**
+   * The outcome sheet, opened from a CALL reminder.
+   *
+   * Offered here because this is where the owner lands after the reminder fires and they ring
+   * the lead - and because "Complete" alone throws away everything they just learned on the
+   * phone. Saving an outcome completes the reminder itself, so the two are not competing
+   * actions: this is Complete, with the answer attached.
+   */
+  const [recordingOutcome, setRecordingOutcome] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -268,6 +278,17 @@ const ReminderDetailDialog = ({ reminderId, conversationId, onClose, onChanged }
                 </div>
               ) : null}
 
+              {task.status === 'pending' && task.type === 'call' ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setRecordingOutcome(true)}
+                  className="mt-1 min-h-11 w-full rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Record call outcome
+                </button>
+              ) : null}
+
               {task.status === 'pending' ? (
                 <div className="flex flex-wrap gap-3 pt-1 text-xs font-medium">
                   <button
@@ -317,6 +338,21 @@ const ReminderDetailDialog = ({ reminderId, conversationId, onClose, onChanged }
             void transition((token) =>
               rescheduleFollowUp({ token, taskId: reminderId, dueAt: dueAtIso }),
             );
+          }}
+        />
+      ) : null}
+
+      {/* Saving an outcome completes this reminder server-side, so the dialog closes and the
+          caller refreshes exactly as it would after Complete. */}
+      {recordingOutcome ? (
+        <CallOutcomeDialog
+          conversationId={conversationId}
+          reminderTaskId={reminderId}
+          onClose={() => setRecordingOutcome(false)}
+          onRecorded={() => {
+            setRecordingOutcome(false);
+            onChanged?.();
+            onClose();
           }}
         />
       ) : null}

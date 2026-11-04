@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   authenticateRequest,
   requireConversationsRead,
+  requireCrmTasksManage,
   requirePasswordChanged,
 } from '../../middleware/auth.middleware.js';
 
@@ -12,6 +13,7 @@ import {
   recordCallOutcome,
   startCall,
 } from './call-record.controller.js';
+import { recordCallOutcome as recordConversationCallOutcome } from './call-outcome.controller.js';
 
 /**
  * NO NEW PERMISSION, deliberately.
@@ -33,6 +35,22 @@ export const conversationCallRouter = Router({ mergeParams: true });
 
 conversationCallRouter.get('/', requireConversationsRead, listConversationCalls);
 conversationCallRouter.post('/', requireConversationsRead, startCall);
+
+/**
+ * The owner's account of a call, and everything that follows from it.
+ *
+ * Mounted on the CONVERSATION rather than on a call - see the controller for why. Carries
+ * `crm_tasks.manage` on top of the read gate because it completes or moves a reminder, which is
+ * the permission that already means "may schedule work on a lead" in this codebase.
+ */
+export const conversationCallOutcomeRouter = Router({ mergeParams: true });
+
+conversationCallOutcomeRouter.post(
+  '/',
+  requireConversationsRead,
+  requireCrmTasksManage,
+  recordConversationCallOutcome,
+);
 
 // Mounted at /api/v1/calls
 const callRouter = Router();

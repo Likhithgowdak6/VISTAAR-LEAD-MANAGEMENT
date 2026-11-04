@@ -1,3 +1,4 @@
+import { AI_MODES } from '../../constants/call-outcomes.js';
 /**
  * The hour is up and the ad lead never answered: tell the owner, and send one follow-up.
  *
@@ -178,6 +179,35 @@ export const createCallSchedulingSweepService = ({
             status: CALL_SCHEDULING_STATUSES.COMPLETED,
             lastError: 'conversation no longer exists',
           });
+
+          continue;
+        }
+
+        /*
+         * A HUMAN CALL IS ALREADY BOOKED - leave it alone.
+         *
+         * This sweep chases a lead who never answered the AI's "can we call you?". Once the
+         * owner has an outcome-bearing reminder on this conversation, that question has already
+         * been settled by a person: either a time was agreed, or they are mid-callback. Sending
+         * the chase anyway would message a customer the owner is actively ringing, and creating
+         * the owner reminder below would put a second one in their list for the same call -
+         * which is exactly the duplicate this workflow is supposed to prevent.
+         *
+         * Settled as COMPLETED rather than left pending: the attempt's purpose has been served,
+         * and an attempt that keeps re-qualifying on every tick is a slow leak.
+         */
+        if (conversation.aiMode === AI_MODES.OFF) {
+          await settleCallSchedulingAttempt({
+            attemptId: attempt._id,
+            claimToken,
+            status: CALL_SCHEDULING_STATUSES.COMPLETED,
+            lastError: 'a human call is already in hand; no chase needed',
+          });
+
+          logger?.info?.(
+            { conversationId: String(attempt.conversationId) },
+            'CALL_SCHEDULING: the owner is handling this one; no chase sent.',
+          );
 
           continue;
         }

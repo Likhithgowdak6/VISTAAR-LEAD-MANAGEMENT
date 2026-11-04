@@ -182,6 +182,7 @@ const CallAction = ({ conversationId, contactId, onCallRecorded }: Props) => {
 
       {pendingCall ? (
         <CallOutcomeDialog
+          conversationId={conversationId}
           callId={pendingCall.callId}
           awaySeconds={pendingCall.awaySeconds}
           onClose={() => setPendingCall(null)}

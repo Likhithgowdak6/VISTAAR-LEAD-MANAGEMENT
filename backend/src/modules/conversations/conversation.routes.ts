@@ -10,7 +10,10 @@ import {
   requirePasswordChanged,
 } from '../../middleware/auth.middleware.js';
 import { generateAiDraft, recordAiDraftOutcome } from '../ai/ai-draft.controller.js';
-import { conversationCallRouter } from '../calls/call-record.routes.js';
+import {
+  conversationCallOutcomeRouter,
+  conversationCallRouter,
+} from '../calls/call-record.routes.js';
 import { conversationFollowUpRouter } from '../followups/followup.routes.js';
 import noteRouter from '../notes/note.routes.js';
 import { conversationTagRouter } from '../tags/tag.routes.js';
@@ -116,6 +119,7 @@ conversationRouter.patch(
 conversationRouter.use('/:conversationId/notes', noteRouter);
 conversationRouter.use('/:conversationId/follow-ups', conversationFollowUpRouter);
 conversationRouter.use('/:conversationId/calls', conversationCallRouter);
+conversationRouter.use('/:conversationId/call-outcome', conversationCallOutcomeRouter);
 conversationRouter.use('/:conversationId/tags', conversationTagRouter);
 
 export default conversationRouter;

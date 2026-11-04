@@ -1823,3 +1823,133 @@ describe('acknowledging a commitment takes the ordinary path, not a shortcut', (
     expect(mocks.confirmLeadQualification).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * What the agent is FOR, as distinct from whether it may speak.
+ *
+ * `aiAutomationEnabled` is the existing switch and already carries escalation, handover, the
+ * owner typing from their own handset and opt-outs. `aiMode` answers a different question, and
+ * the ORDER of the two gates is the safety property worth pinning: a conversation has to pass
+ * both, so adding modes can only ever make the agent quieter than it is today. If a mode could
+ * ever let a message through that `aiAutomationEnabled: false` had blocked, every existing
+ * pause in the system would have quietly become advisory.
+ *
+ * The post-booking directive is rebuilt EVERY turn rather than stored, which is what makes it
+ * safe to carry on a channel the prompt documents as applying to one reply. A test that only
+ * checked the first message would pass against an implementation that silences itself on the
+ * second - and the second message after a booking is exactly where a stray sales pitch lands.
+ */
+describe('aiMode', () => {
+  const ready = () => {
+    mocks.findPendingApprovalForConversation.mockResolvedValue(null);
+    mocks.getOrCreateAiSystemUser.mockResolvedValue({ _id: 'ai-system-user' });
+    mocks.sendLeadMessage.mockResolvedValue({
+      status: AI_BRAIN_RESULT_STATUSES.ASKED,
+      message: 'Thanks for booking!',
+      facts: {},
+      escalation_reason: '',
+    });
+  };
+
+  it('SENDS NOTHING when the mode is off', async () => {
+    ready();
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...baseConversation(),
+        aiAutomationEnabled: true,
+        aiMode: 'off',
+      } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hi',
+    });
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('STILL RESPECTS the existing pause even in post-booking mode', async () => {
+    // The ordering property. A mode must never be able to override a pause.
+    ready();
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...baseConversation(),
+        aiAutomationEnabled: false,
+        aiMode: 'post_booking',
+      } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hi',
+    });
+
+    expect(mocks.sendLeadMessage).not.toHaveBeenCalled();
+  });
+
+  it('carries the post-booking directive, which FORBIDS SELLING', async () => {
+    ready();
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...baseConversation(),
+        aiAutomationEnabled: true,
+        aiMode: 'post_booking',
+      } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'what time are you arriving?',
+    });
+
+    const instruction = mocks.sendLeadMessage.mock.calls[0]?.[1]?.ownerInstruction ?? '';
+
+    expect(instruction).toMatch(/ALREADY BOOKED/);
+    expect(instruction).toMatch(/not selling anything/);
+    expect(instruction).toMatch(/INVENT NOTHING/);
+  });
+
+  it('REBUILDS THE DIRECTIVE ON A LATER TURN, not just the first', async () => {
+    ready();
+
+    const conversation = {
+      ...baseConversation(),
+      aiAutomationEnabled: true,
+      aiMode: 'post_booking',
+    } as never;
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation,
+      inboundMessageId: 'msg-1',
+      inboundText: 'first',
+    });
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation,
+      inboundMessageId: 'msg-2',
+      inboundText: 'second',
+    });
+
+    const second = mocks.sendLeadMessage.mock.calls[1]?.[1]?.ownerInstruction ?? '';
+
+    expect(second).toMatch(/ALREADY BOOKED/);
+  });
+
+  it('sends NO post-booking directive on an ordinary qualifying conversation', async () => {
+    ready();
+
+    await handleInboundMessageForAutomation({
+      organizationId,
+      conversation: {
+        ...baseConversation(),
+        aiAutomationEnabled: true,
+        aiMode: 'qualifying',
+      } as never,
+      inboundMessageId: 'msg-1',
+      inboundText: 'hi',
+    });
+
+    const instruction = mocks.sendLeadMessage.mock.calls[0]?.[1]?.ownerInstruction ?? '';
+
+    expect(instruction).not.toMatch(/ALREADY BOOKED/);
+  });
+});

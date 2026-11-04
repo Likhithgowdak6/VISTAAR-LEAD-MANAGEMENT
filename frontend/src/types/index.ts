@@ -33,6 +33,8 @@ export type {
   BuiltinStageKey,
   ClearTestDataResult,
   CallDirection,
+  AiMode,
+  CallOutcome,
   CallRecord,
   CallStatus,
   Contact,

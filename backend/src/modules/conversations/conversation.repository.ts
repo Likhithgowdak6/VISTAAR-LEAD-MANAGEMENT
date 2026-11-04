@@ -24,6 +24,7 @@ import {
   type AiResponseStatus,
   type EnquiryClass,
 } from '../analytics/conversation-classification.js';
+import { AI_MODES, type AiMode } from '../../constants/call-outcomes.js';
 import {
   Conversation,
   type ConversationAiSummary,
@@ -535,6 +536,42 @@ export const removeTagFromConversation = ({
       runValidators: true,
       session,
     },
+  ).exec();
+
+export interface SetAiModeParams {
+  conversationId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  aiMode: AiMode;
+  /** Set alongside the mode when silencing, so the UI can say WHY it is quiet. */
+  aiAutomationPausedReason?: string | null;
+  session?: DatabaseSession;
+}
+
+/**
+ * Sets what the agent is for on one conversation, and the on/off switch to match.
+ *
+ * WRITTEN TOGETHER, NOT SEPARATELY. `aiMode: 'off'` with `aiAutomationEnabled: true` is a
+ * conversation that claims to be running and sends nothing, which is indistinguishable from a
+ * bug when somebody looks at the row. The two are one decision, so they are one write - and
+ * doing it in a single `$set` means no reader can observe the half-applied state.
+ */
+export const setAiMode = ({
+  conversationId,
+  organizationId,
+  aiMode,
+  aiAutomationPausedReason = null,
+  session,
+}: SetAiModeParams) =>
+  Conversation.findOneAndUpdate(
+    { _id: conversationId, organizationId },
+    {
+      $set: {
+        aiMode,
+        aiAutomationEnabled: aiMode !== AI_MODES.OFF,
+        aiAutomationPausedReason,
+      },
+    } as UpdateQuery<ConversationDocument>,
+    { returnDocument: 'after', runValidators: true, session },
   ).exec();
 
 export interface UpdateAutomationStateParams {

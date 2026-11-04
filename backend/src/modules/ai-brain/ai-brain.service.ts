@@ -64,6 +64,8 @@ import * as aiBrainClient from './ai-brain.client.js';
 import { type AiBrainProposalContent } from './ai-brain.client.js';
 import { buildAiBrainContext } from './ai-brain-context.service.js';
 import { CATEGORY_PLAYBOOKS } from './category-playbooks.js';
+import { AI_MODES } from '../../constants/call-outcomes.js';
+import { buildPostBookingDirective } from './post-booking-directive.js';
 import { buildTranscript } from './ai-brain-transcript.js';
 import {
   findPendingApprovalForConversation,
@@ -186,6 +188,45 @@ export const handleInboundMessageForAutomation = async ({
 
     return;
   }
+
+  /*
+   * THE MODE GATE, and it is SECOND on purpose.
+   *
+   * `aiAutomationEnabled` above is the existing switch and carries every established pause -
+   * escalation, handover, the owner typing from their own handset, an opt-out. This one only
+   * ever subtracts from that: a conversation has to pass BOTH, so adding modes cannot make the
+   * agent speak anywhere it would not already have spoken.
+   *
+   * `off` is set by the owner recording a call outcome - "no, I will handle this one" - and by
+   * `not interested`, where no resume is offered at all.
+   */
+  if (conversation.aiMode === AI_MODES.OFF) {
+    trace.stop(
+      PIPELINE_STAGE.AI_ELIGIBILITY,
+      'AI messaging is switched off for this conversation',
+      () => ({ conversation: conversation._id.toString() }),
+    );
+
+    return;
+  }
+
+  /*
+   * The post-booking directive, rebuilt on EVERY turn rather than stored.
+   *
+   * That is what makes it safe to carry this on `ownerInstruction`, a channel the prompt
+   * documents as applying to one reply: there is nothing to persist and nothing to expire, so
+   * the twentieth message after a booking is governed exactly as firmly as the first. Storing
+   * it once and trusting it to stick is the version that quietly stops working.
+   *
+   * A REAL OWNER INSTRUCTION STILL WINS THE LAST WORD. If somebody has typed an instruction for
+   * this specific reply, it is appended after the standing one - later text is what the model
+   * weights most, and an owner intervening on a booked customer knows something this file does
+   * not. The standing rules still frame it, so "no selling" is not silently dropped.
+   */
+  const effectiveOwnerInstruction =
+    conversation.aiMode === AI_MODES.POST_BOOKING
+      ? [buildPostBookingDirective(), ownerInstruction?.trim()].filter(Boolean).join(' ')
+      : ownerInstruction;
 
   // Wall-clock around the brain call only, read again in the catch below so a call that FAILED
   // still reports how long it burned before it did. The owner has just moved from Groq to
@@ -351,7 +392,7 @@ export const handleInboundMessageForAutomation = async ({
 
     const eligibility = await canAiRespondToInbound({
       inboundText,
-      ownerInstruction,
+      ownerInstruction: effectiveOwnerInstruction,
       // An established lead - qualified once, and a reply actually delivered - is not put back
       // through the classifier, and its one-word answers are not mistaken for a stranger's
       // "hi". Only those two things change; the empty-text check and every other deterministic
@@ -477,7 +518,7 @@ export const handleInboundMessageForAutomation = async ({
       serviceBrief: context.serviceBrief,
       styleExamples: context.styleExamples,
       today: context.today,
-      ownerInstruction,
+      ownerInstruction: effectiveOwnerInstruction,
       // Every playbook key, minus the fallback: "unknown" is what an unclassified conversation
       // already is, so offering it as a choice only invites the model to pick it.
       categoryOptions: Object.keys(CATEGORY_PLAYBOOKS).filter((key) => key !== 'unknown'),

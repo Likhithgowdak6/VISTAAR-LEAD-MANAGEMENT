@@ -1,3 +1,4 @@
+import { AI_MODES } from '../../constants/call-outcomes.js';
 import { DEFAULT_LEAD_QUALIFICATION_STATUS } from '../../constants/lead-qualification.js';
 import { DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import {
@@ -40,6 +41,8 @@ export interface SerializedConversation {
   status: unknown;
   aiAutomationEnabled: unknown;
   aiAutomationPausedReason: unknown;
+  /** What the agent is FOR here: qualifying, post_booking, or off. */
+  aiMode: unknown;
   optedOutAt: string | null;
   /** The day the lead's event happens, when they have told us one. The lead panel counts down
    *  to it, and the nurture cadence stops at it. */
@@ -186,6 +189,9 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     status: value.status,
     aiAutomationEnabled: value.aiAutomationEnabled ?? false,
     aiAutomationPausedReason: value.aiAutomationPausedReason ?? null,
+    // Defaulted for rows written before the field existed, which read as the ordinary agent -
+    // exactly what they have been doing.
+    aiMode: value.aiMode ?? AI_MODES.QUALIFYING,
     optedOutAt: serializeDate(value.optedOutAt),
     eventDate: serializeDate(value.eventDate),
     aiCategory: value.aiCategory ?? 'unknown',
