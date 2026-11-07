@@ -24,6 +24,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app import cache, db
+from app.errors import install_error_handlers
+from app.routers import starred_messages
 from app.config import settings
 
 # The same value the Node backend reports. NOT a new name: this is the same API with a different
@@ -62,6 +64,22 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
+
+
+install_error_handlers(app)
+
+# Phase 1. Mounted at the public path, because Caddy forwards the matched prefix unchanged.
+app.include_router(
+    starred_messages.router,
+    prefix=f"{API_PREFIX}/starred-messages",
+    tags=["starred-messages"],
+)
+
+# PHASE 2 IS NOT REGISTERED HERE YET, deliberately. `app/routers/stages.py` and
+# `app/routers/tags.py` are written and tested, but mounting them would put live routes into the
+# Phase 1 deployment - and a route this service answers is a route Caddy could be pointed at
+# before its own cutover has been reviewed. The two `include_router` lines land with the Phase 2
+# commit, together with the Caddy change that makes them reachable.
 
 
 @app.get(f"{API_PREFIX}/health")

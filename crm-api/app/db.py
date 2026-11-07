@@ -19,6 +19,7 @@ surfaced in Phase 3 into one that surfaces here, in an 89-line module, where the
 environment variable.
 """
 
+from datetime import datetime, timezone
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -41,6 +42,38 @@ def get_client() -> AsyncIOMotorClient:
         )
 
     return _client
+
+
+def utc_now() -> datetime:
+    """
+    The timestamp written into new documents.
+
+    EXPLICIT BECAUSE MONGOOSE'S `timestamps: true` IS A LIBRARY FEATURE, not a database one.
+    Nothing sets createdAt/updatedAt when the driver writes directly, and a document missing
+    createdAt sorts last forever in a list ordered by it. Truncated to milliseconds to match
+    what BSON stores and what JavaScript's Date carries - six microsecond digits would survive
+    in Python and vanish on the next Node read, making the same row look different per reader.
+    """
+    moment = datetime.now(timezone.utc)
+
+    return moment.replace(microsecond=(moment.microsecond // 1000) * 1000)
+
+
+def get_database():
+    """
+    The database named in MONGODB_URI.
+
+    TAKEN FROM THE URI RATHER THAN CONFIGURED SEPARATELY, so Python and Node cannot end up
+    pointed at different databases on the same server. Mongoose does the same - the database is
+    part of the connection string, not an extra setting - and a second knob here would be a
+    second thing to get wrong.
+    """
+    database = get_client().get_default_database()
+
+    if database is None:
+        raise RuntimeError("MONGODB_URI names no database")
+
+    return database
 
 
 async def get_status() -> dict[str, Any]:
