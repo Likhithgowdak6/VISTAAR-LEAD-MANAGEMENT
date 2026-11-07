@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 
 from app import cache, db
 from app.errors import install_error_handlers
+from app.request_context import RequestContextMiddleware
 from app.routers import starred_messages
 from app.config import settings
 
@@ -65,6 +66,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# Before the error handlers read it. Node assigns the id in `requestContextMiddleware`, which
+# is mounted ahead of every route for the same reason.
+app.add_middleware(RequestContextMiddleware)
 
 install_error_handlers(app)
 

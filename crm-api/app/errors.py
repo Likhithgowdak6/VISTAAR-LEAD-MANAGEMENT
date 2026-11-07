@@ -16,9 +16,9 @@ two ways that the React client would notice immediately:
 So both are reshaped here, once, for every route. Mirrors
 backend/src/middleware/error.middleware.ts.
 
-`requestId` is included because the field exists in every Node response and a client or log
-scraper may expect the key. Python has no request-id middleware yet, so it is null rather than
-invented - an absent key and a null one are different things to a strict consumer.
+`requestId` carries the real id assigned by `request_context.py`, not null. It is what connects
+a customer's "it failed" to a line in the server log, and the comparison harness treats a field
+that is a string in Node and null here as the difference it is.
 """
 
 import logging
@@ -29,6 +29,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.request_context import get_request_id
 
 
 def error_body(
@@ -83,6 +84,7 @@ def install_error_handlers(app: FastAPI) -> None:
                 "VALIDATION_FAILED",
                 f"{source} validation failed.",
                 _field_errors(exc),
+                get_request_id(request),
             ),
         )
 
@@ -95,9 +97,13 @@ def install_error_handlers(app: FastAPI) -> None:
         if isinstance(exc.detail, dict) and "error" in exc.detail:
             content = exc.detail
             content["error"].setdefault("details", None)
-            content["error"].setdefault("requestId", None)
+            # Overwritten, not defaulted: the routers build the envelope without an id because
+            # only the handler can see the request.
+            content["error"]["requestId"] = get_request_id(request)
         else:
-            content = error_body("HTTP_ERROR", str(exc.detail))
+            content = error_body(
+                "HTTP_ERROR", str(exc.detail), request_id=get_request_id(request)
+            )
 
         return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
 
@@ -125,6 +131,7 @@ def install_error_handlers(app: FastAPI) -> None:
                 "Internal server error."
                 if settings.node_env == "production"
                 else f"{type(exc).__name__}: {exc}",
+                request_id=get_request_id(request),
             ),
         )
 
@@ -139,5 +146,6 @@ def install_error_handlers(app: FastAPI) -> None:
             content=error_body(
                 "ROUTE_NOT_FOUND",
                 f"Route {request.method} {request.url.path} not found.",
+                request_id=get_request_id(request),
             ),
         )

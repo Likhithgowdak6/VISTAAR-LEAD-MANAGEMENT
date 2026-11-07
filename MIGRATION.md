@@ -118,6 +118,44 @@ changing the duplicate-star status to 200 fails `test_A_DUPLICATE_STAR_RETURNS_2
 
 **Rollback:** remove the Caddy block, reload. Node still serves the route throughout.
 
+### What the comparison harness caught — before any traffic moved
+
+Run against the live Node and Python services with no credentials at all, the first invocation
+reported two differences on the 401 path. Both were real, and a third fell out of investigating
+them.
+
+| Difference | Node | Python (before) |
+|---|---|---|
+| `error.message` on every 401 | `Authentication failed.` | the specific message, e.g. `Authentication token is required.` |
+| `error.requestId` | a uuid, echoed in `x-request-id` | `null`, no header |
+| `Authorization` prefix | `Bearer ` only (case-**sensitive**) | `bearer` accepted too |
+
+**Why the messages were wrong.** `authenticateRequest` wraps its whole body in a try/catch and
+re-emits every error with `code: getErrorCode(error)` preserved and the message replaced. So
+Node's code is specific and its message never is. The port reproduced the throw sites faithfully
+and missed the catch.
+
+**Why 24 tests did not catch it.** Every assertion in `test_deps.py` read `error.code`. Not one
+read `error.message` or `error.requestId`. Nine tests now cover the error body itself, the
+`x-request-id` header, inbound-id passthrough, and the case-sensitive prefix — all three
+mutations caught.
+
+**Why `requestId: null` was the wrong call.** It was documented as "null rather than invented".
+But the id is what connects a customer's "it failed" to a line in the server log, and half the
+API answering with null makes that work on some routes and silently not on others.
+`app/request_context.py` now ports `request-context.middleware.ts`: inbound `x-request-id` wins,
+otherwise a uuid4, echoed on the response.
+
+**Python suite: 159 passing.**
+
+### One deliberate non-port
+
+Node's auth catch swallows *any* exception — including a MongoDB failure — and answers **401**
+with `code` set to the error's message. During a database outage that logs every user out.
+Python lets it reach the 500 handler instead. This is the one place the port knowingly differs,
+because reproducing it would mean reproducing a defect that does harm. Recorded here rather than
+left as a silent difference.
+
 ---
 
 ## Phase 2 — stages + tag catalogue 🟡

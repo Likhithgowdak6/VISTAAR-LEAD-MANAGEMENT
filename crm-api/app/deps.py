@@ -73,7 +73,17 @@ class AuthContext:
         return self.organization["_id"]
 
 
-def _unauthorized(code: str, message: str) -> HTTPException:
+# EVERY 401 FROM THIS CHAIN CARRIES THE SAME MESSAGE, and that is Node's behaviour, not a
+# simplification. `authenticateRequest` wraps its whole body in a try/catch: the specific errors
+# it throws are caught and re-emitted with `code: getErrorCode(error)` preserved but the message
+# replaced by this one. So the CODE is specific and the MESSAGE never is.
+#
+# Found by the response-comparison harness, not by the tests - `test_deps.py` asserted on
+# `error.code` and never looked at `error.message`, so six wrong messages passed 24 tests.
+AUTHENTICATION_FAILED_MESSAGE = "Authentication failed."
+
+
+def _unauthorized(code: str) -> HTTPException:
     """
     Node's error envelope, reproduced.
 
@@ -82,15 +92,24 @@ def _unauthorized(code: str, message: str) -> HTTPException:
     """
     return HTTPException(
         status_code=401,
-        detail={"error": {"code": code, "message": message}},
+        detail={"error": {"code": code, "message": AUTHENTICATION_FAILED_MESSAGE}},
     )
 
 
 def _bearer_token(request: Request) -> str | None:
-    header = request.headers.get("authorization") or ""
-    prefix = "bearer "
+    """
+    CASE-SENSITIVE on purpose. Node's `getBearerToken` tests `startsWith('Bearer ')`, so a
+    client sending `bearer abc` is treated as having sent no token at all.
 
-    if not header.lower().startswith(prefix):
+    Accepting the lowercase form here would be the friendlier choice and the wrong one: the same
+    request would succeed on a Python-served route and 401 on a Node-served one, and with the
+    API split across two services for several more phases that is a difference someone would
+    eventually have to debug from the outside.
+    """
+    header = request.headers.get("authorization") or ""
+    prefix = "Bearer "
+
+    if not header.startswith(prefix):
         return None
 
     token = header[len(prefix) :].strip()
@@ -110,12 +129,12 @@ async def authenticate(request: Request) -> AuthContext:
     token = _bearer_token(request)
 
     if not token:
-        raise _unauthorized("AUTH_TOKEN_MISSING", "Authentication token is required.")
+        raise _unauthorized("AUTH_TOKEN_MISSING")
 
     try:
         claims = verify_access_token(token)
     except InvalidAccessToken:
-        raise _unauthorized("AUTH_TOKEN_INVALID", "Authentication token is invalid.") from None
+        raise _unauthorized("AUTH_TOKEN_INVALID") from None
 
     database = db.get_database()
 
@@ -125,17 +144,17 @@ async def authenticate(request: Request) -> AuthContext:
 
     if not user_id or not organization_id or not session_id:
         # A well-signed token whose claims are not ids is not one of ours.
-        raise _unauthorized("AUTH_TOKEN_INVALID", "Authentication token is invalid.")
+        raise _unauthorized("AUTH_TOKEN_INVALID")
 
     organization = await database.organizations.find_one({"_id": organization_id})
 
     if not organization or organization.get("status") != ORGANIZATION_ACTIVE:
-        raise _unauthorized("ORGANIZATION_NOT_ACTIVE", "Organization is not active.")
+        raise _unauthorized("ORGANIZATION_NOT_ACTIVE")
 
     user = await database.users.find_one({"_id": user_id})
 
     if not user or user.get("status") != USER_ACTIVE:
-        raise _unauthorized("USER_NOT_ACTIVE", "User is not active.")
+        raise _unauthorized("USER_NOT_ACTIVE")
 
     session = await database.refreshsessions.find_one({"_id": session_id})
 
@@ -146,7 +165,7 @@ async def authenticate(request: Request) -> AuthContext:
         or str(session.get("userId")) != str(user["_id"])
         or str(session.get("organizationId")) != str(organization["_id"])
     ):
-        raise _unauthorized("SESSION_NOT_ACTIVE", "Session is not active.")
+        raise _unauthorized("SESSION_NOT_ACTIVE")
 
     active_session = session
 
@@ -164,7 +183,7 @@ async def authenticate(request: Request) -> AuthContext:
         active_session = None
 
     if not active_session:
-        raise _unauthorized("SESSION_NOT_ACTIVE", "Session is not active.")
+        raise _unauthorized("SESSION_NOT_ACTIVE")
 
     return AuthContext(
         user=user,

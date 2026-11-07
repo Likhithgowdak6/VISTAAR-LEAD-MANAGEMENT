@@ -31,6 +31,7 @@ from app.config import settings
 from app.deps import AuthContext, authenticate, require_password_changed, require_permission
 from app.errors import install_error_handlers
 from app.permissions import MESSAGES_SEND
+from app.request_context import RequestContextMiddleware
 
 ORG = ObjectId()
 USER = ObjectId()
@@ -61,6 +62,7 @@ def database(monkeypatch):
 def client():
     """A minimal app exposing each layer of the chain separately."""
     app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
 
     @app.get("/authed")
@@ -315,3 +317,92 @@ class TestPermissions:
         await seed(database, user={"permissionOverrides": {"allow": ["not.a.real.permission"]}})
 
         assert "not.a.real.permission" not in get(client).json()["permissions"]
+
+
+class TestTheErrorBodyItself:
+    """
+    THESE WERE MISSING, and their absence is why six wrong messages passed 24 tests.
+
+    Every test above asserts on `error.code`. None looked at `error.message` or
+    `error.requestId`, so Python answered with its own invented messages and a null id for the
+    whole of Phase 1 development. The response-comparison harness caught both on the first run
+    against the live Node service - which is the argument for running it BEFORE a cutover rather
+    than trusting a green suite.
+    """
+
+    @pytest.mark.asyncio
+    async def test_EVERY_401_CARRIES_NODES_GENERIC_MESSAGE(self, client, database):
+        # `authenticateRequest` wraps its body in a try/catch and replaces the specific message
+        # with this one, keeping only the code. Specific messages here would be a difference the
+        # client could see on every failed login.
+        await seed(database, user={"status": "disabled"})
+
+        error = get(client).json()["error"]
+
+        assert error["code"] == "USER_NOT_ACTIVE"
+        assert error["message"] == "Authentication failed."
+
+    @pytest.mark.asyncio
+    async def test_the_missing_token_401_carries_it_too(self, client, database):
+        error = client.get("/authed").json()["error"]
+
+        assert error["code"] == "AUTH_TOKEN_MISSING"
+        assert error["message"] == "Authentication failed."
+
+    @pytest.mark.asyncio
+    async def test_EVERY_ERROR_CARRIES_A_REQUEST_ID(self, client, database):
+        # Null here and a uuid in Node means a customer's "it failed" can be traced on some
+        # routes and not others, with no way to tell which from the outside.
+        error = client.get("/authed").json()["error"]
+
+        assert error["requestId"]
+        assert len(error["requestId"]) == 36
+
+    @pytest.mark.asyncio
+    async def test_the_request_id_is_echoed_in_the_header(self, client, database):
+        response = client.get("/authed")
+
+        assert response.headers["x-request-id"] == response.json()["error"]["requestId"]
+
+    @pytest.mark.asyncio
+    async def test_AN_INBOUND_REQUEST_ID_WINS(self, client, database):
+        # So one id spans the whole hop instead of each service minting its own.
+        response = client.get("/authed", headers={"x-request-id": "from-the-proxy"})
+
+        assert response.json()["error"]["requestId"] == "from-the-proxy"
+        assert response.headers["x-request-id"] == "from-the-proxy"
+
+    @pytest.mark.asyncio
+    async def test_a_successful_response_carries_the_header_too(self, client, database):
+        await seed(database)
+
+        assert client.get("/authed", headers={"Authorization": f"Bearer {token()}"}).headers[
+            "x-request-id"
+        ]
+
+
+class TestTheBearerPrefix:
+    @pytest.mark.asyncio
+    async def test_THE_PREFIX_IS_CASE_SENSITIVE(self, client, database):
+        # Node tests `startsWith('Bearer ')`. Accepting `bearer` here would let the same request
+        # succeed on a Python-served route and 401 on a Node-served one.
+        await seed(database)
+
+        response = client.get("/authed", headers={"Authorization": f"bearer {token()}"})
+
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "AUTH_TOKEN_MISSING"
+
+    @pytest.mark.asyncio
+    async def test_the_exact_prefix_is_accepted(self, client, database):
+        await seed(database)
+
+        assert client.get("/authed", headers={"Authorization": f"Bearer {token()}"}).status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_a_bearer_prefix_with_no_token_is_missing_not_invalid(self, client, database):
+        await seed(database)
+
+        response = client.get("/authed", headers={"Authorization": "Bearer    "})
+
+        assert response.json()["error"]["code"] == "AUTH_TOKEN_MISSING"
