@@ -1,0 +1,21 @@
+# Pinned exactly, matching ai-brain-service's convention: a floating version in a service that
+# talks to production MongoDB is a deploy that behaves differently from the one that was tested.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# The async MongoDB driver. Motor wraps PyMongo, so the connection string, the replica-set
+# discovery and the transaction semantics are the same ones Mongoose is already using against
+# this database - which is what lets both services share it safely.
+motor==3.6.0
+
+redis==5.2.1
+
+# Verifies the access tokens the Node backend signs. Same secret, same HS256, so a session
+# created by Node authenticates here with no second login. See app/auth.py.
+PyJWT==2.10.1
+
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
