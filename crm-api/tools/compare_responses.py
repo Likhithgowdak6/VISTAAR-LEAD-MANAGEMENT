@@ -117,26 +117,32 @@ def main() -> int:
         print("REFUSED: that is the production host. Pass --i-know-this-is-production.")
         return 2
 
-    headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
+    # NAMED `request_headers`, and the response headers below are named separately, because the
+    # two were once the same variable. The second iteration then sent the FIRST response's
+    # headers as its request headers - so Node was asked with the bearer token and Python was
+    # asked without it. The tool reported a 200-versus-401 difference and the obvious reading was
+    # "Python's auth is broken", which is the worst possible way for a comparison tool to fail:
+    # confidently, and pointing at the wrong service.
+    request_headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
     payload = json.loads(args.body) if args.body else None
 
     results = {}
     for name, base in (("node", args.node), ("python", args.python)):
         response = httpx.request(
-            method, f"{base}{args.path}", headers=headers, json=payload, timeout=20
+            method, f"{base}{args.path}", headers=request_headers, json=payload, timeout=20
         )
         try:
             body = response.json()
         except Exception:  # noqa: BLE001 - a non-JSON body is itself a difference
             body = {"__raw__": response.text}
 
-        headers = {
+        response_headers = {
             key: response.headers.get(key)
             for key in COMPARED_HEADERS
             if response.headers.get(key) is not None
         }
 
-        results[name] = (response.status_code, body, headers)
+        results[name] = (response.status_code, body, response_headers)
 
     node_status, node_body, node_headers = results["node"]
     python_status, python_body, python_headers = results["python"]
