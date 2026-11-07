@@ -55,9 +55,21 @@ above it changes.
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      # Loopback-only: Caddy reaches this on localhost and nothing else should.
-      - '127.0.0.1:5002:5002'
+    # HOST NETWORKING, AND THIS IS NOT A SHORTCUT.
+    #
+    # The Node backend runs on the host under systemd, so MONGODB_URI and REDIS_URL say
+    # localhost:27017 and localhost:6379. Inside a bridged container `localhost` is the
+    # container itself, so those URIs resolve to nothing - the first deploy of this service
+    # returned 503 with ServerSelectionTimeoutError and ConnectionError for exactly that reason.
+    #
+    # Sharing the host's namespace makes those values mean the same thing in both backends,
+    # which is what allows one set of connection strings with nothing duplicated and nothing to
+    # keep in sync. The alternative - rewriting them to mongodb://mongo:27017 - would mean a
+    # second copy of the connection details and a new way for the two to drift apart.
+    #
+    # There is no `ports:` mapping as a result; compose rejects one under host networking. The
+    # loopback restriction is enforced instead by uvicorn binding 127.0.0.1 in the Dockerfile.
+    network_mode: host
     environment:
       # EXACTLY THREE SECRETS, NAMED ONE BY ONE. `env_file: ./backend/.env` would have been
       # shorter and would have handed this container all ~90 variables in that file - WhatsApp
@@ -85,7 +97,8 @@ above it changes.
 cd ~/vistaar && grep -n "ports:" -A 2 docker-compose.yml | diff /tmp/ports.before - ; echo "exit=$?"
 ```
 
-Expect **only** the new `127.0.0.1:5002:5002` lines. `exit=1` is normal — `diff` reports that a
+Expect **no change at all** - `crm-api` uses host networking and declares no `ports:`, so the
+existing bindings should be byte-identical. `exit=0` here — `diff` reports that a
 difference exists. If anything touching `27017`, `6379`, `5434` or `8091` appears, **stop** and
 restore from `$BACKUP`.
 
