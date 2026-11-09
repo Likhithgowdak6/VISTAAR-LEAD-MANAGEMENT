@@ -55,6 +55,20 @@ class ConversationAccessDenied(Exception):
     """403. It exists and is visible to somebody, but not to this caller."""
 
 
+def _to_object_id(val: Any) -> ObjectId | None:
+    if isinstance(val, ObjectId):
+        return val
+    if isinstance(val, str) and len(val) == 24:
+        try:
+            return ObjectId(val)
+        except Exception:
+            return None
+    try:
+        return ObjectId(str(val))
+    except Exception:
+        return None
+
+
 def can_read_all(permissions: list[str] | tuple[str, ...] | None) -> bool:
     return CONVERSATIONS_READ_ALL in (permissions or ())
 
@@ -63,7 +77,7 @@ def assert_conversation_visible(
     *,
     conversation: dict[str, Any],
     permissions: list[str] | tuple[str, ...] | None,
-    actor_id: ObjectId,
+    actor_id: Any,
 ) -> None:
     """`assertConversationVisible`."""
     if can_read_all(permissions):
@@ -80,19 +94,24 @@ def assert_conversation_visible(
 
 async def load_visible_conversation_for_actor(
     *,
-    organization_id: ObjectId,
-    conversation_id: ObjectId,
+    organization_id: Any,
+    conversation_id: Any,
     permissions: list[str] | tuple[str, ...] | None,
-    actor_id: ObjectId,
+    actor_id: Any,
 ) -> dict[str, Any]:
     """
     `loadVisibleConversationForActor`. Raises rather than returning None, matching Node — the
     callers all want the conversation or an error, never a null they might forget to check.
     """
+    cid = _to_object_id(conversation_id)
+    oid = _to_object_id(organization_id)
+    if not cid or not oid:
+        raise ConversationNotFound("CONVERSATION_NOT_FOUND")
+
     conversation = await db.get_database()[COLLECTION].find_one(
         {
-            "_id": conversation_id,
-            "organizationId": organization_id,
+            "_id": cid,
+            "organizationId": oid,
             # `NOT_DELETED` in the Node repository. Part of the query, so a deleted thread is
             # NOT FOUND rather than forbidden.
             "deletedAt": None,
