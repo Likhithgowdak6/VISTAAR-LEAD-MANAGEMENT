@@ -38,7 +38,7 @@ class OwnerNotifyService:
         get_owner_number_fn: Callable[..., Any] | None = None,
     ) -> None:
         self._send_fn = send_fn
-        self._get_owner_number = get_owner_number_fn
+        self._get_owner_number_fn = get_owner_number_fn
 
     async def get_owner_number(self, organization_id: Any) -> str:
         if self._get_owner_number_fn:
