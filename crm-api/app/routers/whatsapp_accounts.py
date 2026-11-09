@@ -324,7 +324,6 @@ async def remove_account(
     purgeHistory: str | None = Query("false"),
     auth: AuthContext = Depends(_require_accounts_manage),
 ) -> dict[str, Any]:
-    auth.require_permission(ACCOUNTS_MANAGE)
     oid = validate_object_id(accountId)
 
     if purgeHistory is None or purgeHistory == "":

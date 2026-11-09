@@ -72,6 +72,22 @@ class AuthContext:
     def organization_id(self) -> ObjectId:
         return self.organization["_id"]
 
+    def has_permission(self, permission: str) -> bool:
+        return permission in self.permissions
+
+    def require_permission(self, permission: str) -> None:
+        if not self.has_permission(permission):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to perform this action.",
+                        "details": None,
+                    }
+                },
+            )
+
 
 # EVERY 401 FROM THIS CHAIN CARRIES THE SAME MESSAGE, and that is Node's behaviour, not a
 # simplification. `authenticateRequest` wraps its whole body in a try/catch: the specific errors
