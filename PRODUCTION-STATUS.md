@@ -4,10 +4,10 @@ _Last updated: 2026-11-09 (Post-Migration Audit & Production Cutover Planning)_
 
 * **Production URL**: <https://vistaarcrm.duckdns.org>
 * **Server Repository**: `~/vistaar` on AWS EC2 (`t3.small`, 2 vCPU, 2 GB RAM)
-* **Currently Deployed Git Commit**: **`87eea8b`** (Canary FastAPI deployed; Node `:5001` serves 98% of CRM traffic)
-* **Local Git HEAD**: **`27bc6d2`** (`Compare requestId by type, not by value`)
-* **Migration Status**: Phases 0–11 **100% Implemented Locally** (307 files uncommitted)
-* **Cutover Plan**: Authoritative phased guide compiled in `PRODUCTION_MIGRATION_PLAN.md`
+* **Currently Deployed Git Commit**: **`7d98744`** (Python FastAPI and Worker deployed live)
+* **Local Git HEAD**: **`7d98744`** (`fix(crm-api): bind _get_owner_number_fn attribute in OwnerNotifyService`)
+* **Migration Status**: **100% DEPLOYED & LIVE IN PRODUCTION**
+* **Cutover Plan**: Executed successfully per `PRODUCTION_MIGRATION_PLAN.md`
 
 ---
 
@@ -22,18 +22,18 @@ _Last updated: 2026-11-09 (Post-Migration Audit & Production Cutover Planning)_
 
 ---
 
-## 2. Infrastructure & Service Topology (Production vs. Target)
+## 2. Infrastructure & Service Topology (Live Production State)
 
-### Current Live Production State
-- **Node.js Express Backend (`vistaar.service`)**: Runs on host under systemd on loopback port `127.0.0.1:5001`. Serves 98% of CRM API endpoints and holds the active Baileys WhatsApp WebSocket.
-- **Python FastAPI Container (`wam-crm-ai-crm-api`)**: Runs on host network (`127.0.0.1:5002`). Currently serves only `/api/v1/health*` and `/api/v1/starred-messages*` via Caddy canary routing.
-- **Python Worker (`wam-crm-ai-crm-worker`)**: **NOT YET DEPLOYED**. Background runners are currently executed by Node.
+### Live Production State
+- **Python FastAPI Container (`wam-crm-ai-crm-api`)**: Live on host network (`127.0.0.1:5002`). Serves 100% of CRM API endpoints via Caddy.
+- **Python Worker Container (`wam-crm-ai-crm-worker`)**: Live on host network. Runs all 13 background runners (`python -m app.worker`).
+- **Node.js Express Backend (`vistaar.service`)**: **STOPPED** per operator instruction (`sudo systemctl stop vistaar.service`).
 - **State Stores (Docker Containers with `restart: unless-stopped`)**:
   - `wam-crm-ai-mongo`: MongoDB 8.0, replica set `rs0`, bound to `127.0.0.1:27017:27017`.
   - `wam-crm-ai-redis`: Redis 8.0, bound to `127.0.0.1:6379:6379`.
   - `wam-crm-ai-ai-brain-db`: PostgreSQL 16 Alpine, bound to `127.0.0.1:5434:5432`.
   - `wam-crm-ai-ai-brain-service`: LangGraph Python service, bound to `127.0.0.1:8091:8091`.
-- **Ingress & Reverse Proxy**: Caddy terminates TLS and serves frontend SPA from `/srv/vistaar`.
+- **Ingress & Reverse Proxy**: Caddy terminates TLS and routes `/api/*` and `/api/v1/realtime*` (with `flush_interval -1`) directly to `127.0.0.1:5002`, and serves the frontend SPA from `/srv/vistaar`.
 - **Nightly MongoDB Backup**: Automated script `ops/backup/vistaar-backup.sh` runs at 21:30 UTC / 03:00 IST → `/backups` (14-day retention, dry-run restore validation).
 
 ---
