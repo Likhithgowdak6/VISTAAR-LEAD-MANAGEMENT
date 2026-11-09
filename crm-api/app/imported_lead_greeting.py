@@ -17,6 +17,7 @@ GREETING_SIGNATURE = ["Himanshu", "Creative Director/Cinematographer"]
 
 
 def opening_message_layout() -> list[str]:
+    signature_example = '", then "'.join(GREETING_SIGNATURE)
     return [
         'LAYOUT - this message only, and it OVERRIDES the usual "one short paragraph" rule:',
         "write it as SHORT LINES SEPARATED BY BLANK LINES, not as a single block of prose.",
@@ -26,7 +27,7 @@ def opening_message_layout() -> list[str]:
         "Up to about 90 words total - longer than a normal reply, because it is doing more.",
         "Still no bullet points, no headings and no bold - blank lines are the only structure.",
         "At most one emoji, in the greeting line if anywhere.",
-        f'Sign off on its own lines, exactly: "{"\", then \"".join(GREETING_SIGNATURE)}".',
+        f'Sign off on its own lines, exactly: "{signature_example}".',
         "Vary the wording every time. The shape is fixed; the sentences are yours.",
     ]
 
