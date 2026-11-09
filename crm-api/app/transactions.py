@@ -61,6 +61,8 @@ async def transaction() -> AsyncIterator[Any]:
     On a real replica set this opens a session, begins a transaction, commits on success and
     aborts on any exception. The abort is what makes a half-finished pair impossible.
     """
+    import inspect
+
     # THE CLIENT COMES FROM THE DATABASE, not from `db.get_client()`.
     #
     # Those are the same object in production, but `get_client()` constructs one from
@@ -71,6 +73,8 @@ async def transaction() -> AsyncIterator[Any]:
     try:
         client = db.get_database().client
         session_cm = client.start_session()
+        if inspect.isawaitable(session_cm):
+            session_cm = await session_cm
     except Exception:  # noqa: BLE001 - every driver raises its own type here
         # No session support. See the module docstring: the body still runs, and the tests that
         # matter assert the session was threaded through rather than that it rolled back.
@@ -78,9 +82,30 @@ async def transaction() -> AsyncIterator[Any]:
         return
 
     try:
-        async with session_cm as session:
-            async with session.start_transaction():
-                yield session
+        if hasattr(session_cm, "__aenter__"):
+            async with session_cm as session:
+                if hasattr(session, "start_transaction"):
+                    txn = session.start_transaction()
+                    if hasattr(txn, "__aenter__"):
+                        async with txn:
+                            yield session
+                    else:
+                        yield session
+                else:
+                    yield session
+        elif hasattr(session_cm, "__enter__"):
+            with session_cm as session:
+                if hasattr(session, "start_transaction"):
+                    txn = session.start_transaction()
+                    if hasattr(txn, "__enter__"):
+                        with txn:
+                            yield session
+                    else:
+                        yield session
+                else:
+                    yield session
+        else:
+            yield session_cm
     except (AttributeError, NotImplementedError):
         # A driver with `start_session` but no usable `start_transaction`.
         yield None
