@@ -128,6 +128,17 @@ class DefaultSessionManager:
         if key in self._states:
             self._states[key]["running"] = False
             self._states[key]["qrAvailable"] = False
+        if organization_id:
+            try:
+                await default_update_account_status(
+                    account_id=account_id,
+                    organization_id=organization_id,
+                    status=status,
+                    disconnect_code=disconnect_code,
+                    disconnect_reason=disconnect_reason,
+                )
+            except Exception:
+                pass
 
     async def get_qr_data_url(self, account_id: Any) -> str | None:
         return None
@@ -386,6 +397,13 @@ async def pause_account_for_actor(
         disconnect_code="manual_pause",
         disconnect_reason="Account paused from the app.",
     )
+    await default_update_account_status(
+        account_id=account_id,
+        organization_id=organization_id,
+        status=ACCOUNT_STATUS_PAUSED,
+        disconnect_code="manual_pause",
+        disconnect_reason="Account paused from the app.",
+    )
     refreshed = await _load_account(organization_id, account_id, find_account)
     return with_runtime(refreshed, manager)
 
@@ -424,6 +442,13 @@ async def reset_account_for_actor(
         disconnect_code="connection_reset",
         disconnect_reason="Connection reset; stored login was cleared.",
     )
+    await default_update_account_status(
+        account_id=account_id,
+        organization_id=organization_id,
+        status=ACCOUNT_STATUS_DISCONNECTED,
+        disconnect_code="connection_reset",
+        disconnect_reason="Connection reset; stored login was cleared.",
+    )
     if delete_auth:
         await delete_auth(organization_id=organization_id, account_id=account_id)
     refreshed = await _load_account(organization_id, account_id, find_account)
@@ -438,7 +463,20 @@ async def disconnect_account_for_actor(
 ) -> dict[str, Any]:
     await _load_account(organization_id, account_id, find_account)
     manager = session_manager or get_session_manager()
-    await manager.disconnect_account(account_id=account_id, organization_id=organization_id)
+    await manager.disconnect_account(
+        account_id=account_id,
+        organization_id=organization_id,
+        status=ACCOUNT_STATUS_DISCONNECTED,
+        disconnect_code="manual_disconnect",
+        disconnect_reason="Disconnected from the app.",
+    )
+    await default_update_account_status(
+        account_id=account_id,
+        organization_id=organization_id,
+        status=ACCOUNT_STATUS_DISCONNECTED,
+        disconnect_code="manual_disconnect",
+        disconnect_reason="Disconnected from the app.",
+    )
     refreshed = await _load_account(organization_id, account_id, find_account)
     return with_runtime(refreshed, manager)
 
