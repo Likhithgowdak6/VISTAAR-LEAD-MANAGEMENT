@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import {
   disconnectAccount,
@@ -57,12 +57,20 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const [busy, setBusy] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
   const canManage = hasPermission(permissions, PERMISSIONS.ACCOUNTS_MANAGE);
+
+  useEffect(() => {
+    setLocalStatus(null);
+  }, [account.status]);
 
   const run = async (makeRequest: Parameters<AuthedRequest>[0]) => {
     setBusy(true);
     try {
-      await authedRequest(makeRequest);
+      const payload: any = await authedRequest(makeRequest);
+      if (payload?.data?.status) {
+        setLocalStatus(payload.data.status);
+      }
       onChanged?.();
     } catch {
       onChanged?.();
@@ -92,7 +100,7 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
     }
   };
 
-  const { status } = account;
+  const status = localStatus ?? account.status;
   const canConnect = ['pending', 'disconnected', 'reconnecting'].includes(status);
 
   return (

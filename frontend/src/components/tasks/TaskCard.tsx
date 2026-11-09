@@ -72,7 +72,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
       data-testid="task-card"
       data-status={task.status}
       data-late={late}
-      className="flex items-start gap-3 rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3"
+      className="flex items-start gap-3.5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:shadow-md hover:border-slate-300"
     >
       {/* Only pending work can be completed, so for closed rows this is a static marker rather
           than a dead button that looks tappable. */}
@@ -82,16 +82,18 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
           disabled={busy}
           onClick={() => onComplete(task)}
           aria-label={`Complete ${title}`}
-          className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-muted transition-colors hover:border-key disabled:opacity-40"
+          className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 transition-all hover:border-blue-600 hover:bg-blue-50/50 disabled:opacity-40"
         />
       ) : (
         <span
           aria-hidden="true"
           className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-            task.status === 'completed' ? 'border-emerald-400 text-emerald-400' : 'border-muted text-muted'
+            task.status === 'completed'
+              ? 'border-emerald-500 bg-emerald-50 text-emerald-600'
+              : 'border-slate-300 bg-slate-50 text-slate-400'
           }`}
         >
-          <span className="text-[10px] leading-none">{task.status === 'completed' ? '✓' : '×'}</span>
+          <span className="text-[10px] font-bold leading-none">{task.status === 'completed' ? '✓' : '×'}</span>
         </span>
       )}
 
@@ -102,20 +104,22 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
         tappable and then does nothing; its Complete, Reschedule and Cancel still work.
       */}
       <Body openable={Boolean(openTarget)} onOpen={() => onOpen(task)}>
-        <p className="truncate text-sm font-semibold text-bone">{title}</p>
+        <p className="truncate text-sm font-bold text-slate-900">{title}</p>
 
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
           {/* Null for a personal reminder, and then the line simply has no customer on it -
               better than a blank where a name goes, which reads as a failed load. */}
           {task.lead?.displayName ? (
-            <span className="truncate text-muted">{task.lead.displayName}</span>
+            <span className="truncate font-medium text-slate-600">{task.lead.displayName}</span>
           ) : null}
-          <span className={late ? 'text-danger' : 'text-muted'}>{formatDueLabel(task, now)}</span>
+          <span className={late ? 'font-semibold text-rose-600' : 'text-slate-400'}>
+            {formatDueLabel(task, now)}
+          </span>
         </p>
 
         <p className="mt-1 flex items-center gap-1.5 text-[11px]">
           <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-          <span className={late ? 'text-danger' : 'text-muted'}>{statusLabel}</span>
+          <span className={late ? 'font-semibold text-rose-600' : 'text-slate-400'}>{statusLabel}</span>
         </p>
       </Body>
 
@@ -129,7 +133,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
             disabled={busy}
             onClick={() => onReschedule(task)}
             aria-label={`Reschedule ${title}`}
-            className="min-h-6 text-blue-400 hover:text-blue-300 disabled:opacity-50"
+            className="min-h-6 font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
           >
             Reschedule
           </button>
@@ -138,7 +142,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
             disabled={busy}
             onClick={() => onCancel(task)}
             aria-label={`Cancel ${title}`}
-            className="min-h-6 text-muted hover:text-bone-dim disabled:opacity-50"
+            className="min-h-6 text-slate-400 hover:text-rose-600 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

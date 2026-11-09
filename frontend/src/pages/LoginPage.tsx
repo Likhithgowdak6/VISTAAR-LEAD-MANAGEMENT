@@ -41,83 +41,85 @@ const LoginPage = () => {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      {/*
-       * The way into the console is lit like a set: one warm key light behind the panel, and
-       * nothing else on screen. It is the studio's own medium used as the entrance, and it is the
-       * only place in the app where the glow is allowed to be the subject.
-       */}
-      <section className="animate-rise surface relative w-full max-w-sm rounded-xl p-8">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 p-6 selection:bg-blue-600 selection:text-white">
+      <section className="animate-rise relative w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 p-8 shadow-xl shadow-slate-200/50 backdrop-blur-md md:p-10">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -inset-x-8 -top-16 h-32 rounded-full bg-key/20 blur-3xl"
+          className="pointer-events-none absolute -top-24 left-1/2 h-48 w-48 -translate-x-1/2 rounded-full bg-blue-500/10 blur-3xl"
         />
 
         <div className="relative">
-          <p className="wordmark mb-1">Vistaar</p>
-          {/* The page's heading, set as the eyebrow. It stays an h1 saying "Sign in" because that
-              is the page's actual job - the wordmark above is the brand, not the heading. */}
-          <h1 className="eyebrow mb-7">Sign in</h1>
+          <div className="mb-6 flex flex-col items-center text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30">
+              <span className="font-mono text-xl font-black tracking-tight">V</span>
+            </div>
+            <p className="wordmark text-sm font-bold uppercase tracking-widest text-blue-600">Vistaar</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Sign in</h1>
+            <p className="mt-1 text-xs text-slate-500">Enter your credentials to access your CRM workspace</p>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4" aria-label="Sign in">
-          <div>
-            <label
-              htmlFor="organizationSlug"
-              className="mb-1 block font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted"
-            >
-              Organization
-            </label>
-            <input
-              id="organizationSlug"
-              type="text"
-              autoComplete="organization"
-              required
-              value={form.organizationSlug}
-              onChange={updateField('organizationSlug')}
-              className="w-full rounded-md border border-hairline bg-ink px-3 py-2 text-bone transition-colors placeholder:text-muted focus:border-key/50 focus:outline-none"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor="organizationSlug"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-700"
+              >
+                Organization
+              </label>
+              <input
+                id="organizationSlug"
+                type="text"
+                autoComplete="organization"
+                required
+                value={form.organizationSlug}
+                onChange={updateField('organizationSlug')}
+                placeholder="your-org-slug"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
-          <div>
-            <label
-              htmlFor="email"
-              className="mb-1 block font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted"
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="username"
-              required
-              value={form.email}
-              onChange={updateField('email')}
-              className="w-full rounded-md border border-hairline bg-ink px-3 py-2 text-bone transition-colors placeholder:text-muted focus:border-key/50 focus:outline-none"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-700"
+              >
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="username"
+                required
+                value={form.email}
+                onChange={updateField('email')}
+                placeholder="name@example.com"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="mb-1 block font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={form.password}
-              onChange={updateField('password')}
-              className="w-full rounded-md border border-hairline bg-ink px-3 py-2 text-bone transition-colors placeholder:text-muted focus:border-key/50 focus:outline-none"
-            />
-          </div>
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-700"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={form.password}
+                onChange={updateField('password')}
+                placeholder="••••••••"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
             {error ? (
               <p
                 role="alert"
-                className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+                className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-semibold text-red-700"
               >
                 {error}
               </p>
@@ -126,7 +128,7 @@ const LoginPage = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="btn-key w-full rounded-md px-4 py-2.5 text-sm uppercase tracking-[0.08em] transition disabled:cursor-not-allowed"
+              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-semibold tracking-wide text-white shadow-md shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>

@@ -19,7 +19,7 @@ const DOCUMENT_ACCEPT =
 const MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024;
 
 const ATTACH_MENU_ITEM_CLASS =
-  'flex min-h-11 w-full items-center px-3 text-left text-sm text-bone-dim transition-colors hover:bg-key/10 hover:text-key';
+  'flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-600';
 
 type StagedAttachment = {
   blob: Blob;
@@ -475,7 +475,7 @@ const MessageComposer = ({
               aria-label="Add attachment"
               aria-expanded={attachMenuOpen}
               aria-haspopup="menu"
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-hairline text-lg text-bone-dim transition-colors hover:border-key/40 hover:text-key disabled:opacity-50"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition-colors hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 disabled:opacity-50"
             >
               <span aria-hidden="true">＋</span>
             </button>
@@ -495,7 +495,7 @@ const MessageComposer = ({
                 <div
                   role="menu"
                   aria-label="Attachment type"
-                  className="absolute bottom-full left-0 z-20 mb-2 w-44 overflow-hidden rounded-lg border border-hairline bg-panel shadow-xl"
+                  className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-slate-900/5"
                 >
                   <button
                     type="button"
@@ -533,12 +533,12 @@ const MessageComposer = ({
           value={body}
           onChange={handleBodyChange}
           placeholder="Type a reply…"
-          className="max-h-32 flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none"
+          className="max-h-32 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
         />
         <button
           type="submit"
           disabled={sending || (body.trim() === '' && !attachment)}
-          className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 font-semibold text-white shadow-sm shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:shadow-none"
         >
           {sending ? (attachment ? 'Uploading…' : 'Sending…') : 'Send'}
         </button>

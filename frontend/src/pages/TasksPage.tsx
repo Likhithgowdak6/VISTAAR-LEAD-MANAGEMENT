@@ -309,15 +309,15 @@ const TasksPage = ({ onOpenTask }: Props) => {
             data-testid={`task-chip-${chip.value}`}
             onClick={() => selectStatus(chip.value)}
             aria-pressed={status === chip.value}
-            className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors ${
+            className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-all ${
               status === chip.value
-                ? 'bg-bone text-ink'
-                : 'border border-hairline bg-panel text-bone-dim'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
             }`}
           >
             <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} />
             {chip.label}
-            <span className={status === chip.value ? 'text-ink/60' : 'text-muted'}>
+            <span className={status === chip.value ? 'text-white/80' : 'text-slate-400 font-mono'}>
               {counts[chip.count]}
             </span>
           </button>
@@ -330,7 +330,7 @@ const TasksPage = ({ onOpenTask }: Props) => {
         value={searchInput}
         onChange={(event) => setSearchInput(event.target.value)}
         placeholder="Search by customer or task…"
-        className="min-h-11 w-full rounded-lg border border-hairline bg-panel px-3 text-sm text-bone placeholder:text-muted"
+        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
       />
 
       {loading ? <Spinner label="Loading tasks…" /> : null}
@@ -388,7 +388,7 @@ const TasksPage = ({ onOpenTask }: Props) => {
         type="button"
         onClick={() => setCreating(true)}
         aria-label="New task"
-        className="fixed bottom-20 right-5 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-key text-2xl font-light text-ink shadow-lg sm:bottom-8"
+        className="fixed bottom-20 right-5 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-2xl font-light text-white shadow-lg shadow-blue-500/30 transition-transform hover:scale-105 active:scale-95 sm:bottom-8"
       >
         +
       </button>

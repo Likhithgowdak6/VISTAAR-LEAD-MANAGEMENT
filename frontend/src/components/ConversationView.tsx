@@ -29,6 +29,7 @@ import MessageThread from './MessageThread';
 import Spinner from './Spinner';
 import StarredMessagesDialog from './StarredMessagesDialog';
 import StageBadge from './StageBadge';
+import { Avatar } from './ui/Motion';
 import {
   type AuthValue,
   type ConversationDetail,
@@ -476,33 +477,40 @@ const ConversationView = ({
             }
           />
         ) : (
-          <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2">
+          <header className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3.5 shadow-xs">
+            <div className="flex min-w-0 items-center gap-3">
               {onBack ? (
                 <button
                   type="button"
                   onClick={onBack}
-                  className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+                  className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 lg:hidden"
                 >
                   ← Inbox
                 </button>
               ) : null}
+              {conversation ? (
+                <Avatar
+                  name={conversation.displayName}
+                  size="md"
+                  status={conversation.aiAutomationEnabled ? 'ai' : 'active'}
+                />
+              ) : null}
               <div className="min-w-0">
-                <h2 className="truncate font-semibold text-slate-900">
+                <h2 className="truncate text-base font-bold text-slate-900">
                   {conversation?.displayName}
                 </h2>
-                <p className="flex items-center gap-1.5 text-xs text-slate-400">
-                  <span className="truncate">{conversation?.leadId}</span>
+                <p className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                  <span className="truncate font-mono">{conversation?.leadId}</span>
                   {whatsappAccount ? (
                     <>
                       <span aria-hidden="true">·</span>
-                      <span className="truncate text-slate-500">via {whatsappAccount.name}</span>
+                      <span className="truncate font-medium text-blue-600">via {whatsappAccount.name}</span>
                     </>
                   ) : null}
                 </p>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2.5">
               <StageBadge
                 stage={effectiveStage}
                 label={findStageByKey(stages, effectiveStage)?.label}
@@ -512,7 +520,7 @@ const ConversationView = ({
                 type="button"
                 onClick={() => setDetailsOpen((open) => !open)}
                 aria-pressed={detailsOpen}
-                className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-slate-300"
               >
                 {detailsOpen ? 'Hide details' : 'Details'}
               </button>

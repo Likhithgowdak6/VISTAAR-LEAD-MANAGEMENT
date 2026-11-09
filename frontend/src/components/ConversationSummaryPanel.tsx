@@ -76,24 +76,27 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
   return (
     <section
       aria-label="Conversation summary"
-      className="border-b border-slate-200 bg-white px-4 py-3"
+      className="border-b border-slate-200/80 bg-white/95 px-4 py-3 shadow-xs"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-xs font-semibold uppercase text-slate-500">Summary</span>
+          <div className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-2 py-0.5 text-blue-700">
+            <span className="text-xs">✨</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Summary</span>
+          </div>
           {summary ? (
             summary.stale ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 Out of date
               </span>
             ) : (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
                 Up to date
               </span>
             )
           ) : null}
           {summary?.generatedAt ? (
-            <RelativeTime value={summary.generatedAt} className="truncate text-xs text-slate-400" />
+            <RelativeTime value={summary.generatedAt} className="truncate text-xs text-slate-400 font-medium" />
           ) : null}
         </div>
 
@@ -103,7 +106,7 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
               type="button"
               onClick={handleRegenerate}
               disabled={busy}
-              className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
             >
               {buttonLabel}
             </button>
@@ -113,7 +116,7 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
               type="button"
               onClick={() => setOpen((current) => !current)}
               aria-expanded={open}
-              className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:text-slate-900"
             >
               {open ? 'Hide' : 'Show'}
             </button>
@@ -130,30 +133,30 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
       ) : null}
 
       {summary && open ? (
-        <div className="mt-2 space-y-2 rounded-md bg-slate-50 p-3">
+        <div className="mt-2.5 space-y-2.5 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3.5 shadow-xs">
           {summary.headline ? (
-            <p className="text-sm font-semibold text-slate-900">{summary.headline}</p>
+            <p className="text-sm font-bold text-slate-900">{summary.headline}</p>
           ) : null}
 
           {summary.whatTheyAskedFor ? (
             <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">What they asked for</p>
-              <p className="text-sm text-slate-700">{summary.whatTheyAskedFor}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">What they asked for</p>
+              <p className="text-sm leading-relaxed text-slate-700 mt-0.5">{summary.whatTheyAskedFor}</p>
             </div>
           ) : null}
 
           {summary.whereItStands ? (
             <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Where it stands</p>
-              <p className="text-sm text-slate-700">{summary.whereItStands}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Where it stands</p>
+              <p className="text-sm leading-relaxed text-slate-700 mt-0.5">{summary.whereItStands}</p>
             </div>
           ) : null}
 
           {/* An empty list is a correct answer, not a gap - so nothing is rendered for it. */}
           {summary.openQuestions.length > 0 ? (
             <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Still open</p>
-              <ul className="list-disc space-y-0.5 pl-4 text-sm text-slate-700">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Still open</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-sm text-slate-700">
                 {summary.openQuestions.map((question) => (
                   <li key={question}>{question}</li>
                 ))}
@@ -163,13 +166,13 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
 
           {summary.suggestedNextStep ? (
             <div>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Next step</p>
-              <p className="text-sm text-slate-700">{summary.suggestedNextStep}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Next step</p>
+              <p className="text-sm leading-relaxed text-slate-700 mt-0.5">{summary.suggestedNextStep}</p>
             </div>
           ) : null}
 
           {summary.stale ? (
-            <p className="text-xs text-amber-700">
+            <p className="text-xs font-medium text-amber-700">
               {summary.currentMessageCount - (summary.messageCount ?? 0) > 0
                 ? `${summary.currentMessageCount - (summary.messageCount ?? 0)} newer message(s) are not in this summary.`
                 : 'Newer messages are not in this summary.'}
@@ -179,7 +182,7 @@ const ConversationSummaryPanel = ({ conversationId }: Props) => {
       ) : null}
 
       {error ? (
-        <p role="alert" className="mt-2 text-xs text-red-600">
+        <p role="alert" className="mt-2 text-xs font-medium text-red-600">
           {error}
         </p>
       ) : null}

@@ -22,15 +22,9 @@ import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
 import StageBadge from './StageBadge';
 import ToggleSwitch from './ToggleSwitch';
-import {
-  type AuthValue,
-  type ConversationSummary,
-  errorMessage,
-  type RealtimeValue,
-  type StageOption,
-  type Tag,
-} from './types';
+import { type AuthValue, type ConversationSummary, errorMessage, type RealtimeValue, type StageOption, type Tag } from './types';
 import UnreadBadge from './UnreadBadge';
+import { Avatar } from './ui/Motion';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -250,7 +244,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
   // Width is the shell's decision now - full bleed on a phone, a fixed rail from lg - so this no
   // longer pins itself to max-w-sm and eats half a laptop viewport.
   return (
-    <aside className="flex h-full w-full flex-col border-r border-hairline bg-ink-2">
+    <aside className="flex h-full w-full flex-col border-r border-slate-200/80 bg-white">
       {isMobile ? (
         <>
           <MobileAppBar
@@ -344,18 +338,19 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
           </div>
         </>
       ) : (
-        <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
-          {/* Stays "Conversations", not "Contact sheet": this app has Contacts as a separate thing,
-            so the studio's own word for a page of frames would read as the wrong noun here. The
-            contact-sheet idea lives in the film-edge markers on the rows instead. */}
-          <h2 className="eyebrow">Conversations</h2>
-          <div className="flex items-center gap-3">
-            <output className="text-[0.6875rem] text-muted">{conversations.length}</output>
+        <header className="flex items-center justify-between border-b border-slate-200/80 bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">Conversations</h2>
+            <output className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[0.6875rem] font-semibold text-slate-600">
+              {conversations.length}
+            </output>
+          </div>
+          <div className="flex items-center gap-2">
             {canAddLead ? (
               <button
                 type="button"
                 onClick={() => setAddingLead(true)}
-                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+                className="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white shadow-xs transition hover:bg-blue-700"
               >
                 + Lead
               </button>
@@ -363,7 +358,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
             <button
               type="button"
               onClick={load}
-              className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+              className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-xs transition hover:bg-slate-50 hover:text-slate-900"
             >
               Refresh
             </button>
@@ -449,7 +444,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
           />
         ) : null}
 
-        <ul>
+        <ul className="divide-y divide-slate-100">
           {visible.map((conversation) => {
             const isSelected = conversation.id === selectedId;
 
@@ -462,58 +457,57 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   type="button"
                   onClick={() => onSelect(conversation.id)}
                   aria-current={isSelected}
-                  className={`relative flex w-full flex-col gap-1.5 border-b border-hairline/60 px-4 py-3 pl-5 pr-14 text-left transition-colors ${
-                    isSelected ? 'bg-panel' : 'hover:bg-panel/60'
+                  className={`relative flex w-full flex-col gap-2 p-3.5 pl-4 pr-16 text-left transition-all duration-150 ${
+                    isSelected
+                      ? 'bg-blue-50/70 shadow-xs'
+                      : 'bg-white hover:bg-slate-50/90'
                   }`}
                 >
-                  {/* The sprocket: a film-edge marker down the left of each frame, lit by the key
-                      light on the frame you are looking at. It is the selected-state indicator and
-                      the contact-sheet metaphor in the same two pixels. */}
+                  {/* The sprocket: active blue marker down the left edge */}
                   <span
                     aria-hidden="true"
-                    className={`absolute inset-y-0 left-0 w-[3px] transition-all ${
+                    className={`absolute inset-y-0 left-0 w-1 transition-all ${
                       isSelected
-                        ? 'bg-key shadow-[0_0_12px_1px_rgb(255_158_74/70%)]'
-                        : 'bg-transparent group-hover:bg-hairline'
+                        ? 'bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.5)]'
+                        : 'bg-transparent group-hover:bg-slate-300'
                     }`}
                   />
 
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span
-                      className={`truncate text-sm font-semibold ${
-                        isSelected ? 'text-bone' : 'text-slate-700'
-                      }`}
-                    >
-                      {conversation.displayName}
-                    </span>
-                    <RelativeTime
-                      value={conversation.lastMessageAt}
-                      className="shrink-0 text-[0.6875rem] text-muted"
-                    />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar name={conversation.displayName} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span
+                          className={`truncate text-sm font-semibold ${
+                            isSelected ? 'text-blue-900' : 'text-slate-800'
+                          }`}
+                        >
+                          {conversation.displayName}
+                        </span>
+                        <RelativeTime
+                          value={conversation.lastMessageAt}
+                          className="shrink-0 text-[0.6875rem] font-medium text-slate-400"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 mt-0.5">
+                        <span className="truncate text-xs leading-snug text-slate-500">
+                          {conversation.lastMessagePreview ?? 'No messages yet'}
+                        </span>
+                        <UnreadBadge count={conversation.unreadCount} />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[0.8125rem] leading-snug text-muted">
-                      {conversation.lastMessagePreview ?? 'No messages yet'}
-                    </span>
-                    <UnreadBadge count={conversation.unreadCount} />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 pl-11">
                     <StageBadge
                       stage={conversation.stage}
                       label={findStageByKey(stages, conversation.stage)?.label}
                       color={findStageByKey(stages, conversation.stage)?.color}
                     />
-                    {/* How warm the lead is: have they written, and how recently. This used to
-                        be the SCORE band, whose 20-49 tier is also called "cold" - so an
-                        imported lead that had never been contacted arrived labelled Cold, and
-                        a lead who messaged a minute ago with no details yet showed nothing at
-                        all. Neither was about temperature. */}
+                    {/* How warm the lead is: have they written, and how recently. */}
                     <LeadTemperatureBadge temperature={conversation.leadTemperature} />
-                    {/* Intent still earns a pill, but only when it is high enough to be worth
-                        interrupting for - which is what "visible without opening it" was for.
-                        The full score and its six signals live in the lead panel. */}
+                    {/* Intent score pill */}
                     {conversation.leadScoreBand === 'hot' ||
                     conversation.leadScoreBand === 'warm' ? (
                       <LeadScoreBadge
@@ -521,8 +515,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                         score={conversation.leadScore}
                       />
                     ) : null}
-                    {/* Both classifications in ONE chip, and none at all when the server did
-                        not send them - the row already carries three pills and a switch. */}
+                    {/* Classification chip */}
                     <ConversationClassChip
                       enquiryClass={conversation.enquiryClass}
                       aiResponseStatus={conversation.aiResponseStatus}
@@ -531,12 +524,9 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   </div>
                 </button>
 
-                {/* The AI's off switch for this one lead, on the row rather than only inside the
-                    thread: the moment you want it is when you have just read something the AI
-                    said and want it to stop, and that is a moment for one click - not for opening
-                    a panel and hunting for a setting. */}
-                <span className="absolute bottom-3 right-4 flex items-center gap-1.5">
-                  <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+                {/* The AI's off switch for this one lead */}
+                <span className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-slate-50 border border-slate-200/80 px-1.5 py-0.5 shadow-xs">
+                  <span className="font-mono text-[0.5625rem] font-bold uppercase tracking-wider text-slate-500">
                     AI
                   </span>
                   <ToggleSwitch

@@ -10,6 +10,9 @@ import AnalyticsPage from './AnalyticsPage';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
+import { InboxSidebar, type InboxFolder } from '../components/inbox/InboxSidebar';
+import { listAccounts } from '../api/endpoints';
+import { type WhatsAppAccount } from '../components/types';
 import ReminderDetailDialog from '../components/reminders/ReminderDetailDialog';
 import MobileSectionMenu, { type MobileNavItem } from '../components/MobileSectionMenu';
 import MobileAppBar from '../components/mobile/MobileAppBar';
@@ -82,21 +85,19 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
     type="button"
     onClick={onClick}
     aria-current={active}
-    // px-2 below sm only: at 320px the wordmark, the two live sections and the menu button are
-    // about 11px too wide at px-3 and the menu wrapped onto a second row, costing 37px of
-    // height on the smallest screen that can least afford it. From sm - and so on every
-    // desktop - the padding is exactly what it was.
-    className={`relative shrink-0 whitespace-nowrap px-2 py-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em] transition-colors sm:px-3 ${
-      active ? 'text-key' : 'text-muted hover:text-bone'
+    className={`relative shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-150 sm:px-3 ${
+      active
+        ? 'bg-blue-50 text-blue-700 shadow-xs'
+        : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
     }`}
   >
     {children}
-    <span
-      aria-hidden="true"
-      className={`absolute inset-x-2 -bottom-px h-px transition-opacity ${
-        active ? 'bg-key opacity-100 shadow-[0_0_10px_1px_rgb(255_158_74/60%)]' : 'opacity-0'
-      }`}
-    />
+    {active ? (
+      <span
+        aria-hidden="true"
+        className="absolute inset-x-2.5 -bottom-px h-0.5 rounded-full bg-blue-600 shadow-xs"
+      />
+    ) : null}
   </button>
 );
 
@@ -201,6 +202,19 @@ const AppShell = () => {
    */
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [inboxFolder, setInboxFolder] = useState<InboxFolder>('all');
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      authedRequest((token) => listAccounts({ token }))
+        .then((payload) => {
+          setAccounts((payload.data ?? []).filter((a) => a.status !== 'removed'));
+        })
+        .catch(() => {});
+    }
+  }, [isAuthenticated, authedRequest]);
   /** The More sheet. Owned here rather than inside the bar so the sheet outlives a tab change. */
   const [moreOpen, setMoreOpen] = useState(false);
   // Decides which chrome renders - the desktop masthead, or the phone's app bar plus bottom
@@ -578,7 +592,7 @@ const AppShell = () => {
   return (
     // `app-shell` swaps 100vh for 100dvh below lg only; see index.css on why the composer
     // ended up under the browser chrome without it.
-    <div className="app-shell flex h-screen flex-col bg-ink">
+    <div className="app-shell flex h-screen flex-col bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
       {/* THE MASTHEAD IS DESKTOP-ONLY NOW.
           It needs ~790px for nine letterspaced labels plus the account controls. On a phone
           navigation has moved to the bottom bar, where the thumb is, and each screen carries
@@ -592,17 +606,22 @@ const AppShell = () => {
           matched both and threw. `useIsMobileViewport` reports desktop wherever `matchMedia`
           is absent, so every existing test sees the markup it always saw. */}
       {!isMobileViewport ? (
-        <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-ink-2/80 px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] backdrop-blur sm:gap-x-3 sm:px-5">
-          <span className="wordmark order-1 shrink-0">Vistaar</span>
+        <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-200/80 bg-white/80 px-4 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] backdrop-blur-md sm:px-6">
+          <div className="order-1 flex shrink-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/25">
+              <span className="font-mono text-sm font-black tracking-tight">V</span>
+            </div>
+            <span className="wordmark text-base font-bold tracking-tight text-slate-900">Vistaar</span>
+          </div>
           {organization?.name ? (
-            <span className="order-1 hidden shrink-0 border-l border-hairline pl-5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted xl:inline">
+            <span className="order-1 hidden shrink-0 items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 xl:inline-flex">
               {organization.name}
             </span>
           ) : null}
           <>
             <nav
               aria-label="Sections"
-              className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
+              className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-1 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
             >
               <NavButton active={view === 'analytics'} onClick={() => setView('analytics')}>
                 Analytics
@@ -654,34 +673,30 @@ const AppShell = () => {
                 </NavButton>
               ) : null}
             </nav>
-            {/* The account controls are a second header line on a phone for things used once
-                a week, so on a phone they live in the menu sheet instead. */}
-            <div className="order-2 ml-auto flex shrink-0 items-center gap-3 lg:order-3">
+            <div className="order-2 ml-auto flex shrink-0 items-center gap-2.5 lg:order-3">
               <a
                 href="whatsapp-admin://open"
-                className="rounded-md border border-hairline px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key"
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-700 shadow-xs transition hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50"
               >
                 W-Staff
               </a>
-              <div className="flex items-center gap-2 border-l border-hairline pl-3">
-                {/* The initials sit in the key light: the one warm point in the masthead, so "who am
-                I signed in as" is answerable at a glance without reading. */}
-                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-key/40 bg-key/10 font-mono text-[0.625rem] font-semibold text-key-soft">
+              <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 font-mono text-[0.6875rem] font-bold text-white shadow-xs">
                   {getInitials(user?.name)}
                 </span>
-                <span className="hidden text-sm text-bone-dim md:inline">{user?.name}</span>
+                <span className="hidden text-xs font-semibold text-slate-700 md:inline">{user?.name}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setChangingPassword(true)}
-                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-key"
+                className="rounded-lg px-2 py-1 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
               >
                 Password
               </button>
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-muted transition-colors hover:text-danger"
+                className="rounded-lg px-2 py-1 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 transition hover:bg-red-50 hover:text-red-600"
               >
                 Sign out
               </button>
@@ -748,7 +763,24 @@ const AppShell = () => {
           <SettingsPage />
         </SectionScreen>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50">
+          {!isMobileViewport ? (
+            <InboxSidebar
+              activeFolder={inboxFolder}
+              onSelectFolder={(folder) => {
+                setInboxFolder(folder);
+                if (folder === 'needs_attention') {
+                  setDrillDown({ seq: Date.now(), filters: { needsAttention: true } });
+                } else if (folder === 'all') {
+                  setDrillDown({ seq: Date.now(), filters: {} });
+                }
+              }}
+              channels={accounts.map((a) => ({ id: a.id, name: a.name, status: a.status }))}
+              selectedChannelId={selectedChannelId}
+              onSelectChannel={setSelectedChannelId}
+              className="hidden lg:flex"
+            />
+          ) : null}
           {/* Below lg the inbox is a drill-down, not three columns: list, then thread, then
               details. Side by side it gave the thread 18px at laptop widths. From lg the list
               becomes a fixed rail and both panes are visible at once again.
@@ -757,7 +789,7 @@ const AppShell = () => {
               the list is hidden and the thread owns the bottom of the screen, where the
               composer - not the nav bar - sits. */}
           <div
-            className={`min-h-0 w-full lg:block lg:w-[21rem] lg:shrink-0 xl:w-[23rem] ${
+            className={`min-h-0 w-full lg:block lg:w-[22rem] lg:shrink-0 xl:w-[24rem] border-r border-slate-200/80 bg-white ${
               selectedId ? 'hidden' : 'block'
             } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
@@ -815,7 +847,7 @@ const AppShell = () => {
           ) : (
             /* Hidden on small: with no thread open the list already fills the screen, and an
                empty "select a conversation" panel below it would just be dead space. */
-            <div className="hidden flex-1 lg:block">
+            <div className="hidden flex-1 lg:flex flex-col items-center justify-center bg-slate-50/60 p-8">
               <EmptyState
                 title="Select a conversation"
                 description="Choose a conversation from the list to view its thread."

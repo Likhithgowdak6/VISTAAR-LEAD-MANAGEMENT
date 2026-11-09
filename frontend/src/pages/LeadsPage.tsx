@@ -198,22 +198,30 @@ const LeadsPage = ({ onOpenLead }: Props) => {
   });
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-hairline px-4 pb-3 pt-4">
-        <h1 className="font-display text-lg uppercase tracking-[0.14em] text-bone">Leads</h1>
+    <div className="flex h-full flex-col bg-slate-50/50">
+      <div className="shrink-0 border-b border-slate-200/80 bg-white px-5 pb-4 pt-5 shadow-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">Leads</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Browse, search, and manage all prospective clients</p>
+          </div>
+          <span className="rounded-full bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-700">
+            {conversations.length}
+          </span>
+        </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3.5 flex items-center gap-2">
           <input
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search leads by name..."
             aria-label="Search leads by name"
-            className="min-h-11 w-full rounded-lg border border-hairline bg-panel px-3 text-sm text-bone placeholder:text-muted"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
 
-        <div className="mt-2">
+        <div className="mt-2.5">
           <ConversationFilters
             enquiryClass={enquiryClass}
             aiStatus={aiStatus}

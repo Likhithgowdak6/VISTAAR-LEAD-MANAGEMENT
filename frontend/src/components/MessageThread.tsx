@@ -30,6 +30,7 @@ type MessageBubbleProps = {
 
 const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = false }: MessageBubbleProps) => {
   const isOutbound = message.direction === 'out';
+  const isAi = isOutbound && !message.sentByUserId;
   // Anything that is not plain text has an attachment block, which shows the file itself when
   // the bytes were stored and falls back to a label when they were not. See MediaAttachment.
   const hasMedia = Boolean(message.type) && message.type !== 'text';
@@ -38,23 +39,26 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
   // sends text - starring a photo would save an empty string that does nothing when reused.
   const canStar = Boolean(onToggleStar) && body.trim() !== '';
 
+  const bubbleClasses = isOutbound
+    ? isAi
+      ? 'border border-blue-200/90 bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white text-slate-800 shadow-sm rounded-2xl rounded-tr-xs'
+      : 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm shadow-blue-500/20 rounded-2xl rounded-tr-xs'
+    : 'border border-slate-200/90 bg-white text-slate-800 shadow-sm rounded-2xl rounded-tl-xs';
+
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-      {/*
-       * The studio's side of the conversation sits in the key light and the lead's in the fill:
-       * warm is us, cool is them. It is the same two-source scheme as the rest of the console, so
-       * "who said this" is answerable from the colour temperature alone, without reading the
-       * alignment or the timestamp.
-       */}
-      <div
-        className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
-          isOutbound
-            ? 'border border-key/30 bg-key/10 text-bone glow-key-soft'
-            : 'surface rounded-tl-sm text-bone'
-        }`}
-      >
+      <div className={`max-w-[80%] px-3.5 py-2.5 text-sm transition-all duration-150 ${bubbleClasses}`}>
+        {isAi ? (
+          <div className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-blue-600">
+            <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 text-[8px] text-white">
+              ★
+            </span>
+            <span>AI Auto-Reply</span>
+          </div>
+        ) : null}
+
         {hasMedia ? (
-          <div className="mb-1">
+          <div className="mb-1.5">
             <MediaAttachment message={message} />
           </div>
         ) : null}
@@ -64,7 +68,12 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
         {body !== '' ? (
           <p className="whitespace-pre-wrap break-words leading-relaxed">{body}</p>
         ) : null}
-        <div className="mt-1 flex items-center justify-end gap-2 text-[0.625rem] text-muted">
+
+        <div
+          className={`mt-1 flex items-center justify-end gap-2 text-[0.6875rem] ${
+            isOutbound && !isAi ? 'text-white/80' : 'text-slate-400'
+          }`}
+        >
           {/* First in the row and small: a reading aid, not a call to action. The accessible
               name says which way the press goes, because the glyph alone does not. */}
           {canStar ? (
@@ -76,7 +85,13 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
               aria-label={starred ? 'Remove from starred messages' : 'Save to starred messages'}
               title={starred ? 'Remove from starred messages' : 'Save to starred messages'}
               className={`mr-auto rounded px-1 text-xs leading-none transition-colors disabled:opacity-50 ${
-                starred ? 'text-key' : 'text-muted hover:text-key'
+                starred
+                  ? isOutbound && !isAi
+                    ? 'text-yellow-300'
+                    : 'text-blue-600'
+                  : isOutbound && !isAi
+                  ? 'text-white/70 hover:text-white'
+                  : 'text-slate-400 hover:text-blue-600'
               }`}
             >
               {starred ? '★' : '☆'}
@@ -84,7 +99,7 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
           ) : null}
           <time>{formatClockTime(message.sentAt)}</time>
           {isOutbound ? (
-            <span className="font-mono uppercase tracking-[0.06em]">
+            <span className="font-mono text-[0.625rem] font-semibold uppercase tracking-wider">
               {OUTBOUND_STATUS_LABEL[message.status ?? ''] ?? message.status}
             </span>
           ) : null}
@@ -118,14 +133,14 @@ const MessageThread = ({
   starredMessageIds,
   starPendingId = null,
 }: Props) => (
-  <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-ink p-4">
+  <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-slate-50/70 p-4 lg:p-6">
     {hasMore ? (
       <div className="flex justify-center">
         <button
           type="button"
           onClick={onLoadOlder}
           disabled={loadingOlder}
-          className="rounded-full border border-hairline bg-panel px-3 py-1 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-bone-dim transition-colors hover:border-key/40 hover:text-key disabled:opacity-50"
+          className="rounded-full border border-slate-300 bg-white px-3.5 py-1 text-xs font-semibold text-slate-600 shadow-xs transition hover:bg-slate-50 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
         >
           {loadingOlder ? 'Loading…' : 'Load older'}
         </button>

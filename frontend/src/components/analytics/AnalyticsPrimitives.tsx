@@ -21,7 +21,7 @@ export const MicroLabel = ({
   className?: string;
 }) => (
   <span
-    className={`font-mono text-[0.6875rem] uppercase tracking-[0.06em] text-muted ${className}`}
+    className={`font-mono text-[0.6875rem] font-bold uppercase tracking-wider text-slate-500 ${className}`}
   >
     {children}
   </span>
@@ -35,7 +35,7 @@ export const Card = ({
   children: React.ReactNode;
   className?: string;
 }) => (
-  <div className={`rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3 ${className}`}>
+  <div className={`rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-200 ${className}`}>
     {children}
   </div>
 );
@@ -61,10 +61,10 @@ export const DefinitionTip = ({ text, label }: { text: string; label: string }) 
         aria-controls={panelId}
         aria-label={`What "${label}" counts`}
         title={text}
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono text-[0.625rem] transition-colors ${
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono text-[0.625rem] font-bold transition-all ${
           open
-            ? 'border-key/40 bg-key/10 text-key'
-            : 'border-hairline text-muted hover:border-key/40 hover:text-key'
+            ? 'border-blue-400 bg-blue-50 text-blue-700'
+            : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-blue-400 hover:text-blue-600 hover:bg-white'
         }`}
       >
         ?
@@ -72,7 +72,7 @@ export const DefinitionTip = ({ text, label }: { text: string; label: string }) 
       {open ? (
         <p
           id={panelId}
-          className="col-span-full mt-2 border-t border-hairline pt-2 text-[0.6875rem] leading-relaxed text-bone-dim"
+          className="col-span-full mt-2.5 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs leading-relaxed text-slate-600"
         >
           {text}
         </p>
@@ -83,14 +83,11 @@ export const DefinitionTip = ({ text, label }: { text: string; label: string }) 
 
 /**
  * A number drawn large, with the dash drawn differently.
- *
- * An absent value is set in `text-muted` rather than `text-bone` so that scanning the grid, the
- * eye separates "nothing happened" from "we were not told" before reading a single word.
  */
 export const StatValue = ({ text, className = '' }: { text: string; className?: string }) => (
   <span
-    className={`text-2xl font-semibold tabular-nums ${
-      text === DASH ? 'text-muted' : 'text-bone'
+    className={`text-2xl font-bold tracking-tight tabular-nums ${
+      text === DASH ? 'text-slate-400' : 'text-slate-900'
     } ${className}`}
     data-unknown={text === DASH ? 'true' : 'false'}
   >
@@ -122,12 +119,12 @@ export const CountChip = ({
   const text = formatCount(value);
   const body = (
     <>
-      <span className="font-mono text-[0.6875rem] uppercase tracking-[0.06em] text-muted">
+      <span className="font-mono text-[0.6875rem] font-bold uppercase tracking-wider text-slate-400">
         {label}
       </span>
       <span
-        className={`text-lg font-semibold tabular-nums ${
-          text === DASH ? 'text-muted' : tone === 'key' ? 'text-key' : 'text-bone'
+        className={`text-lg font-bold tabular-nums ${
+          text === DASH ? 'text-slate-400' : tone === 'key' ? 'text-blue-600' : 'text-slate-800'
         }`}
         data-unknown={text === DASH ? 'true' : 'false'}
       >
@@ -137,7 +134,7 @@ export const CountChip = ({
   );
 
   const shared =
-    'flex min-h-11 flex-col justify-center gap-0.5 rounded-[var(--m-radius-card)] border border-hairline bg-ink px-3 py-2 text-left';
+    'flex min-h-11 flex-col justify-center gap-0.5 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-left shadow-2xs';
 
   return onClick ? (
     <button
@@ -145,7 +142,7 @@ export const CountChip = ({
       data-bucket={bucketId}
       onClick={onClick}
       title={definition}
-      className={`${shared} transition-colors hover:border-key/40 hover:text-key`}
+      className={`${shared} transition-all hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-700`}
     >
       {body}
     </button>

@@ -233,10 +233,10 @@ const AnalyticsPage = ({ onOpenConversation, onDrillDown }: Props) => {
   const firstLoad = loadingSummary && overview === null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-3 p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-4 sm:p-6 bg-slate-50/50">
       <div>
-        <h1 className="text-xl font-bold text-bone">Analytics &amp; Insights</h1>
-        <p className="mt-1 text-sm text-muted">
+        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Analytics &amp; Insights</h1>
+        <p className="mt-1 text-sm text-slate-500">
           What came in, what the AI did about it, and what is still waiting on you. Every number
           carries its definition — press the ? beside it.
         </p>
@@ -252,7 +252,7 @@ const AnalyticsPage = ({ onOpenConversation, onDrillDown }: Props) => {
       />
 
       {!customReady ? (
-        <p className="rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3 text-sm text-muted">
+        <p className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500 shadow-xs">
           Pick a start and an end date. The end cannot be before the start.
         </p>
       ) : null}
@@ -260,7 +260,7 @@ const AnalyticsPage = ({ onOpenConversation, onDrillDown }: Props) => {
       {notice ? (
         <p
           role="status"
-          className="rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3 text-sm text-bone"
+          className="rounded-xl border border-blue-200 bg-blue-50/80 p-3 text-sm font-medium text-blue-800 shadow-xs"
         >
           {notice}
         </p>
