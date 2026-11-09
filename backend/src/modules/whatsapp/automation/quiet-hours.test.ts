@@ -182,3 +182,100 @@ describe('nextAllowedSendTime', () => {
     }
   });
 });
+
+/**
+ * The noon -> 06:00 window.
+ *
+ * WHAT MAKES THIS ONE WORTH ITS OWN BLOCK. It is the inverse of the usual shape: the quiet
+ * window is EIGHTEEN hours and the sendable window is six, 06:00 to 11:59. Every other window
+ * in this file blocks the night and allows the day; this allows only the morning. The wrapping
+ * arithmetic is the same - `start > end` - but a reader who assumes "quiet means overnight"
+ * will misread every assertion below, so it is spelled out.
+ *
+ * `12` is NOON, not midnight. The config is 24-hour, so midnight would be `0`.
+ */
+const NOON_START = 12;
+const DAWN_END = 6;
+
+const insideNoonWindow = (wallClock: string) =>
+  isWithinQuietHours(ist(wallClock), NOON_START, DAWN_END, IST);
+
+describe('isWithinQuietHours boundaries for 12:00 -> 06:00', () => {
+  it.each([
+    ['2026-08-25T06:00:00', false, 'the window closes at 6am, exclusive - sending resumes'],
+    ['2026-08-25T06:01:00', false, 'one minute into the sendable morning'],
+    ['2026-08-25T09:00:00', false, 'mid-morning, the heart of the sendable window'],
+    ['2026-08-25T11:59:00', false, 'the last sendable minute'],
+    ['2026-08-25T12:00:00', true, 'noon - the window opens, inclusive'],
+    ['2026-08-25T12:01:00', true, 'one minute after noon'],
+    ['2026-08-25T18:00:00', true, 'early evening, which this window treats as quiet'],
+    ['2026-08-25T23:59:00', true, 'last minute before midnight'],
+    ['2026-08-26T00:00:00', true, 'midnight - the window has crossed the date line'],
+    ['2026-08-26T03:00:00', true, 'the small hours'],
+    ['2026-08-26T05:59:00', true, 'the last quiet minute'],
+    ['2026-08-26T06:00:00', false, '6am - the window closes, exclusive'],
+  ])('%s -> %s (%s)', (wallClock, expected) => {
+    expect(insideNoonWindow(wallClock)).toBe(expected);
+  });
+
+  it('is quiet for eighteen hours and sendable for six', () => {
+    // The shape, stated as a whole so nobody has to assemble it from the rows above. Only
+    // 06:00-11:59 is sendable.
+    const sendable = [6, 7, 8, 9, 10, 11];
+    const quietHours: number[] = [];
+
+    for (let hour = 0; hour < 24; hour += 1) {
+      const stamp = `2026-08-25T${String(hour).padStart(2, '0')}:30:00`;
+
+      if (insideNoonWindow(stamp)) {
+        quietHours.push(hour);
+      } else {
+        expect(sendable).toContain(hour);
+      }
+    }
+
+    expect(quietHours).toHaveLength(18);
+    expect(quietHours).not.toContain(6);
+    expect(quietHours).toContain(12);
+  });
+
+  it('noon is NOT confused with midnight', () => {
+    // `12` meaning noon is the single likeliest misconfiguration here - the difference
+    // between blocking the afternoon and blocking the night.
+    expect(insideNoonWindow('2026-08-25T12:00:00')).toBe(true);
+    expect(isWithinQuietHours(ist('2026-08-25T12:00:00'), 0, 6, IST)).toBe(false);
+  });
+});
+
+describe('nextAllowedSendTime for 12:00 -> 06:00', () => {
+  it('holds an afternoon message until the NEXT morning', () => {
+    // Deferred from inside the window, so the wait is overnight - not until later today.
+    expect(nextAllowedSendTime(ist('2026-08-25T14:00:00'), DAWN_END, IST)).toEqual(
+      ist('2026-08-26T06:00:00'),
+    );
+  });
+
+  it('holds a message sent just after noon for eighteen hours', () => {
+    expect(nextAllowedSendTime(ist('2026-08-25T12:01:00'), DAWN_END, IST)).toEqual(
+      ist('2026-08-26T06:00:00'),
+    );
+  });
+
+  it('holds a small-hours message only until this morning', () => {
+    // Already past midnight, so 06:00 today is still ahead.
+    expect(nextAllowedSendTime(ist('2026-08-26T03:00:00'), DAWN_END, IST)).toEqual(
+      ist('2026-08-26T06:00:00'),
+    );
+  });
+
+  it('always lands outside the window, whenever it is called', () => {
+    // The property that stops a reschedule loop: the target must never itself be quiet.
+    for (let hour = 0; hour < 24; hour += 1) {
+      const stamp = ist(`2026-08-25T${String(hour).padStart(2, '0')}:30:00`);
+      const next = nextAllowedSendTime(stamp, DAWN_END, IST);
+
+      expect(isWithinQuietHours(next, NOON_START, DAWN_END, IST)).toBe(false);
+      expect(next.getTime()).toBeGreaterThan(stamp.getTime());
+    }
+  });
+});

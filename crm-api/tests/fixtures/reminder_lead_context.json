@@ -1,0 +1,223 @@
+{
+  "generatedBy": "tools/make_reminder_lead_context_fixtures.mjs",
+  "truncate": [
+    {
+      "input": {
+        "value": "short text",
+        "max": 50
+      },
+      "output": "short text"
+    },
+    {
+      "input": {
+        "value": "exact length test",
+        "max": 17
+      },
+      "output": "exact length test"
+    },
+    {
+      "input": {
+        "value": "one character too long!",
+        "max": 22
+      },
+      "output": "one character too…"
+    },
+    {
+      "input": {
+        "value": "   multiple    spaces   and\nnewlines   ",
+        "max": 50
+      },
+      "output": "multiple spaces and newlines"
+    },
+    {
+      "input": {
+        "value": "a very long sentence that definitely exceeds fifty characters and needs to end cleanly on a word boundary",
+        "max": 50
+      },
+      "output": "a very long sentence that definitely exceeds…"
+    },
+    {
+      "input": {
+        "value": "superlongwordwithoutanyspaceswhatsoeverthatwillnotbreakcleanlyatall",
+        "max": 30
+      },
+      "output": "superlongwordwithoutanyspaces…"
+    },
+    {
+      "input": {
+        "value": "halfway cut word word word word word word word word word word word word word word word word word word word word ",
+        "max": 40
+      },
+      "output": "halfway cut word word word word word…"
+    }
+  ],
+  "formatPhone": [
+    {
+      "input": "+919876543210",
+      "output": "+919876543210"
+    },
+    {
+      "input": "9876543210",
+      "output": "+9876543210"
+    },
+    {
+      "input": "91 98765 43210",
+      "output": "+919876543210"
+    },
+    {
+      "input": "+1 (555) 123-4567",
+      "output": "+15551234567"
+    },
+    {
+      "input": "1234567",
+      "output": null
+    },
+    {
+      "input": "12345678",
+      "output": "+12345678"
+    },
+    {
+      "input": "123456789012345",
+      "output": "+123456789012345"
+    },
+    {
+      "input": "1234567890123456",
+      "output": null
+    },
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": "   ",
+      "output": null
+    },
+    {
+      "input": "not-a-phone",
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "output": null
+    },
+    {
+      "input": 1234567890,
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    }
+  ],
+  "describeRequirement": [
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "summary": "Customer wants a candid wedding photographer for 2 days."
+      },
+      "output": "Customer wants a candid wedding photographer for 2 days."
+    },
+    {
+      "input": {
+        "summary": "   Customer note with whitespace   \n"
+      },
+      "output": "Customer note with whitespace"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiSummary": {
+          "headline": "Birthday party shoot inquiry"
+        }
+      },
+      "output": "Birthday party shoot inquiry"
+    },
+    {
+      "input": {
+        "summary": null,
+        "aiSummary": {
+          "headline": "Corporate event video coverage"
+        }
+      },
+      "output": "Corporate event video coverage"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiSummary": null,
+        "aiFacts": {
+          "service": "Pre-wedding shoot",
+          "event_date": "2026-12-15",
+          "venue": "Taj Palace, Bangalore"
+        }
+      },
+      "output": "Pre wedding shoot — 2026-12-15, Taj Palace, Bangalore"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiCategory": "wedding_photography",
+        "aiFacts": {
+          "shoot_date": "Next Saturday",
+          "location": "Goa"
+        }
+      },
+      "output": "wedding photography — Next Saturday, Goa"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiCategory": "unknown",
+        "aiFacts": {
+          "photo_or_video": "Cinematic video"
+        }
+      },
+      "output": "Cinematic video"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiCategory": "portrait-session",
+        "aiFacts": {}
+      },
+      "output": "portrait session"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiCategory": "unknown",
+        "aiFacts": {
+          "city": "Mumbai"
+        }
+      },
+      "output": "Mumbai"
+    },
+    {
+      "input": {
+        "summary": "",
+        "aiCategory": "",
+        "aiFacts": {
+          "event_type": "   ",
+          "date": "Dec 2026"
+        }
+      },
+      "output": "Dec 2026"
+    },
+    {
+      "input": {
+        "summary": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "output": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA…"
+    }
+  ]
+}

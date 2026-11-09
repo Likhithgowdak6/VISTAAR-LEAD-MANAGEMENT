@@ -1,0 +1,53 @@
+{
+  "overview": {
+    "totalConversations": "Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted.",
+    "uniqueContacts": "Distinct contacts behind those conversations. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted. A contact is unique per WhatsApp identity, so the same person messaging from two numbers counts as two contacts.",
+    "enquiries": "Conversations currently classified as a genuine enquiry (lead qualification is \"confirmed\"). Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted. The day is historical; the classification is current-state and is re-read every time this page loads.",
+    "notEnquiries": "Conversations a classifier confidently judged not to be a customer. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted. The day is historical; the classification is current-state and is re-read every time this page loads.",
+    "needsReview": "Conversations whose class has NOT been established, including every row written before the field existed. This is a real finding, not a gap: it is how many conversations the CRM cannot yet classify either way. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted.",
+    "enquiryRate": "Enquiries as a share of the conversations created in the range whose class HAS been established (enquiry + not an enquiry). Conversations still needing review are excluded from the denominator rather than silently counted as non-enquiries, which would understate the rate.",
+    "awaitingAiReply": "Confirmed enquiries with an inbound message newer than the last AI reply that reached WhatsApp, as of now. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted.",
+    "needsAttention": "Conversations a human should look at right now: a customer waiting on a reply from either the AI or a person, an AI send that failed with nothing successful after it, or a follow-up that has come due. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted."
+  },
+  "aiPerformance": {
+    "enquiriesWithAiReply": "Confirmed enquiries for which an AI reply has reached WhatsApp at some point. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted. A generated draft that was never sent does not count.",
+    "enquiriesAwaitingReply": "Confirmed enquiries with an inbound message newer than the last delivered AI reply, as of now. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted.",
+    "pausedOrOwnerHandled": "Conversations with AI automation switched off - paused by a safety rule, or taken over by a person. Counted over conversations CREATED in the selected range (Conversation.createdAt), excluding chats the owner has deleted.",
+    "coverageRate": "Share of the confirmed enquiries created in the range that have received at least one delivered AI reply. Null when there were no enquiries to reply to.",
+    "aiMessagesDelivered": "AI-authored outbound MESSAGES that reached WhatsApp (sent, delivered or read), with Message.sentAt in the range. A message count, not a conversation count - one thread can carry many.",
+    "aiMessagesFailed": "AI-authored outbound messages that failed, permanently or otherwise, with Message.sentAt in the range. For these sentAt is the time the record was created, since no send succeeded.",
+    "aiMessagesPending": "AI-authored outbound messages still created, queued or in flight, with Message.sentAt in the range. Not sends, and never counted as such.",
+    "firstResponseSeconds": "Seconds between the first inbound message of a conversation created in the range and the first AI-authored message that actually reached WhatsApp afterwards, measured on Message.sentAt. Conversations with no inbound message, or with no delivered AI reply after it, are EXCLUDED from the sample rather than counted as zero - sampleSize says how many contributed.",
+    "firstResponseUnavailable": "Not available: no conversation created in this range has both an inbound message and an AI reply delivered after it, so there is nothing to measure. This is an empty sample, not a zero-second response time."
+  },
+  "builtInStageLabels": {
+    "new": "New",
+    "contacted": "Contacted",
+    "qualified": "Qualified",
+    "proposal": "Proposal",
+    "won": "Won",
+    "lost": "Lost",
+    "closed": "Closed"
+  },
+  "attention": "Conversations CREATED in the selected range that need a human right now: a customer waiting on a reply from either the AI or a person, an AI send that failed with nothing successful after it, or a follow-up that has come due. Ordered by how long the thread has been owed something, longest first. Deleted chats, non-enquiries and contacts who opted out are excluded.",
+  "reminders": {
+    "Asia/Kolkata": {
+      "pending": "Reminder RECORDS still pending right now - on conversations you can see, plus your own personal reminders. CURRENT OUTSTANDING work as of asOf: the selected date range does NOT narrow it. One lead with three pending reminders contributes three.",
+      "overdue": "Of those pending reminders, the ones whose due time has already passed as of asOf. A strict subset of pending, and still actionable. Derived from status and dueAt rather than from the \"missed\" status, which no code path ever writes. CURRENT OUTSTANDING, not range-filtered.",
+      "dueToday": "Pending reminders due at some point inside today's local calendar day in Asia/Kolkata - the organisation's configured zone, not UTC and not the reader's browser. A subset of pending that OVERLAPS overdue: a reminder due at 9 this morning is both once the clock passes 9. CURRENT OUTSTANDING, not range-filtered.",
+      "completed": "Reminders completed INSIDE the selected range, counted on FollowUpTask.completedAt and never on createdAt. The only figure in this panel that is a period metric; the other three are snapshots.",
+      "next": "The nearest pending reminders by due time, soonest first, capped at the limit shown. Overdue ones are pending and therefore appear here, at the top. Cancelled and completed reminders never do. This is a preview, not the whole list - \"pending\" is the true total.",
+      "personal": "A reminder with no conversation behind it. It is about the owner's own work, not a lead, so it carries no lead name and there is nothing to open.",
+      "asOf": "The instant the outstanding counts and the overdue flags on this response were taken."
+    },
+    "UTC": {
+      "pending": "Reminder RECORDS still pending right now - on conversations you can see, plus your own personal reminders. CURRENT OUTSTANDING work as of asOf: the selected date range does NOT narrow it. One lead with three pending reminders contributes three.",
+      "overdue": "Of those pending reminders, the ones whose due time has already passed as of asOf. A strict subset of pending, and still actionable. Derived from status and dueAt rather than from the \"missed\" status, which no code path ever writes. CURRENT OUTSTANDING, not range-filtered.",
+      "dueToday": "Pending reminders due at some point inside today's local calendar day in UTC - the organisation's configured zone, not UTC and not the reader's browser. A subset of pending that OVERLAPS overdue: a reminder due at 9 this morning is both once the clock passes 9. CURRENT OUTSTANDING, not range-filtered.",
+      "completed": "Reminders completed INSIDE the selected range, counted on FollowUpTask.completedAt and never on createdAt. The only figure in this panel that is a period metric; the other three are snapshots.",
+      "next": "The nearest pending reminders by due time, soonest first, capped at the limit shown. Overdue ones are pending and therefore appear here, at the top. Cancelled and completed reminders never do. This is a preview, not the whole list - \"pending\" is the true total.",
+      "personal": "A reminder with no conversation behind it. It is about the owner's own work, not a lead, so it carries no lead name and there is nothing to open.",
+      "asOf": "The instant the outstanding counts and the overdue flags on this response were taken."
+    }
+  }
+}

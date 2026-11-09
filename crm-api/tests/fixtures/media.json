@@ -1,0 +1,166 @@
+{
+  "safeFileName": [
+    {
+      "input": {
+        "raw": "../../etc/passwd",
+        "ext": ".txt"
+      },
+      "output": "passwd.txt"
+    },
+    {
+      "input": {
+        "raw": "C:\\Users\\x\\secret.pdf",
+        "ext": ".pdf"
+      },
+      "output": "secret.pdf"
+    },
+    {
+      "input": {
+        "raw": "a\"weird'name.pdf",
+        "ext": ".pdf"
+      },
+      "output": "a weird name.pdf"
+    },
+    {
+      "input": {
+        "raw": "",
+        "ext": ".pdf"
+      },
+      "output": "attachment.pdf"
+    },
+    {
+      "input": {
+        "raw": "///",
+        "ext": ".pdf"
+      },
+      "output": "attachment.pdf"
+    },
+    {
+      "input": {
+        "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ext": ".pdf"
+      },
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf"
+    },
+    {
+      "input": {
+        "raw": "normal_file.jpg",
+        "ext": ".jpg"
+      },
+      "output": "normal_file.jpg"
+    },
+    {
+      "input": {
+        "raw": "invoice.pdf.exe",
+        "ext": ".pdf"
+      },
+      "output": "invoice.pdf.pdf"
+    },
+    {
+      "input": {
+        "raw": "hello \t world \n test",
+        "ext": ".txt"
+      },
+      "output": "hello world test.txt"
+    },
+    {
+      "input": {
+        "raw": "file<with>bad*chars?.doc",
+        "ext": ".doc"
+      },
+      "output": "file with bad chars.doc"
+    }
+  ],
+  "inlineSafe": [
+    {
+      "input": "image/png",
+      "output": true
+    },
+    {
+      "input": "image/jpeg",
+      "output": true
+    },
+    {
+      "input": "video/mp4",
+      "output": true
+    },
+    {
+      "input": "audio/ogg",
+      "output": true
+    },
+    {
+      "input": "audio/mpeg",
+      "output": true
+    },
+    {
+      "input": "application/pdf",
+      "output": false
+    },
+    {
+      "input": "text/plain",
+      "output": false
+    },
+    {
+      "input": "text/csv",
+      "output": false
+    },
+    {
+      "input": "application/octet-stream",
+      "output": false
+    },
+    {
+      "input": null,
+      "output": false
+    },
+    {
+      "input": "",
+      "output": false
+    },
+    {
+      "input": "audio/webm;codecs=opus",
+      "output": true
+    }
+  ],
+  "keyValidation": [
+    {
+      "input": "507f1f77bcf86cd799439011/507f1f77bcf86cd799439012/12345678-1234-1234-1234-123456789abc.jpg",
+      "valid": true,
+      "belongsTo": true
+    },
+    {
+      "input": "507f1f77bcf86cd799439011/507f1f77bcf86cd799439012/12345678-1234-1234-1234-123456789abc.png",
+      "valid": true,
+      "belongsTo": true
+    },
+    {
+      "input": "507f1f77bcf86cd799439011/507f1f77bcf86cd799439012/12345678-1234-1234-1234-123456789abc.docx",
+      "valid": true,
+      "belongsTo": true
+    },
+    {
+      "input": "../../etc/passwd",
+      "valid": false,
+      "belongsTo": false
+    },
+    {
+      "input": "507f1f77bcf86cd799439011/507f1f77bcf86cd799439012/not-a-uuid.jpg",
+      "valid": false,
+      "belongsTo": false
+    },
+    {
+      "input": "507f1f77bcf86cd799439011/507f1f77bcf86cd799439012/12345678-1234-1234-1234-123456789abc",
+      "valid": false,
+      "belongsTo": false
+    },
+    {
+      "input": "",
+      "valid": false,
+      "belongsTo": false
+    },
+    {
+      "input": null,
+      "valid": false,
+      "belongsTo": false
+    }
+  ]
+}

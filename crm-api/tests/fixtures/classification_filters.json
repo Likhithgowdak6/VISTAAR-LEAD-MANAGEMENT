@@ -1,0 +1,673 @@
+{
+  "now": "2026-03-15T10:00:00.000Z",
+  "enquiry": {
+    "enquiry": {
+      "leadQualificationStatus": "confirmed"
+    },
+    "not_enquiry": {
+      "leadQualificationStatus": "rejected"
+    },
+    "needs_review": {
+      "leadQualificationStatus": {
+        "$nin": [
+          "confirmed",
+          "rejected"
+        ]
+      }
+    }
+  },
+  "aiStatus": {
+    "ai_replied": {
+      "leadQualificationStatus": {
+        "$ne": "rejected"
+      },
+      "aiAutomationEnabled": {
+        "$ne": false
+      },
+      "optedOutAt": null,
+      "$and": [
+        {
+          "$expr": {
+            "$or": [
+              {
+                "$eq": [
+                  {
+                    "$ifNull": [
+                      "$lastAiSendFailedAt",
+                      null
+                    ]
+                  },
+                  null
+                ]
+              },
+              {
+                "$lte": [
+                  "$lastAiSendFailedAt",
+                  {
+                    "$ifNull": [
+                      "$lastAiReplyAt",
+                      {
+                        "$cond": [
+                          {
+                            "$in": [
+                              {
+                                "$ifNull": [
+                                  "$leadQualificationSource",
+                                  null
+                                ]
+                              },
+                              [
+                                "ai_reply_sent",
+                                "legacy_delivered_reply"
+                              ]
+                            ]
+                          },
+                          "$leadQualifiedAt",
+                          null
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "$expr": {
+            "$ne": [
+              {
+                "$ifNull": [
+                  "$lastAiReplyAt",
+                  {
+                    "$cond": [
+                      {
+                        "$in": [
+                          {
+                            "$ifNull": [
+                              "$leadQualificationSource",
+                              null
+                            ]
+                          },
+                          [
+                            "ai_reply_sent",
+                            "legacy_delivered_reply"
+                          ]
+                        ]
+                      },
+                      "$leadQualifiedAt",
+                      null
+                    ]
+                  }
+                ]
+              },
+              null
+            ]
+          }
+        },
+        {
+          "$expr": {
+            "$not": [
+              {
+                "$gt": [
+                  {
+                    "$ifNull": [
+                      "$lastInboundAt",
+                      null
+                    ]
+                  },
+                  {
+                    "$ifNull": [
+                      "$lastAiReplyAt",
+                      {
+                        "$cond": [
+                          {
+                            "$in": [
+                              {
+                                "$ifNull": [
+                                  "$leadQualificationSource",
+                                  null
+                                ]
+                              },
+                              [
+                                "ai_reply_sent",
+                                "legacy_delivered_reply"
+                              ]
+                            ]
+                          },
+                          "$leadQualifiedAt",
+                          null
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "awaiting_ai_reply": {
+      "leadQualificationStatus": "confirmed",
+      "aiAutomationEnabled": {
+        "$ne": false
+      },
+      "optedOutAt": null,
+      "$and": [
+        {
+          "$expr": {
+            "$or": [
+              {
+                "$eq": [
+                  {
+                    "$ifNull": [
+                      "$lastAiSendFailedAt",
+                      null
+                    ]
+                  },
+                  null
+                ]
+              },
+              {
+                "$lte": [
+                  "$lastAiSendFailedAt",
+                  {
+                    "$ifNull": [
+                      "$lastAiReplyAt",
+                      {
+                        "$cond": [
+                          {
+                            "$in": [
+                              {
+                                "$ifNull": [
+                                  "$leadQualificationSource",
+                                  null
+                                ]
+                              },
+                              [
+                                "ai_reply_sent",
+                                "legacy_delivered_reply"
+                              ]
+                            ]
+                          },
+                          "$leadQualifiedAt",
+                          null
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "$expr": {
+            "$and": [
+              {
+                "$ne": [
+                  {
+                    "$ifNull": [
+                      "$lastInboundAt",
+                      null
+                    ]
+                  },
+                  null
+                ]
+              },
+              {
+                "$gt": [
+                  "$lastInboundAt",
+                  {
+                    "$ifNull": [
+                      "$lastAiReplyAt",
+                      {
+                        "$cond": [
+                          {
+                            "$in": [
+                              {
+                                "$ifNull": [
+                                  "$leadQualificationSource",
+                                  null
+                                ]
+                              },
+                              [
+                                "ai_reply_sent",
+                                "legacy_delivered_reply"
+                              ]
+                            ]
+                          },
+                          "$leadQualifiedAt",
+                          null
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "ai_paused": {
+      "leadQualificationStatus": {
+        "$ne": "rejected"
+      },
+      "optedOutAt": null,
+      "aiAutomationEnabled": false
+    },
+    "ai_reply_failed": {
+      "leadQualificationStatus": {
+        "$ne": "rejected"
+      },
+      "aiAutomationEnabled": {
+        "$ne": false
+      },
+      "optedOutAt": null,
+      "$expr": {
+        "$and": [
+          {
+            "$ne": [
+              {
+                "$ifNull": [
+                  "$lastAiSendFailedAt",
+                  null
+                ]
+              },
+              null
+            ]
+          },
+          {
+            "$gt": [
+              "$lastAiSendFailedAt",
+              {
+                "$ifNull": [
+                  "$lastAiReplyAt",
+                  {
+                    "$cond": [
+                      {
+                        "$in": [
+                          {
+                            "$ifNull": [
+                              "$leadQualificationSource",
+                              null
+                            ]
+                          },
+                          [
+                            "ai_reply_sent",
+                            "legacy_delivered_reply"
+                          ]
+                        ]
+                      },
+                      "$leadQualifiedAt",
+                      null
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "ai_not_needed": {
+      "$or": [
+        {
+          "leadQualificationStatus": "rejected"
+        },
+        {
+          "optedOutAt": {
+            "$ne": null
+          }
+        }
+      ]
+    },
+    "needs_review": {
+      "leadQualificationStatus": {
+        "$ne": "rejected"
+      },
+      "aiAutomationEnabled": {
+        "$ne": false
+      },
+      "optedOutAt": null,
+      "$and": [
+        {
+          "$expr": {
+            "$or": [
+              {
+                "$eq": [
+                  {
+                    "$ifNull": [
+                      "$lastAiSendFailedAt",
+                      null
+                    ]
+                  },
+                  null
+                ]
+              },
+              {
+                "$lte": [
+                  "$lastAiSendFailedAt",
+                  {
+                    "$ifNull": [
+                      "$lastAiReplyAt",
+                      {
+                        "$cond": [
+                          {
+                            "$in": [
+                              {
+                                "$ifNull": [
+                                  "$leadQualificationSource",
+                                  null
+                                ]
+                              },
+                              [
+                                "ai_reply_sent",
+                                "legacy_delivered_reply"
+                              ]
+                            ]
+                          },
+                          "$leadQualifiedAt",
+                          null
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "$or": [
+            {
+              "leadQualificationStatus": {
+                "$ne": "confirmed"
+              },
+              "$expr": {
+                "$and": [
+                  {
+                    "$ne": [
+                      {
+                        "$ifNull": [
+                          "$lastInboundAt",
+                          null
+                        ]
+                      },
+                      null
+                    ]
+                  },
+                  {
+                    "$gt": [
+                      "$lastInboundAt",
+                      {
+                        "$ifNull": [
+                          "$lastAiReplyAt",
+                          {
+                            "$cond": [
+                              {
+                                "$in": [
+                                  {
+                                    "$ifNull": [
+                                      "$leadQualificationSource",
+                                      null
+                                    ]
+                                  },
+                                  [
+                                    "ai_reply_sent",
+                                    "legacy_delivered_reply"
+                                  ]
+                                ]
+                              },
+                              "$leadQualifiedAt",
+                              null
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "$expr": {
+                "$and": [
+                  {
+                    "$eq": [
+                      {
+                        "$ifNull": [
+                          "$lastAiReplyAt",
+                          {
+                            "$cond": [
+                              {
+                                "$in": [
+                                  {
+                                    "$ifNull": [
+                                      "$leadQualificationSource",
+                                      null
+                                    ]
+                                  },
+                                  [
+                                    "ai_reply_sent",
+                                    "legacy_delivered_reply"
+                                  ]
+                                ]
+                              },
+                              "$leadQualifiedAt",
+                              null
+                            ]
+                          }
+                        ]
+                      },
+                      null
+                    ]
+                  },
+                  {
+                    "$eq": [
+                      {
+                        "$ifNull": [
+                          "$lastInboundAt",
+                          null
+                        ]
+                      },
+                      null
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "needsAttention": {
+    "leadQualificationStatus": {
+      "$ne": "rejected"
+    },
+    "optedOutAt": null,
+    "$or": [
+      {
+        "$expr": {
+          "$and": [
+            {
+              "$ne": [
+                {
+                  "$ifNull": [
+                    "$lastInboundAt",
+                    null
+                  ]
+                },
+                null
+              ]
+            },
+            {
+              "$gt": [
+                "$lastInboundAt",
+                {
+                  "$max": [
+                    {
+                      "$ifNull": [
+                        "$lastAiReplyAt",
+                        {
+                          "$cond": [
+                            {
+                              "$in": [
+                                {
+                                  "$ifNull": [
+                                    "$leadQualificationSource",
+                                    null
+                                  ]
+                                },
+                                [
+                                  "ai_reply_sent",
+                                  "legacy_delivered_reply"
+                                ]
+                              ]
+                            },
+                            "$leadQualifiedAt",
+                            null
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$lastDeliveredOutboundAt",
+                        null
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "aiAutomationEnabled": {
+          "$ne": false
+        },
+        "optedOutAt": null,
+        "$expr": {
+          "$and": [
+            {
+              "$ne": [
+                {
+                  "$ifNull": [
+                    "$lastAiSendFailedAt",
+                    null
+                  ]
+                },
+                null
+              ]
+            },
+            {
+              "$gt": [
+                "$lastAiSendFailedAt",
+                {
+                  "$ifNull": [
+                    "$lastAiReplyAt",
+                    {
+                      "$cond": [
+                        {
+                          "$in": [
+                            {
+                              "$ifNull": [
+                                "$leadQualificationSource",
+                                null
+                              ]
+                            },
+                            [
+                              "ai_reply_sent",
+                              "legacy_delivered_reply"
+                            ]
+                          ]
+                        },
+                        "$leadQualifiedAt",
+                        null
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "nextFollowUpAt": {
+          "$ne": null,
+          "$lte": {
+            "__d": "2026-03-15T10:00:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "expressions": {
+    "effectiveAiReplyAt": {
+      "$ifNull": [
+        "$lastAiReplyAt",
+        {
+          "$cond": [
+            {
+              "$in": [
+                {
+                  "$ifNull": [
+                    "$leadQualificationSource",
+                    null
+                  ]
+                },
+                [
+                  "ai_reply_sent",
+                  "legacy_delivered_reply"
+                ]
+              ]
+            },
+            "$leadQualifiedAt",
+            null
+          ]
+        }
+      ]
+    },
+    "effectiveAnswerAt": {
+      "$max": [
+        {
+          "$ifNull": [
+            "$lastAiReplyAt",
+            {
+              "$cond": [
+                {
+                  "$in": [
+                    {
+                      "$ifNull": [
+                        "$leadQualificationSource",
+                        null
+                      ]
+                    },
+                    [
+                      "ai_reply_sent",
+                      "legacy_delivered_reply"
+                    ]
+                  ]
+                },
+                "$leadQualifiedAt",
+                null
+              ]
+            }
+          ]
+        },
+        {
+          "$ifNull": [
+            "$lastDeliveredOutboundAt",
+            null
+          ]
+        }
+      ]
+    }
+  }
+}

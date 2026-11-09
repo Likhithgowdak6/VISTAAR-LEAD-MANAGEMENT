@@ -286,3 +286,74 @@ class TestErrorEnvelope:
         details = client.post(URL, json={"title": "", "body": "B"}).json()["error"]["details"]
 
         assert "title" in details
+
+
+class TestValidationErrorBody:
+    """
+    REGRESSION. Two defects found while reviewing Phase 2 against the Node originals, both of
+    which were live in this module.
+
+    Neither changed a status code or `error.code`, which is why nothing failed. One changed the
+    accept/reject boundary; the other changed the `details` map the client is handed.
+    """
+
+    def test_THE_TRIM_RUNS_BEFORE_THE_LENGTH_CHECK(self, client):
+        # zod is `.trim().min(1).max(120)`, so 120 characters plus trailing whitespace is
+        # ACCEPTED and stored trimmed. Checking length on the raw string rejects it, and the
+        # user is told a title is too long when it is not.
+        response = client.post(
+            "/api/v1/starred-messages", json={"title": "x" * 120 + "   ", "body": "hello"}
+        )
+
+        assert response.status_code == 201
+        assert response.json()["data"]["title"] == "x" * 120
+
+    def test_a_title_still_too_long_after_trimming_is_rejected(self, client):
+        response = client.post(
+            "/api/v1/starred-messages", json={"title": "x" * 121, "body": "hello"}
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+
+    def test_DETAILS_IS_KEYED_BY_FIELD_NAME(self, client):
+        # Node sends zod's `fieldErrors`, keyed by field. A model-level validator reports `loc`
+        # as ("body",), which produced `{"_": [...]}`.
+        error = client.post(
+            "/api/v1/starred-messages", json={"title": "   ", "body": "hello"}
+        ).json()["error"]
+
+        assert error["code"] == "VALIDATION_FAILED"
+        assert "title" in error["details"]
+
+    def test_a_whitespace_only_body_names_the_body_field(self, client):
+        error = client.post(
+            "/api/v1/starred-messages", json={"title": "Quote", "body": "   "}
+        ).json()["error"]
+
+        assert "body" in error["details"]
+
+    def test_the_patch_trim_also_runs_first(self, client):
+        created = client.post(
+            "/api/v1/starred-messages", json={"title": "Quote", "body": "hello"}
+        ).json()["data"]
+
+        response = client.patch(
+            f"/api/v1/starred-messages/{created['id']}", json={"title": "  Updated  "}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["title"] == "Updated"
+
+    def test_AN_EMPTY_PATCH_IS_STILL_REFUSED(self, client):
+        # Unchanged behaviour, re-pinned because the validator was rewritten around it. This one
+        # stays a model validator: zod expresses it as an object-level `.refine`, not a field
+        # rule.
+        created = client.post(
+            "/api/v1/starred-messages", json={"title": "Quote", "body": "hello"}
+        ).json()["data"]
+
+        response = client.patch(f"/api/v1/starred-messages/{created['id']}", json={})
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_FAILED"

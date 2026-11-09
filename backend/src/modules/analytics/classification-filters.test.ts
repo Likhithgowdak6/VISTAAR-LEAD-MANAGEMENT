@@ -204,3 +204,47 @@ describe('combining filters in listConversations', () => {
     expect(filter.$and).toHaveLength(3);
   });
 });
+
+/**
+ * REGRESSION: the failure branch had no automation guard.
+ *
+ * Without it this filter matched PAUSED conversations - a thread a human had taken over, with
+ * the customer not waiting - purely because of a stale AI send failure. `resolveAiResponseStatus`
+ * has always ranked PAUSED above FAILED, so the in-process rules excluded exactly those rows,
+ * and the two implementations disagreed on 26 of 2,004 generated conversations.
+ *
+ * The Python port asserts row-for-row agreement against a real (in-memory) MongoDB; this pins
+ * the shape on the Node side so the guard cannot be dropped again without a failing test.
+ */
+describe('needsAttentionFilter - the automation guard on the failure branch', () => {
+  const branchesOf = (filter: Record<string, unknown>) =>
+    filter.$or as ReadonlyArray<Record<string, unknown>>;
+
+  it('guards the failure branch with the automation flag', () => {
+    const branches = branchesOf(needsAttentionFilter(new Date('2026-10-21T09:00:00.000Z')));
+    const failureBranch = branches.find(
+      (branch) => 'aiAutomationEnabled' in branch && '$expr' in branch,
+    );
+
+    expect(failureBranch).toBeDefined();
+    expect(failureBranch!.aiAutomationEnabled).toEqual({ $ne: false });
+  });
+
+  it('keeps the unanswered-inbound branch ungated by automation', () => {
+    // A paused thread with the customer waiting must still match. The guard belongs on the
+    // failure branch only.
+    const branches = branchesOf(needsAttentionFilter(new Date('2026-10-21T09:00:00.000Z')));
+    const inboundBranch = branches.find(
+      (branch) => '$expr' in branch && !('aiAutomationEnabled' in branch),
+    );
+
+    expect(inboundBranch).toBeDefined();
+    expect(inboundBranch).not.toHaveProperty('aiAutomationEnabled');
+  });
+
+  it('still has exactly three branches', () => {
+    // waiting on us, a failed send the AI owns, a follow-up come due. The published definition
+    // in ConversationFilters.tsx names all three.
+    expect(branchesOf(needsAttentionFilter(new Date()))).toHaveLength(3);
+  });
+});

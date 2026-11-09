@@ -234,15 +234,28 @@ export const needsAttention = (conversation: AttentionInput, now: Date = new Dat
     return false;
   }
 
-  const status = resolveAiResponseStatus(conversation, enquiryClass);
-
-  if (status === AI_RESPONSE_STATUSES.AWAITING || status === AI_RESPONSE_STATUSES.FAILED) {
+  // THE CUSTOMER IS WAITING, counting an answer from EITHER side of the business.
+  //
+  // This used to be preceded by `status === AWAITING`, and that shortcut was the bug. AWAITING
+  // compares the inbound against the AI-ONLY reply time, so a thread a human had already
+  // answered still read as needing attention - which contradicts this module's own published
+  // definition of the status ("newer than the last reply SENT", see ConversationFilters.tsx)
+  // and disagreed with needsAttentionFilter, which has always compared against both sides.
+  //
+  // hasUnansweredInbound is the correct test and already compares against both. A genuinely
+  // unanswered AWAITING thread still matches it; one a human answered no longer does.
+  if (hasUnansweredInbound(conversation)) {
     return true;
   }
 
-  // A paused or unclassified thread with the customer waiting on us. The AI is not going to
-  // answer it, so if nobody looks, nobody answers.
-  if (hasUnansweredInbound(conversation)) {
+  // An unresolved AI send failure, but ONLY while the AI still owns the thread.
+  //
+  // `status === FAILED` encodes exactly that: automation on, not opted out, and a failure with
+  // nothing successful after it. A PAUSED thread cannot reach FAILED, which is deliberate - if
+  // a human took the thread over and the customer is not waiting (checked above), a stale AI
+  // send failure is not something anybody needs to act on. It stays discoverable through the
+  // inbox's own "AI reply failed" filter for every thread the AI still owns.
+  if (resolveAiResponseStatus(conversation, enquiryClass) === AI_RESPONSE_STATUSES.FAILED) {
     return true;
   }
 

@@ -800,3 +800,137 @@ describe('the test allowlist during a controlled nurture rollout', () => {
     expect(sessionService.sendTextMessage).toHaveBeenCalled();
   });
 });
+
+/**
+ * The harness's injected clock. Offsets for `scheduledAt` must be computed against this, not
+ * `Date.now()` - against the real clock the difference is negative and the staleness guard
+ * silently never fires, which makes a test pass for no reason at all.
+ */
+const HARNESS_NOW = new Date('2026-08-25T10:00:00.000Z').getTime();
+const beforeHarnessNow = (ms: number) => new Date(HARNESS_NOW - ms);
+
+/**
+ * What happens to a message ALREADY queued when the quiet-hours window is changed.
+ *
+ * THE ASSUMPTION WORTH DISPROVING. `scheduledAt` is stamped at the moment a message is first
+ * deferred, under whatever window was configured then. Editing the environment variable does
+ * not reach back and move it - nothing rewrites stored rows. So a message held until 09:00
+ * under a 21->09 window is still marked 09:00 after the window becomes 12->06.
+ *
+ * BUT IT IS NOT BLINDLY SENT WHEN THAT TIME ARRIVES. The runner re-claims it and re-runs the
+ * quiet-hours check against the CURRENT configuration, so the outcome self-corrects: it sends
+ * if the new window allows it, and defers again if it does not. The only thing a config change
+ * cannot do is make a held message go out EARLIER than its existing stamp.
+ */
+describe('a queued message when the quiet-hours window changes', () => {
+  it('is re-evaluated against the CURRENT window, not the one it was stamped under', async () => {
+    // Its stored time has arrived and the new window allows it: it goes.
+    const { service, sessionService, messageRepository } = createHarness();
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(false);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', scheduledAt: beforeHarnessNow(2_000) }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true });
+  });
+
+  it('is deferred AGAIN when the new window now covers its stored time', async () => {
+    // The self-correcting half: a message stamped for a moment the new window makes quiet is
+    // rescheduled rather than sent. It is never lost, and never sent at a bad hour.
+    const { service, sessionService, messageRepository } = createHarness();
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    vi.mocked(quietHours.nextAllowedSendTime).mockReturnValue(
+      new Date('2026-08-26T00:30:00.000Z'),
+    );
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', scheduledAt: beforeHarnessNow(2_000) }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).not.toHaveBeenCalled();
+    expect(messageRepository.rescheduleOutboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledAt: new Date('2026-08-26T00:30:00.000Z') }),
+    );
+    expect(result).toMatchObject({ rescheduled: true, reason: 'quiet_hours' });
+  });
+
+  it('a human-authored message is unaffected by any of this', async () => {
+    // Quiet hours live inside the AI-authored branch. Changing the window must not alter what
+    // happens when a person types a reply - they are answering a customer who is awake.
+    const { service, sessionService, messageRepository } = createHarness();
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(true);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'human' }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalled();
+    expect(messageRepository.rescheduleOutboundMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true });
+  });
+});
+
+/**
+ * Quiet hours versus the 30-minute staleness guard.
+ *
+ * THE QUESTION THIS SETTLES. `NURTURE_STALE_AFTER_MS` drops an AI reply that has sat in the
+ * queue too long, and it is 30 minutes. A quiet window of 12:00 -> 06:00 holds a message for
+ * up to eighteen hours. Read naively those two rules contradict each other and every
+ * afternoon reply would be binned overnight.
+ *
+ * They do not, and the reason is worth a test rather than a comment: deferring REWRITES
+ * `scheduledAt` to the moment sending becomes allowed. The guard measures how late a message
+ * is against its own slot, not how long it has existed - so at 06:00 the difference is
+ * seconds. The guard still does its real job, which is catching a message whose slot passed
+ * while the delivery runner was down.
+ */
+describe('a long quiet window does not make messages stale', () => {
+  it('sends a message whose deferred slot has just arrived, however long it waited', async () => {
+    const { service, sessionService, messageRepository } = createHarness();
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(false);
+    // Deferred eighteen hours ago, but rescheduled to a slot that arrived two seconds ago.
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', scheduledAt: beforeHarnessNow(2_000) }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).toHaveBeenCalled();
+    expect(result).toMatchObject({ delivered: true });
+  });
+
+  it('still drops one whose slot passed while nothing was delivering', async () => {
+    // The guard's actual purpose, unchanged: an hour past its slot means the runner was down,
+    // and a reply that late reads worse than silence.
+    const { service, sessionService, messageRepository } = createHarness();
+    vi.mocked(quietHours.isWithinQuietHours).mockReturnValue(false);
+    messageRepository.claimNextOutboundMessage.mockResolvedValue(
+      baseMessage({ authoredBy: 'ai', scheduledAt: beforeHarnessNow(60 * 60 * 1000) }),
+    );
+
+    const result = await service.deliverNext({
+      organizationId: 'org-1',
+      whatsappAccountId: 'account-1',
+    });
+
+    expect(sessionService.sendTextMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ reason: 'stale_ai_message_dropped', permanent: true });
+  });
+});

@@ -1,0 +1,277 @@
+{
+  "now": "2026-10-21T17:00:00.000Z",
+  "results": [
+    {
+      "case": "firm_rejection_full",
+      "input": {
+        "text": "We have booked another photographer",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "firm_rejection",
+          "quote": "we have booked another photographer",
+          "confidence": 0.95
+        }
+      },
+      "output": {
+        "rejected": true
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": {
+          "organizationId": "org-1",
+          "conversationId": "conv-1",
+          "quote": "we have booked another photographer",
+          "source": "ai_classifier"
+        },
+        "activityCalledWith": {
+          "eventType": "ai_brain.sales_rejection_detected",
+          "summary": "This lead said they are not going ahead — automated follow-ups stopped.",
+          "metadata": {
+            "confidence": 0.95,
+            "source": "ai_classifier"
+          }
+        }
+      }
+    },
+    {
+      "case": "firm_rejection_fallback_quote",
+      "input": {
+        "text": "We selected another vendor",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "firm_rejection",
+          "quote": "",
+          "confidence": 0.92
+        }
+      },
+      "output": {
+        "rejected": true
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": {
+          "organizationId": "org-1",
+          "conversationId": "conv-1",
+          "quote": "We selected another vendor",
+          "source": "ai_classifier"
+        },
+        "activityCalledWith": {
+          "eventType": "ai_brain.sales_rejection_detected",
+          "summary": "This lead said they are not going ahead — automated follow-ups stopped.",
+          "metadata": {
+            "confidence": 0.92,
+            "source": "ai_classifier"
+          }
+        }
+      }
+    },
+    {
+      "case": "hesitation_discuss",
+      "input": {
+        "text": "Let me discuss with my family",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "none",
+          "quote": "",
+          "confidence": 0
+        }
+      },
+      "output": {
+        "rejected": false,
+        "reason": "no_rejection"
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "price_objection_high_confidence",
+      "input": {
+        "text": "Your price is too high for us",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "none",
+          "quote": "",
+          "confidence": 0.99
+        }
+      },
+      "output": {
+        "rejected": false,
+        "reason": "no_rejection"
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "low_confidence_rejection",
+      "input": {
+        "text": "I think we are going a different way, maybe",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "firm_rejection",
+          "quote": "going a different way",
+          "confidence": 0.79
+        }
+      },
+      "output": {
+        "rejected": false,
+        "reason": "low_confidence"
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "exact_threshold_rejection",
+      "input": {
+        "text": "We went with someone else",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "firm_rejection",
+          "quote": "went with someone else",
+          "confidence": 0.8
+        }
+      },
+      "output": {
+        "rejected": true
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": {
+          "organizationId": "org-1",
+          "conversationId": "conv-1",
+          "quote": "went with someone else",
+          "source": "ai_classifier"
+        },
+        "activityCalledWith": {
+          "eventType": "ai_brain.sales_rejection_detected",
+          "summary": "This lead said they are not going ahead — automated follow-ups stopped.",
+          "metadata": {
+            "confidence": 0.8,
+            "source": "ai_classifier"
+          }
+        }
+      }
+    },
+    {
+      "case": "opted_out_short_circuit",
+      "input": {
+        "text": "Please stop messaging me",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "optedOut": true
+      },
+      "output": {
+        "rejected": false,
+        "reason": "opted_out"
+      },
+      "calls": {
+        "classifyCalled": false,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "already_rejected_short_circuit",
+      "input": {
+        "text": "ok thanks",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "alreadyRejected": true
+      },
+      "output": {
+        "rejected": false,
+        "reason": "already_rejected"
+      },
+      "calls": {
+        "classifyCalled": false,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "empty_text",
+      "input": {
+        "text": "   ",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1"
+      },
+      "output": {
+        "rejected": false,
+        "reason": "empty"
+      },
+      "calls": {
+        "classifyCalled": false,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "missing_org_or_conv",
+      "input": {
+        "text": "We booked someone else",
+        "organizationId": null,
+        "conversationId": "conv-1"
+      },
+      "output": {
+        "rejected": false,
+        "reason": "empty"
+      },
+      "calls": {
+        "classifyCalled": false,
+        "markCalledWith": null,
+        "activityCalledWith": null
+      }
+    },
+    {
+      "case": "db_refused_concurrent_rejection",
+      "input": {
+        "text": "We booked someone else",
+        "organizationId": "org-1",
+        "conversationId": "conv-1",
+        "whatsappAccountId": "acc-1",
+        "verdict": {
+          "verdict": "firm_rejection",
+          "quote": "booked someone else",
+          "confidence": 0.9
+        }
+      },
+      "output": {
+        "rejected": false,
+        "reason": "already_rejected"
+      },
+      "calls": {
+        "classifyCalled": true,
+        "markCalledWith": {
+          "organizationId": "org-1",
+          "conversationId": "conv-1",
+          "quote": "booked someone else",
+          "source": "ai_classifier"
+        },
+        "activityCalledWith": null
+      }
+    }
+  ]
+}

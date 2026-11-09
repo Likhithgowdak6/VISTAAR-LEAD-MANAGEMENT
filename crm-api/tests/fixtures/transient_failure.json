@@ -1,0 +1,229 @@
+{
+  "generatedBy": "tools/make_transient_failure_fixtures.mjs",
+  "cases": [
+    {
+      "input": {
+        "name": "AbortError",
+        "code": 20
+      },
+      "isTransient": true,
+      "described": "AbortError:20"
+    },
+    {
+      "input": {
+        "name": "TimeoutError"
+      },
+      "isTransient": true,
+      "described": "TimeoutError"
+    },
+    {
+      "input": {
+        "name": "FetchError"
+      },
+      "isTransient": true,
+      "described": "FetchError"
+    },
+    {
+      "input": {
+        "code": "ECONNREFUSED"
+      },
+      "isTransient": true,
+      "described": "ECONNREFUSED"
+    },
+    {
+      "input": {
+        "code": "ECONNRESET"
+      },
+      "isTransient": true,
+      "described": "ECONNRESET"
+    },
+    {
+      "input": {
+        "code": "ETIMEDOUT"
+      },
+      "isTransient": true,
+      "described": "ETIMEDOUT"
+    },
+    {
+      "input": {
+        "code": "EPIPE"
+      },
+      "isTransient": true,
+      "described": "EPIPE"
+    },
+    {
+      "input": {
+        "code": "EAI_AGAIN"
+      },
+      "isTransient": true,
+      "described": "EAI_AGAIN"
+    },
+    {
+      "input": {
+        "code": "ENOTFOUND"
+      },
+      "isTransient": true,
+      "described": "ENOTFOUND"
+    },
+    {
+      "input": {
+        "code": "UND_ERR_SOCKET"
+      },
+      "isTransient": true,
+      "described": "UND_ERR_SOCKET"
+    },
+    {
+      "input": {
+        "cause": {
+          "code": "ECONNREFUSED"
+        }
+      },
+      "isTransient": true,
+      "described": "unknown"
+    },
+    {
+      "input": {
+        "cause": {
+          "name": "AbortError"
+        }
+      },
+      "isTransient": false,
+      "described": "unknown"
+    },
+    {
+      "input": {
+        "message": "fetch failed"
+      },
+      "isTransient": true,
+      "described": "unknown"
+    },
+    {
+      "input": {
+        "statusCode": 500
+      },
+      "isTransient": true,
+      "described": "500"
+    },
+    {
+      "input": {
+        "statusCode": 502
+      },
+      "isTransient": true,
+      "described": "502"
+    },
+    {
+      "input": {
+        "statusCode": 503
+      },
+      "isTransient": true,
+      "described": "503"
+    },
+    {
+      "input": {
+        "statusCode": 504
+      },
+      "isTransient": true,
+      "described": "504"
+    },
+    {
+      "input": {
+        "statusCode": 429
+      },
+      "isTransient": true,
+      "described": "429"
+    },
+    {
+      "input": {
+        "statusCode": 400
+      },
+      "isTransient": false,
+      "described": "400"
+    },
+    {
+      "input": {
+        "statusCode": 401
+      },
+      "isTransient": false,
+      "described": "401"
+    },
+    {
+      "input": {
+        "statusCode": 403
+      },
+      "isTransient": false,
+      "described": "403"
+    },
+    {
+      "input": {
+        "statusCode": 404
+      },
+      "isTransient": false,
+      "described": "404"
+    },
+    {
+      "input": {
+        "statusCode": 422
+      },
+      "isTransient": false,
+      "described": "422"
+    },
+    {
+      "input": {
+        "name": "Error",
+        "message": "something went wrong"
+      },
+      "isTransient": false,
+      "described": "Error"
+    },
+    {
+      "input": {
+        "code": 11000
+      },
+      "isTransient": false,
+      "described": "11000"
+    },
+    {
+      "input": {
+        "message": "ETIMEDOUT"
+      },
+      "isTransient": false,
+      "described": "unknown"
+    },
+    {
+      "input": {
+        "name": "AiBrainRequestError",
+        "statusCode": 503
+      },
+      "isTransient": true,
+      "described": "AiBrainRequestError:503"
+    },
+    {
+      "input": {
+        "name": "AbortError",
+        "code": 20,
+        "message": "secret lead info 9876543210"
+      },
+      "isTransient": true,
+      "described": "AbortError:20"
+    },
+    {
+      "input": null,
+      "isTransient": false,
+      "described": "unknown"
+    },
+    {
+      "isTransient": false,
+      "described": "unknown"
+    },
+    {
+      "input": "string error",
+      "isTransient": false,
+      "described": "unknown"
+    },
+    {
+      "input": 42,
+      "isTransient": false,
+      "described": "unknown"
+    }
+  ]
+}

@@ -1,0 +1,2175 @@
+{
+  "generatedBy": "tools/make_organization_tasks_pipeline.mjs",
+  "organizationId": "650000000000000000000001",
+  "actorId": "650000000000000000000002",
+  "now": "2026-06-15T12:00:00.000Z",
+  "cases": [
+    {
+      "label": "mine, no filters",
+      "params": {
+        "scope": "mine",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "team, no filters",
+      "params": {
+        "scope": "team",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "$or": [
+              {
+                "assignedTo": "650000000000000000000002"
+              },
+              {
+                "conversationId": {
+                  "$ne": null
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, pending",
+      "params": {
+        "scope": "mine",
+        "status": "pending",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$match": {
+                  "status": "pending"
+                }
+              },
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$match": {
+                  "status": "pending"
+                }
+              },
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, late",
+      "params": {
+        "scope": "mine",
+        "status": "late",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$match": {
+                  "overdueRank": 0
+                }
+              },
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$match": {
+                  "overdueRank": 0
+                }
+              },
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "team, completed",
+      "params": {
+        "scope": "team",
+        "status": "completed",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "$or": [
+              {
+                "assignedTo": "650000000000000000000002"
+              },
+              {
+                "conversationId": {
+                  "$ne": null
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$match": {
+                  "status": "completed"
+                }
+              },
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$match": {
+                  "status": "completed"
+                }
+              },
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, due window",
+      "params": {
+        "scope": "mine",
+        "dueFrom": "2026-06-01T00:00:00.000Z",
+        "dueTo": "2026-06-30T00:00:00.000Z"
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002",
+            "dueAt": {
+              "$gte": "2026-06-01T00:00:00.000Z",
+              "$lte": "2026-06-30T00:00:00.000Z"
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, dueFrom only",
+      "params": {
+        "scope": "mine",
+        "dueFrom": "2026-06-01T00:00:00.000Z",
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002",
+            "dueAt": {
+              "$gte": "2026-06-01T00:00:00.000Z"
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, dueTo only",
+      "params": {
+        "scope": "mine",
+        "dueTo": "2026-06-30T00:00:00.000Z",
+        "dueFrom": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002",
+            "dueAt": {
+              "$lte": "2026-06-30T00:00:00.000Z"
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, search",
+      "params": {
+        "scope": "mine",
+        "search": "Ananya",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$match": {
+            "$or": [
+              {
+                "title": {
+                  "$regex": "Ananya",
+                  "$options": "i"
+                }
+              },
+              {
+                "note": {
+                  "$regex": "Ananya",
+                  "$options": "i"
+                }
+              },
+              {
+                "conversation.displayName": {
+                  "$regex": "Ananya",
+                  "$options": "i"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, hostile search",
+      "params": {
+        "scope": "mine",
+        "search": "(a+)+$",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$match": {
+            "$or": [
+              {
+                "title": {
+                  "$regex": "\\(a\\+\\)\\+\\$",
+                  "$options": "i"
+                }
+              },
+              {
+                "note": {
+                  "$regex": "\\(a\\+\\)\\+\\$",
+                  "$options": "i"
+                }
+              },
+              {
+                "conversation.displayName": {
+                  "$regex": "\\(a\\+\\)\\+\\$",
+                  "$options": "i"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, blank search",
+      "params": {
+        "scope": "mine",
+        "search": "   ",
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 0
+              },
+              {
+                "$limit": 25
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "mine, paged",
+      "params": {
+        "scope": "mine",
+        "limit": 10,
+        "skip": 20,
+        "dueFrom": null,
+        "dueTo": null
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "assignedTo": "650000000000000000000002"
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 20
+              },
+              {
+                "$limit": 10
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "label": "team, everything",
+      "params": {
+        "scope": "team",
+        "status": "late",
+        "dueFrom": "2026-06-01T00:00:00.000Z",
+        "dueTo": "2026-06-30T00:00:00.000Z",
+        "search": "Mehta-Shah",
+        "limit": 50,
+        "skip": 5
+      },
+      "pipeline": [
+        {
+          "$match": {
+            "organizationId": "650000000000000000000001",
+            "$or": [
+              {
+                "assignedTo": "650000000000000000000002"
+              },
+              {
+                "conversationId": {
+                  "$ne": null
+                }
+              }
+            ],
+            "dueAt": {
+              "$gte": "2026-06-01T00:00:00.000Z",
+              "$lte": "2026-06-30T00:00:00.000Z"
+            }
+          }
+        },
+        {
+          "$lookup": {
+            "from": "conversations",
+            "localField": "conversationId",
+            "foreignField": "_id",
+            "as": "conversation",
+            "pipeline": [
+              {
+                "$project": {
+                  "displayName": 1,
+                  "leadId": 1
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$unwind": {
+            "path": "$conversation",
+            "preserveNullAndEmptyArrays": true
+          }
+        },
+        {
+          "$match": {
+            "$or": [
+              {
+                "title": {
+                  "$regex": "Mehta-Shah",
+                  "$options": "i"
+                }
+              },
+              {
+                "note": {
+                  "$regex": "Mehta-Shah",
+                  "$options": "i"
+                }
+              },
+              {
+                "conversation.displayName": {
+                  "$regex": "Mehta-Shah",
+                  "$options": "i"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "$addFields": {
+            "overdueRank": {
+              "$cond": [
+                {
+                  "$and": [
+                    {
+                      "$eq": [
+                        "$status",
+                        "pending"
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        "$dueAt",
+                        "2026-06-15T12:00:00.000Z"
+                      ]
+                    }
+                  ]
+                },
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "$facet": {
+            "counts": [
+              {
+                "$group": {
+                  "_id": null,
+                  "total": {
+                    "$sum": 1
+                  },
+                  "pending": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "pending"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "overdue": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$overdueRank",
+                            0
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "completed": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "completed"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  },
+                  "cancelled": {
+                    "$sum": {
+                      "$cond": [
+                        {
+                          "$eq": [
+                            "$status",
+                            "cancelled"
+                          ]
+                        },
+                        1,
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "matched": [
+              {
+                "$match": {
+                  "overdueRank": 0
+                }
+              },
+              {
+                "$count": "value"
+              }
+            ],
+            "rows": [
+              {
+                "$match": {
+                  "overdueRank": 0
+                }
+              },
+              {
+                "$sort": {
+                  "overdueRank": 1,
+                  "dueAt": 1,
+                  "_id": 1
+                }
+              },
+              {
+                "$skip": 5
+              },
+              {
+                "$limit": 50
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

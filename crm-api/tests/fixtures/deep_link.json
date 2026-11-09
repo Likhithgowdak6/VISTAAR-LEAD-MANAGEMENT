@@ -1,0 +1,168 @@
+{
+  "generatedBy": "tools/make_deep_link_fixtures.mjs",
+  "origins": [
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://vistaarcrm.duckdns.org",
+          "https://localhost"
+        ]
+      },
+      "resolved": "https://vistaarcrm.duckdns.org"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://localhost",
+          "https://crm.example.com"
+        ]
+      },
+      "resolved": "https://crm.example.com"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://127.0.0.1",
+          "https://crm.example.com"
+        ]
+      },
+      "resolved": "https://crm.example.com"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://0.0.0.0",
+          "https://crm.example.com"
+        ]
+      },
+      "resolved": "https://crm.example.com"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://[::1]",
+          "https://crm.example.com"
+        ]
+      },
+      "resolved": "https://crm.example.com"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "http://crm.example.com"
+        ]
+      },
+      "resolved": null
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": []
+      },
+      "resolved": null
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://localhost"
+        ]
+      },
+      "resolved": null
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "not-a-url"
+        ]
+      },
+      "resolved": null
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": [
+          "https://crm.example.com/app/"
+        ]
+      },
+      "resolved": "https://crm.example.com"
+    },
+    {
+      "config": {
+        "FRONTEND_ORIGIN": "https://crm.example.com"
+      },
+      "resolved": null
+    }
+  ],
+  "conversations": [
+    {
+      "id": "68f1a2b3c4d5e6f708192a3b",
+      "link": "https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b"
+    },
+    {
+      "id": "6adf2dd59f91cdd63f09e0f3",
+      "link": "https://vistaarcrm.duckdns.org/?conversation=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "id": "",
+      "link": null
+    },
+    {
+      "id": null,
+      "link": null
+    },
+    {
+      "link": null
+    },
+    {
+      "id": "abc",
+      "link": null
+    },
+    {
+      "id": "zzzzzzzzzzzzzzzzzzzzzzzz",
+      "link": null
+    },
+    {
+      "id": "MD Afjal",
+      "link": null
+    },
+    {
+      "id": "+919876543210",
+      "link": null
+    }
+  ],
+  "reminders": [
+    {
+      "pair": {
+        "conversationId": "68f1a2b3c4d5e6f708192a3b",
+        "taskId": "6adf2dd59f91cdd63f09e0f3"
+      },
+      "link": "https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "pair": {
+        "conversationId": "68f1a2b3c4d5e6f708192a3b",
+        "taskId": null
+      },
+      "link": "https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b"
+    },
+    {
+      "pair": {
+        "conversationId": "68f1a2b3c4d5e6f708192a3b",
+        "taskId": "invalid-task-id"
+      },
+      "link": "https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b"
+    },
+    {
+      "pair": {
+        "conversationId": null,
+        "taskId": "6adf2dd59f91cdd63f09e0f3"
+      },
+      "link": null
+    },
+    {
+      "pair": {
+        "conversationId": "invalid-conv-id",
+        "taskId": "6adf2dd59f91cdd63f09e0f3"
+      },
+      "link": null
+    }
+  ]
+}

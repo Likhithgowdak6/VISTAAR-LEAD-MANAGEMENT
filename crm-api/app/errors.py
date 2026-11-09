@@ -60,7 +60,17 @@ def _field_errors(exc: RequestValidationError) -> dict[str, list[str]]:
     fields: dict[str, list[str]] = {}
 
     for error in exc.errors():
-        location = [str(part) for part in error.get("loc", ()) if part not in ("body", "query", "path")]
+        location = [str(part) for part in error.get("loc", ())]
+
+        # ONLY THE FIRST element is the location marker, and only it is dropped.
+        #
+        # Filtering "body" out of the whole tuple looks equivalent and is not: `starred-messages`
+        # has a field literally named `body`, so its loc is ("body", "body") and both parts were
+        # being removed. The error then landed under `_` instead of `body`, meaning a client
+        # reading `details.body` found nothing for the one field most likely to fail validation.
+        if location and location[0] in ("body", "query", "path"):
+            location = location[1:]
+
         key = ".".join(location) or "_"
         fields.setdefault(key, []).append(str(error.get("msg", "Invalid value")))
 

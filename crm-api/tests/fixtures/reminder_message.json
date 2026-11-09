@@ -1,0 +1,169 @@
+{
+  "generatedBy": "tools/make_reminder_message_fixtures.mjs",
+  "timeFormatting": [
+    {
+      "dueAt": "2026-10-11T11:30:00.000Z",
+      "timezone": "Asia/Kolkata",
+      "formatted": "5:00 PM"
+    },
+    {
+      "dueAt": "2026-10-11T00:00:00.000Z",
+      "timezone": "Asia/Kolkata",
+      "formatted": "5:30 AM"
+    },
+    {
+      "dueAt": "2026-10-11T18:30:00.000Z",
+      "timezone": "Asia/Kolkata",
+      "formatted": "12:00 AM"
+    },
+    {
+      "dueAt": "2026-10-11T06:30:00.000Z",
+      "timezone": "Asia/Kolkata",
+      "formatted": "12:00 PM"
+    },
+    {
+      "dueAt": "2026-10-11T11:30:00.000Z",
+      "timezone": null,
+      "formatted": "5:00 PM"
+    },
+    {
+      "dueAt": "2026-10-11T11:30:00.000Z",
+      "timezone": "America/New_York",
+      "formatted": "7:30 AM"
+    },
+    {
+      "dueAt": "2026-10-11T11:30:00.000Z",
+      "timezone": "UTC",
+      "formatted": "11:30 AM"
+    }
+  ],
+  "messages": [
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f3",
+          "organizationId": "org-1",
+          "conversationId": "68f1a2b3c4d5e6f708192a3b",
+          "title": "Call Rahul",
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": "I will message you after 5 min"
+        },
+        "lead": {
+          "displayName": "Rahul",
+          "phone": "+919876543210",
+          "requirement": "Looking for wedding photography; needs to confirm the shoot details."
+        }
+      },
+      "output": "⏰ *Lead Follow-up Reminder*\n👤 Lead: Rahul\n📞 Phone: +919876543210\n📌 Requirement: Looking for wedding photography; needs to confirm the shoot details.\n✅ Task: Call Rahul\n💬 Reason: \"I will message you after 5 min\"\n🕒 Reminder Time: 5:00 PM today\n\nView reminder: https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f3",
+          "organizationId": "org-1",
+          "conversationId": "68f1a2b3c4d5e6f708192a3b",
+          "title": "Follow up",
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": null
+        },
+        "lead": {
+          "displayName": null,
+          "phone": null,
+          "requirement": null
+        }
+      },
+      "output": "⏰ *Lead Follow-up Reminder*\n👤 Lead: Unknown customer\n📌 Requirement: Requirement not yet clear\n✅ Task: Follow up\n🕒 Reminder Time: 5:00 PM today\n\nView reminder: https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f3",
+          "organizationId": "org-1",
+          "conversationId": "68f1a2b3c4d5e6f708192a3b",
+          "title": "Follow up",
+          "dueAt": "2026-10-12T04:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": "please call tomorrow"
+        },
+        "lead": null
+      },
+      "output": "⏰ *Lead Follow-up Reminder*\n👤 Lead: Unknown customer\n📌 Requirement: Requirement not yet clear\n✅ Task: Follow up\n💬 Reason: \"please call tomorrow\"\n🕒 Reminder Time: 10:00 AM tomorrow\n\nView reminder: https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f3",
+          "organizationId": "org-1",
+          "conversationId": "68f1a2b3c4d5e6f708192a3b",
+          "title": null,
+          "note": "Ring them back tomorrow",
+          "dueAt": "2026-10-15T09:00:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": null
+        },
+        "lead": {
+          "displayName": "Priya",
+          "phone": "+919123456789",
+          "requirement": "Corporate video shoot"
+        }
+      },
+      "output": "⏰ *Lead Follow-up Reminder*\n👤 Lead: Priya\n📞 Phone: +919123456789\n📌 Requirement: Corporate video shoot\n✅ Task: Ring them back tomorrow\n🕒 Reminder Time: 2:30 PM 15/10\n\nView reminder: https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f4",
+          "organizationId": "org-1",
+          "conversationId": null,
+          "title": "Review the campaign",
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": "remind me to check ads"
+        },
+        "lead": {
+          "displayName": "Ignored Lead Name",
+          "phone": "+919999999999",
+          "requirement": "Ignored Requirement"
+        }
+      },
+      "output": "⏰ *Personal Reminder*\n✅ Task: Review the campaign\n💬 Reason: \"remind me to check ads\"\n🕒 Reminder Time: 5:00 PM today\n\nIt's time to complete your task."
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f4",
+          "organizationId": "org-1",
+          "conversationId": null,
+          "title": null,
+          "note": null,
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": null
+        },
+        "lead": null
+      },
+      "output": "⏰ *Personal Reminder*\n✅ Task: Follow up\n🕒 Reminder Time: 5:00 PM today\n\nIt's time to complete your task."
+    },
+    {
+      "input": {
+        "task": {
+          "_id": "6adf2dd59f91cdd63f09e0f3",
+          "organizationId": "org-1",
+          "conversationId": "68f1a2b3c4d5e6f708192a3b",
+          "title": "Check with client",
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "sourceQuote": "I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes okay"
+        },
+        "lead": {
+          "displayName": "Amit",
+          "phone": "+919876543210",
+          "requirement": "Wedding coverage"
+        }
+      },
+      "output": "⏰ *Lead Follow-up Reminder*\n👤 Lead: Amit\n📞 Phone: +919876543210\n📌 Requirement: Wedding coverage\n✅ Task: Check with client\n💬 Reason: \"I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will message you after five minutes I will me…\"\n🕒 Reminder Time: 5:00 PM today\n\nView reminder: https://vistaarcrm.duckdns.org/?conversation=68f1a2b3c4d5e6f708192a3b&reminder=6adf2dd59f91cdd63f09e0f3"
+    }
+  ]
+}

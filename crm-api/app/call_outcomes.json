@@ -1,0 +1,82 @@
+{
+  "generatedBy": "tools/make_call_outcome_rules.mjs",
+  "source": "backend/src/constants/call-outcomes.ts",
+  "outcomes": {
+    "CONTACTED": "contacted",
+    "NOT_RECEIVED": "not_received",
+    "CALL_LATER": "call_later",
+    "INTERESTED": "interested",
+    "BOOKING_CONFIRMED": "booking_confirmed",
+    "NOT_INTERESTED": "not_interested"
+  },
+  "outcomeValues": [
+    "contacted",
+    "not_received",
+    "call_later",
+    "interested",
+    "booking_confirmed",
+    "not_interested"
+  ],
+  "aiModes": {
+    "QUALIFYING": "qualifying",
+    "POST_BOOKING": "post_booking",
+    "OFF": "off"
+  },
+  "aiModeValues": [
+    "qualifying",
+    "post_booking",
+    "off"
+  ],
+  "rules": {
+    "contacted": {
+      "callStatus": "completed",
+      "stage": null,
+      "offersAiResume": true,
+      "aiModeOnResume": "qualifying",
+      "needsCallback": false
+    },
+    "not_received": {
+      "callStatus": "failed",
+      "stage": null,
+      "offersAiResume": true,
+      "aiModeOnResume": "qualifying",
+      "needsCallback": true
+    },
+    "call_later": {
+      "callStatus": "completed",
+      "stage": null,
+      "offersAiResume": true,
+      "aiModeOnResume": "qualifying",
+      "needsCallback": true
+    },
+    "interested": {
+      "callStatus": "completed",
+      "stage": "qualified",
+      "offersAiResume": true,
+      "aiModeOnResume": "qualifying",
+      "needsCallback": false
+    },
+    "booking_confirmed": {
+      "callStatus": "completed",
+      "stage": "won",
+      "offersAiResume": true,
+      "aiModeOnResume": "post_booking",
+      "needsCallback": false
+    },
+    "not_interested": {
+      "callStatus": "completed",
+      "stage": "lost",
+      "offersAiResume": false,
+      "aiModeOnResume": "off",
+      "needsCallback": false
+    }
+  },
+  "summaries": {
+    "contacted": "Spoke to the lead by phone.",
+    "not_received": "Called, but the lead did not answer.",
+    "call_later": "Spoke to the lead; they asked to be called later.",
+    "interested": "Spoke to the lead — interested, still deciding.",
+    "booking_confirmed": "Booking confirmed on the phone.",
+    "not_interested": "The lead is not interested."
+  }
+}

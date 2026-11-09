@@ -1,0 +1,71 @@
+{
+  "generatedBy": "tools/make_followup_constants.mjs",
+  "source": "backend/src/constants/{followup-statuses,followup-priorities,followup-types,reminder-channels}.ts",
+  "statuses": {
+    "PENDING": "pending",
+    "COMPLETED": "completed",
+    "CANCELLED": "cancelled",
+    "MISSED": "missed"
+  },
+  "statusValues": [
+    "pending",
+    "completed",
+    "cancelled",
+    "missed"
+  ],
+  "priorities": {
+    "LOW": "low",
+    "NORMAL": "normal",
+    "HIGH": "high",
+    "URGENT": "urgent"
+  },
+  "priorityValues": [
+    "low",
+    "normal",
+    "high",
+    "urgent"
+  ],
+  "types": {
+    "CALL": "call",
+    "MESSAGE": "message",
+    "PROPOSAL": "proposal",
+    "CUSTOM": "custom"
+  },
+  "typeValues": [
+    "call",
+    "message",
+    "proposal",
+    "custom"
+  ],
+  "reminderChannels": {
+    "WHATSAPP": "whatsapp",
+    "ANDROID": "android"
+  },
+  "reminderChannelValues": [
+    "whatsapp",
+    "android"
+  ],
+  "deliveryStatuses": {
+    "PENDING": "pending",
+    "SENT": "sent",
+    "FAILED": "failed",
+    "SKIPPED": "skipped"
+  },
+  "deliveryStatusValues": [
+    "pending",
+    "sent",
+    "failed",
+    "skipped"
+  ],
+  "reminderSources": {
+    "MANUAL": "manual",
+    "LEAD_COMMITMENT": "lead_commitment",
+    "OWNER_COMMAND": "owner_command"
+  },
+  "reminderSourceValues": [
+    "manual",
+    "lead_commitment",
+    "owner_command"
+  ],
+  "maxDeliveryAttempts": 3
+}

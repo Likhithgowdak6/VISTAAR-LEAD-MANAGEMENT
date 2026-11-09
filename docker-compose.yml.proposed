@@ -1,0 +1,210 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: wam-crm-ai-mongo
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'mongosh --quiet --eval ''try { quit(rs.status().ok ? 0 : 1) } catch (error) { quit(rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]}).ok ? 0 : 1) }''',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    container_name: wam-crm-ai-redis
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Only for ai-brain-service's LangGraph checkpoints ("which step is this conversation on,
+  # paused for approval"). It holds no business data - conversations, messages, leads all stay
+  # in Mongo above. Safe to wipe; a lost checkpoint just means an in-flight approval restarts.
+  ai-brain-db:
+    image: postgres:16-alpine
+    container_name: wam-crm-ai-ai-brain-db
+    environment:
+      POSTGRES_USER: ai_brain
+      POSTGRES_PASSWORD: ai_brain
+      POSTGRES_DB: ai_brain_checkpoints
+    ports:
+      - '5434:5432'
+    volumes:
+      - ai_brain_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ai_brain']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-brain-service:
+    build:
+      context: ./ai-brain-service
+    container_name: wam-crm-ai-ai-brain-service
+    depends_on:
+      ai-brain-db:
+        condition: service_healthy
+    ports:
+      - '8091:8091'
+    environment:
+      DATABASE_URL: postgresql://ai_brain:ai_brain@ai-brain-db:5432/ai_brain_checkpoints
+      SERVICE_API_KEY: ${AI_BRAIN_SERVICE_KEY:-}
+      LLM_PROVIDER: ${AI_BRAIN_LLM_PROVIDER:-anthropic}
+      LLM_API_KEY: ${AI_BRAIN_LLM_API_KEY:-}
+      LLM_MODEL: ${AI_BRAIN_LLM_MODEL:-claude-haiku-4-5-20251001}
+      # One model call's budget. Must stay under the backend's AI_BRAIN_REQUEST_TIMEOUT_MS, or
+      # this service keeps spending quota on an answer the caller already gave up waiting for.
+      # Sized for a proposal (2,500 output tokens), not a reply; see ai-brain-service/app/config.py.
+      LLM_TIMEOUT_SECONDS: ${AI_BRAIN_LLM_TIMEOUT_SECONDS:-40}
+      LLM_MAX_RETRIES: ${AI_BRAIN_LLM_MAX_RETRIES:-1}
+      MAX_QUALIFYING_QUESTIONS: ${AI_BRAIN_MAX_QUALIFYING_QUESTIONS:-6}
+
+  # The Python CRM API - Primary CRM backend
+  crm-api:
+    build:
+      context: ./crm-api
+    container_name: wam-crm-ai-crm-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    network_mode: host
+    volumes:
+      - ./var/media:/app/var/media
+    environment:
+      # Core
+      MONGODB_URI: ${MONGODB_URI:?pass --env-file .env --env-file backend/.env}
+      REDIS_URL: ${REDIS_URL:?pass --env-file .env --env-file backend/.env}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?pass --env-file .env --env-file backend/.env}
+      NODE_ENV: ${NODE_ENV:-production}
+      EXPECTED_REPLICA_SET: rs0
+
+      # AI Brain & LLM
+      AI_BRAIN_ENABLED: ${AI_BRAIN_ENABLED:-false}
+      AI_BRAIN_SERVICE_URL: ${AI_BRAIN_SERVICE_URL:-}
+      AI_BRAIN_SERVICE_KEY: ${AI_BRAIN_SERVICE_KEY:-}
+      AI_BRAIN_REQUEST_TIMEOUT_MS: ${AI_BRAIN_REQUEST_TIMEOUT_MS:-90000}
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+
+      # Timezone & Security
+      WHATSAPP_BUSINESS_TIMEZONE: ${WHATSAPP_BUSINESS_TIMEZONE:-Asia/Kolkata}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      AUTH_COOKIE_CROSS_SITE: ${AUTH_COOKIE_CROSS_SITE:-false}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
+
+      # Push & Deep Links
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+
+      # Media Storage
+      MEDIA_STORAGE_DIR: ${MEDIA_STORAGE_DIR:-var/media}
+      MEDIA_INBOUND_DOWNLOAD_ENABLED: ${MEDIA_INBOUND_DOWNLOAD_ENABLED:-true}
+
+      # Meta Lead Ads Integration
+      META_LEAD_ADS_ENABLED: ${META_LEAD_ADS_ENABLED:-false}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_REDIRECT_URI: ${META_REDIRECT_URI:-}
+      META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
+
+      # Runners disabled on API web server workers to prevent duplicate background sweep loops
+      ENABLE_BACKGROUND_RUNNERS: "false"
+
+  # The Python CRM Background Worker - Runs all 13 background runners in an isolated single instance
+  crm-worker:
+    build:
+      context: ./crm-api
+    container_name: wam-crm-ai-crm-worker
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    network_mode: host
+    volumes:
+      - ./var/media:/app/var/media
+    environment:
+      # Core
+      MONGODB_URI: ${MONGODB_URI:?pass --env-file .env --env-file backend/.env}
+      REDIS_URL: ${REDIS_URL:?pass --env-file .env --env-file backend/.env}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?pass --env-file .env --env-file backend/.env}
+      NODE_ENV: ${NODE_ENV:-production}
+      EXPECTED_REPLICA_SET: rs0
+
+      # AI Brain & LLM
+      AI_BRAIN_ENABLED: ${AI_BRAIN_ENABLED:-false}
+      AI_BRAIN_SERVICE_URL: ${AI_BRAIN_SERVICE_URL:-}
+      AI_BRAIN_SERVICE_KEY: ${AI_BRAIN_SERVICE_KEY:-}
+      AI_BRAIN_REQUEST_TIMEOUT_MS: ${AI_BRAIN_REQUEST_TIMEOUT_MS:-90000}
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+
+      # Timezone & Security
+      WHATSAPP_BUSINESS_TIMEZONE: ${WHATSAPP_BUSINESS_TIMEZONE:-Asia/Kolkata}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
+
+      # Push & Alarms
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      CLOCK_ALARM_PUSH_ENABLED: ${CLOCK_ALARM_PUSH_ENABLED:-false}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+
+      # Media Storage
+      MEDIA_STORAGE_DIR: ${MEDIA_STORAGE_DIR:-var/media}
+      MEDIA_INBOUND_DOWNLOAD_ENABLED: ${MEDIA_INBOUND_DOWNLOAD_ENABLED:-true}
+
+      # Meta Lead Ads Integration
+      META_LEAD_ADS_ENABLED: ${META_LEAD_ADS_ENABLED:-false}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_REDIRECT_URI: ${META_REDIRECT_URI:-}
+      META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
+
+      # Voice Call Escalation
+      VAPI_API_KEY: ${VAPI_API_KEY:-}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-}
+      VAPI_PHONE_NUMBER_ID: ${VAPI_PHONE_NUMBER_ID:-}
+
+      # Background Runners & WhatsApp Dispatch Switches
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-true}
+      WHATSAPP_SEND_TEXT_POC_ENABLED: ${WHATSAPP_SEND_TEXT_POC_ENABLED:-true}
+      WHATSAPP_OUTBOUND_DELIVERY_ENABLED: ${WHATSAPP_OUTBOUND_DELIVERY_ENABLED:-true}
+      LEAD_IMPORT_ENABLED: ${LEAD_IMPORT_ENABLED:-true}
+      REMINDERS_ENABLED: ${REMINDERS_ENABLED:-true}
+      NURTURE_ENABLED: ${NURTURE_ENABLED:-true}
+      PROMISE_FOLLOW_UP_ENABLED: ${PROMISE_FOLLOW_UP_ENABLED:-true}
+      DAILY_JOBS_ENABLED: ${DAILY_JOBS_ENABLED:-true}
+      EVENT_REMINDERS_ENABLED: ${EVENT_REMINDERS_ENABLED:-true}
+      OWNER_CALL_ESCALATION_ENABLED: ${OWNER_CALL_ESCALATION_ENABLED:-true}
+
+volumes:
+  mongo_data:
+  redis_data:
+  ai_brain_db_data:

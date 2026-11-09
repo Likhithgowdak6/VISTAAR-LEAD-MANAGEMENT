@@ -1,0 +1,63 @@
+{
+  "key": "X255KoD2kwdhd7ri1Dk8wWDcwWLoNFsi9ZK5K+XHSP0=",
+  "keyVersion": "1",
+  "cases": [
+    {
+      "purpose": "wam-crm-ai:v1:contact.encryptedPhone",
+      "plaintext": "919876543210",
+      "field": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": "1",
+        "iv": "9xsXCmIqaGeoQi7y",
+        "ciphertext": "O4mDw215QytYbF1f",
+        "authTag": "I5AxC9C5/NLnHLQlTiKGfQ=="
+      }
+    },
+    {
+      "purpose": "wam-crm-ai:v1:contact.encryptedPhone",
+      "plaintext": "",
+      "field": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": "1",
+        "iv": "xtbPG8ALOhJq+A7y",
+        "ciphertext": "",
+        "authTag": "2BxKhsjZSncHPB9Xc2I2oQ=="
+      }
+    },
+    {
+      "purpose": "wam-crm-ai:v1:contact.encryptedEmail",
+      "plaintext": "himanshu@vistaarverse.com",
+      "field": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": "1",
+        "iv": "vU0S9bwFS4PGZ7br",
+        "ciphertext": "qO/j8xV3llG40ZkofTcGeOMVe+JKgOr0ZA==",
+        "authTag": "ZczZYyomZPISjqTKgzAO1A=="
+      }
+    },
+    {
+      "purpose": "wam-crm-ai:v1:contact.encryptedPhone",
+      "plaintext": "नमस्ते 😀",
+      "field": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": "1",
+        "iv": "Z7TC4O3xmywCR+Zk",
+        "ciphertext": "q/AIdCU4KA5CGsXmxD9uw9zFpheZUsE=",
+        "authTag": "d8RfJw6lKI65byIK2e3v+g=="
+      }
+    }
+  ],
+  "json": {
+    "purpose": "wam-crm-ai:v1:contact.encryptedProviderJids",
+    "value": [
+      "919876543210@s.whatsapp.net"
+    ],
+    "field": {
+      "algorithm": "aes-256-gcm",
+      "keyVersion": "1",
+      "iv": "oOP+n4FXTjmHIzkN",
+      "ciphertext": "6nozhVerGrCbdILyz6jlMJ5rXpilX0ksCUNJp9UYrg==",
+      "authTag": "ct3+XdT/aaXs8euWdmMoqQ=="
+    }
+  }
+}

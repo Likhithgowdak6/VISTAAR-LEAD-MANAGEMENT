@@ -201,7 +201,18 @@ export const needsAttentionFilter = (now: Date = new Date()): MongoFilter => ({
   optedOutAt: null,
   $or: [
     inboundNewerThan(EFFECTIVE_ANSWER_AT),
-    UNRESOLVED_FAILURE,
+    // THE AUTOMATION GUARD IS LOAD-BEARING, and its absence was a bug.
+    //
+    // Without it this branch matched PAUSED threads too, so a conversation a human had taken
+    // over, with the customer not waiting (the branch above), still appeared on the attention
+    // list because of a stale AI send failure. `resolveAiResponseStatus` has always ranked
+    // PAUSED above FAILED, so the in-process rules excluded exactly those rows and the two
+    // implementations disagreed on 26 of 2,004 generated conversations.
+    //
+    // A stale AI failure on a thread a human owns, with nobody waiting, is not actionable. It
+    // stays visible through the inbox's own "AI reply failed" filter for every thread the AI
+    // still owns.
+    { ...AUTOMATION_ON, ...UNRESOLVED_FAILURE },
     { nextFollowUpAt: { $ne: null, $lte: now } },
   ],
 });

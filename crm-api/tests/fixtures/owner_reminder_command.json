@@ -1,0 +1,455 @@
+{
+  "now": "2026-10-11T06:30:00.000Z",
+  "looksLike": [
+    {
+      "input": "Remind me at 5 PM to call Rahul",
+      "looksLike": false
+    },
+    {
+      "input": "Set an alarm in 30 minutes to finish the report",
+      "looksLike": false
+    },
+    {
+      "input": "Set alarm for 6 PM",
+      "looksLike": false
+    },
+    {
+      "input": "Wake me at 7 AM",
+      "looksLike": false
+    },
+    {
+      "input": "What reminders do I have today?",
+      "looksLike": true
+    },
+    {
+      "input": "my reminders",
+      "looksLike": true
+    },
+    {
+      "input": "list reminders",
+      "looksLike": true
+    },
+    {
+      "input": "show reminders",
+      "looksLike": true
+    },
+    {
+      "input": "reminders do i have",
+      "looksLike": true
+    },
+    {
+      "input": "reminders today",
+      "looksLike": true
+    },
+    {
+      "input": "Cancel my reminder to call Rahul",
+      "looksLike": true
+    },
+    {
+      "input": "delete reminder",
+      "looksLike": true
+    },
+    {
+      "input": "remove reminder",
+      "looksLike": true
+    },
+    {
+      "input": "drop reminder",
+      "looksLike": true
+    },
+    {
+      "input": "Move my campaign reminder to 7 PM",
+      "looksLike": true
+    },
+    {
+      "input": "reschedule reminder to tomorrow",
+      "looksLike": true
+    },
+    {
+      "input": "shift reminder till 5pm",
+      "looksLike": true
+    },
+    {
+      "input": "push reminder until tomorrow",
+      "looksLike": true
+    },
+    {
+      "input": "A7 1",
+      "looksLike": false
+    },
+    {
+      "input": "1",
+      "looksLike": false
+    },
+    {
+      "input": "VX12 collected",
+      "looksLike": false
+    },
+    {
+      "input": "what did rahul say about the december date",
+      "looksLike": false
+    },
+    {
+      "input": "tell him we are available on the 15th",
+      "looksLike": false
+    },
+    {
+      "input": "",
+      "looksLike": false
+    },
+    {
+      "input": "remind",
+      "looksLike": false
+    },
+    {
+      "input": "just a reminder",
+      "looksLike": true
+    },
+    {
+      "input": "please wake me up",
+      "looksLike": true
+    },
+    {
+      "input": "reminder please",
+      "looksLike": true
+    }
+  ],
+  "commands": [
+    {
+      "input": "Remind me at 5 PM to call Rahul",
+      "result": {
+        "handled": true,
+        "reply": "Done! I'll remind you at 5:00 PM — call Rahul"
+      },
+      "calls": {
+        "createdTask": {
+          "_id": "task-new",
+          "organizationId": "org-1",
+          "whatsappAccountId": "account-1",
+          "conversationId": null,
+          "assignedTo": "owner-user-1",
+          "createdBy": "owner-user-1",
+          "type": "custom",
+          "title": "call Rahul",
+          "dueAt": "2026-10-11T11:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "source": "owner_command",
+          "sourceMessageId": "msg-1",
+          "idempotencyKey": "owner-cmd:msg-1"
+        },
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Done! I'll remind you at 5:00 PM — call Rahul"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Set an alarm in 30 minutes to finish the report",
+      "result": {
+        "handled": true,
+        "reply": "Done! I'll remind you at 12:30 PM — finish the report"
+      },
+      "calls": {
+        "createdTask": {
+          "_id": "task-new",
+          "organizationId": "org-1",
+          "whatsappAccountId": "account-1",
+          "conversationId": null,
+          "assignedTo": "owner-user-1",
+          "createdBy": "owner-user-1",
+          "type": "custom",
+          "title": "finish the report",
+          "dueAt": "2026-10-11T07:00:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "source": "owner_command",
+          "sourceMessageId": "msg-1",
+          "idempotencyKey": "owner-cmd:msg-1"
+        },
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Done! I'll remind you at 12:30 PM — finish the report"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Set an alarm for 6 PM",
+      "result": {
+        "handled": true,
+        "reply": "Done! I'll remind you at 6:00 PM — Personal reminder"
+      },
+      "calls": {
+        "createdTask": {
+          "_id": "task-new",
+          "organizationId": "org-1",
+          "whatsappAccountId": "account-1",
+          "conversationId": null,
+          "assignedTo": "owner-user-1",
+          "createdBy": "owner-user-1",
+          "type": "custom",
+          "title": "Personal reminder",
+          "dueAt": "2026-10-11T12:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "source": "owner_command",
+          "sourceMessageId": "msg-1",
+          "idempotencyKey": "owner-cmd:msg-1"
+        },
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Done! I'll remind you at 6:00 PM — Personal reminder"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Remind me tomorrow at 10 AM to review the campaign",
+      "result": {
+        "handled": true,
+        "reply": "Done! I'll remind you at 10:00 AM — review the campaign"
+      },
+      "calls": {
+        "createdTask": {
+          "_id": "task-new",
+          "organizationId": "org-1",
+          "whatsappAccountId": "account-1",
+          "conversationId": null,
+          "assignedTo": "owner-user-1",
+          "createdBy": "owner-user-1",
+          "type": "custom",
+          "title": "review the campaign",
+          "dueAt": "2026-10-12T04:30:00.000Z",
+          "timezone": "Asia/Kolkata",
+          "source": "owner_command",
+          "sourceMessageId": "msg-1",
+          "idempotencyKey": "owner-cmd:msg-1"
+        },
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Done! I'll remind you at 10:00 AM — review the campaign"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Remind me tomorrow",
+      "result": {
+        "handled": true,
+        "reply": "What time should I remind you?"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "What time should I remind you?"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Remind me at 5",
+      "result": {
+        "handled": true,
+        "reply": "Did you mean 5 AM or 5 PM?"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Did you mean 5 AM or 5 PM?"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Remind me in the evening to call the client",
+      "result": {
+        "handled": true,
+        "reply": "What time exactly? I don't want to get it wrong."
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "What time exactly? I don't want to get it wrong."
+          }
+        ]
+      }
+    },
+    {
+      "input": "Remind me every day at 9 AM to review new leads",
+      "result": {
+        "handled": true,
+        "reply": "I can't set repeating reminders yet - only one-off ones. Want me to set it for a single day instead? Tell me the day and time."
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "I can't set repeating reminders yet - only one-off ones. Want me to set it for a single day instead? Tell me the day and time."
+          }
+        ]
+      }
+    },
+    {
+      "input": "What reminders do I have today?",
+      "result": {
+        "handled": true,
+        "reply": "⏰ *Your reminders*\n• call Rahul — 5:00 PM\n• review the campaign — 10:00 AM"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "⏰ *Your reminders*\n• call Rahul — 5:00 PM\n• review the campaign — 10:00 AM"
+          }
+        ]
+      }
+    },
+    {
+      "input": "Cancel my reminder to call Rahul",
+      "result": {
+        "handled": true,
+        "reply": "Cancelled: call Rahul — 5:00 PM"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": {
+          "taskId": "task-a",
+          "organizationId": "org-1",
+          "status": "cancelled"
+        },
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Cancelled: call Rahul — 5:00 PM"
+          }
+        ]
+      }
+    },
+    {
+      "input": "cancel my reminder",
+      "result": {
+        "handled": true,
+        "reply": "Which reminder? Tell me what it's for and I'll cancel it."
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Which reminder? Tell me what it's for and I'll cancel it."
+          }
+        ]
+      }
+    },
+    {
+      "input": "Move my campaign reminder to 7 PM",
+      "result": {
+        "handled": true,
+        "reply": "Moved to 7:00 PM: review the campaign"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": {
+          "taskId": "task-b",
+          "organizationId": "org-1",
+          "dueAt": "2026-10-11T13:30:00.000Z",
+          "timezone": "Asia/Kolkata"
+        },
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "Moved to 7:00 PM: review the campaign"
+          }
+        ]
+      }
+    },
+    {
+      "input": "move my campaign reminder",
+      "result": {
+        "handled": true,
+        "reply": "What time should I move it to?"
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": [
+          {
+            "organizationId": "org-1",
+            "accountId": "account-1",
+            "text": "What time should I move it to?"
+          }
+        ]
+      }
+    },
+    {
+      "input": "A7 1",
+      "result": {
+        "handled": false
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": []
+      }
+    },
+    {
+      "input": "VX12 collected",
+      "result": {
+        "handled": false
+      },
+      "calls": {
+        "createdTask": null,
+        "updatedTask": null,
+        "rescheduledTask": null,
+        "notified": []
+      }
+    }
+  ]
+}

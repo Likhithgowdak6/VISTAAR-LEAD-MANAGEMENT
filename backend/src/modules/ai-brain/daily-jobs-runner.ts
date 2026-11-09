@@ -46,6 +46,9 @@ export const createMorningReadRunner = ({
     run: () => service.runMorningRead({}),
     logger,
     name: 'Morning handover read',
+    // Stable claim key, shared with crm-api/app/daily_jobs.py. NOT derived from `name`:
+    // that is prose, and rewording it would silently re-run the job once on deploy day.
+    jobKey: 'morningRead',
   });
 
 export interface CreateDigestRunnerOptions {
@@ -65,6 +68,9 @@ export const createDigestRunner = ({
     run: () => service.sendDigest({}),
     logger,
     name: 'Owner digest',
+    // Stable claim key, shared with crm-api/app/daily_jobs.py. NOT derived from `name`:
+    // that is prose, and rewording it would silently re-run the job once on deploy day.
+    jobKey: 'digest',
   });
 
 export interface CreateBookingCountdownRunnerOptions {
@@ -89,4 +95,7 @@ export const createBookingCountdownRunner = ({
     run: () => service.run(),
     logger,
     name: 'Booking countdown',
+    // Stable claim key, shared with crm-api/app/daily_jobs.py. NOT derived from `name`:
+    // that is prose, and rewording it would silently re-run the job once on deploy day.
+    jobKey: 'bookingCountdown',
   });

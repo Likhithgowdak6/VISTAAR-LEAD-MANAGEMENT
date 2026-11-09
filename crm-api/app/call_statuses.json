@@ -1,0 +1,32 @@
+{
+  "generatedBy": "tools/make_call_constants.mjs",
+  "source": "backend/src/constants/call-statuses.ts",
+  "directions": {
+    "OUTBOUND": "outbound",
+    "INBOUND": "inbound"
+  },
+  "directionValues": [
+    "outbound",
+    "inbound"
+  ],
+  "statuses": {
+    "INITIATED": "initiated",
+    "COMPLETED": "completed",
+    "FAILED": "failed",
+    "CANCELLED": "cancelled",
+    "UNKNOWN": "unknown"
+  },
+  "statusValues": [
+    "initiated",
+    "completed",
+    "failed",
+    "cancelled",
+    "unknown"
+  ],
+  "outcomeValues": [
+    "completed",
+    "failed",
+    "cancelled",
+    "unknown"
+  ]
+}

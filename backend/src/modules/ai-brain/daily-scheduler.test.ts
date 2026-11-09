@@ -21,6 +21,9 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
   let clock = new Date('2026-08-25T02:00:00.000Z');
   const run = vi.fn().mockResolvedValue(undefined);
   const logger = { error: vi.fn() };
+  // Injected rather than defaulted: the real one writes to MongoDB, and a unit test for clock
+  // arithmetic has no business opening a connection. Granting the claim is the normal case.
+  const claimRun = vi.fn().mockResolvedValue(true);
 
   const scheduler = createDailyScheduler({
     hour: 9,
@@ -29,6 +32,8 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     run,
     logger,
     now: () => clock,
+    claimRun,
+    jobKey: 'test-job',
     ...overrides,
   });
 
@@ -36,6 +41,7 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     scheduler,
     run,
     logger,
+    claimRun,
     setClock: (iso: string) => {
       clock = new Date(iso);
     },
@@ -150,5 +156,103 @@ describe('createDailyScheduler', () => {
     expect(h.scheduler.start()).toBe(true);
     expect(h.scheduler.start()).toBe(false);
     h.scheduler.stop();
+  });
+});
+
+/**
+ * REGRESSION: the day was guarded only by an in-process variable.
+ *
+ * `lastFiredDateKey` is null again after a restart while `hasReachedLocalTime` is still true,
+ * so restarting the backend any time after DIGEST_HOUR fired every daily job a second time -
+ * the owner received a second digest, morning read and booking countdown the same evening.
+ *
+ * The in-process flag is kept as a cheap pre-filter. The database claim is the guarantee.
+ */
+describe('createDailyScheduler - the database claim', () => {
+  it('claims the day BEFORE running, not after', async () => {
+    // A job that throws, or one that outlives the next tick, must not be retried for the rest
+    // of the day. A customer-facing message that went out and then failed to record itself
+    // would otherwise be sent again.
+    const h = createHarness();
+    const order: string[] = [];
+    h.claimRun.mockImplementation(async () => {
+      order.push('claim');
+      return true;
+    });
+    h.run.mockImplementation(async () => {
+      order.push('run');
+    });
+
+    h.setClock('2026-08-25T03:31:00.000Z');
+    await h.scheduler.tick();
+
+    expect(order).toEqual(['claim', 'run']);
+  });
+
+  it('DOES NOT RUN when somebody else already claimed the day', async () => {
+    // The other side may be another process after a restart, or the Python service during the
+    // migration. Either way, one run.
+    const h = createHarness();
+    h.claimRun.mockResolvedValue(false);
+
+    h.setClock('2026-08-25T03:31:00.000Z');
+    const fired = await h.scheduler.tick();
+
+    expect(fired).toBe(false);
+    expect(h.run).not.toHaveBeenCalled();
+  });
+
+  it('SURVIVES A RESTART - a fresh scheduler does not re-run a claimed day', async () => {
+    // The exact production bug. A new process has no `lastFiredDateKey`, so only the claim
+    // stops it.
+    const alreadyClaimed = vi.fn().mockResolvedValue(false);
+    const restarted = createHarness({ claimRun: alreadyClaimed });
+
+    restarted.setClock('2026-08-25T03:31:00.000Z');
+    await restarted.scheduler.tick();
+
+    expect(restarted.run).not.toHaveBeenCalled();
+    expect(alreadyClaimed).toHaveBeenCalledTimes(1);
+  });
+
+  it('claims with the stable job key and the local date key', async () => {
+    const h = createHarness();
+
+    h.setClock('2026-08-25T03:31:00.000Z');
+    await h.scheduler.tick();
+
+    expect(h.claimRun).toHaveBeenCalledWith({ job: 'test-job', dateKey: '2026-08-25' });
+  });
+
+  it('does not touch the database before the hour has been reached', async () => {
+    // The in-process flag and the clock check are both cheap pre-filters; a tick every minute
+    // must not become a write every minute.
+    const h = createHarness();
+
+    await h.scheduler.tick();
+
+    expect(h.claimRun).not.toHaveBeenCalled();
+  });
+
+  it('claims once per day, not once per tick', async () => {
+    const h = createHarness();
+
+    h.setClock('2026-08-25T03:31:00.000Z');
+    await h.scheduler.tick();
+    await h.scheduler.tick();
+    await h.scheduler.tick();
+
+    expect(h.claimRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the log label when no jobKey is given', async () => {
+    // Documented as a fallback rather than the intent: the label is prose and rewording it
+    // would silently re-run the job once on the day of the deploy.
+    const h = createHarness({ jobKey: undefined, name: 'Owner digest' });
+
+    h.setClock('2026-08-25T03:31:00.000Z');
+    await h.scheduler.tick();
+
+    expect(h.claimRun).toHaveBeenCalledWith({ job: 'Owner digest', dateKey: '2026-08-25' });
   });
 });

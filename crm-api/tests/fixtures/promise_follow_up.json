@@ -1,0 +1,47 @@
+{
+  "promiseMaxLatenessMs": 43200000,
+  "factCases": [
+    {
+      "input": {
+        "direction": "contact_lead",
+        "quote": "send me the packages at 5"
+      },
+      "output": "We promised to get back to them by now, and this message is us doing that. Their words: \"send me the packages at 5\""
+    },
+    {
+      "input": {
+        "direction": "await_lead",
+        "quote": "I will confirm by Friday"
+      },
+      "output": "They said they would come back to us by now, and have not yet. Their words: \"I will confirm by Friday\""
+    },
+    {
+      "input": {
+        "direction": "contact_lead",
+        "quote": null
+      },
+      "output": "We promised to get back to them by now, and this message is us doing that."
+    },
+    {
+      "input": {
+        "direction": "await_lead",
+        "quote": ""
+      },
+      "output": "They said they would come back to us by now, and have not yet."
+    },
+    {
+      "input": {
+        "direction": "contact_lead",
+        "quote": "   "
+      },
+      "output": "We promised to get back to them by now, and this message is us doing that."
+    },
+    {
+      "input": {
+        "direction": "contact_lead",
+        "quote": "ok"
+      },
+      "output": "We promised to get back to them by now, and this message is us doing that. Their words: \"ok\""
+    }
+  ]
+}

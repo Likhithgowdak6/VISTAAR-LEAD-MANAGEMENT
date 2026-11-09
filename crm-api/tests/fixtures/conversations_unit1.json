@@ -1,0 +1,654 @@
+{
+  "refDate": "2026-05-15T12:00:00.000Z",
+  "eventDateFixtures": [
+    {
+      "input": "2026-09-12",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "2026-09-12T15:30:00Z",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12/09/2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12-09-2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12.09.2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12/9/26",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12/9",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12 september 2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12th of september 2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "12th Sep 2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "September 12, 2026",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "Sep 12",
+      "parsed": "2026-09-12T00:00:00.000Z",
+      "formatted": "12 Sep 2026",
+      "daysUntil": 120
+    },
+    {
+      "input": "29/02/2024",
+      "parsed": "2024-02-29T00:00:00.000Z",
+      "formatted": "29 Feb 2024",
+      "daysUntil": -806
+    },
+    {
+      "input": "29 Feb 2027",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "31/04/2026",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "next saturday",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "not decided yet",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "after diwali",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "12/09/2062",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": "",
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": null,
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    },
+    {
+      "input": 12345,
+      "parsed": null,
+      "formatted": null,
+      "daysUntil": null
+    }
+  ],
+  "tempFixtures": [
+    {
+      "lastInboundAt": null,
+      "temperature": "new"
+    },
+    {
+      "temperature": "new"
+    },
+    {
+      "lastInboundAt": "",
+      "temperature": "new"
+    },
+    {
+      "lastInboundAt": "invalid-date",
+      "temperature": "new"
+    },
+    {
+      "lastInboundAt": "2026-05-15T12:00:00.000Z",
+      "temperature": "hot"
+    },
+    {
+      "lastInboundAt": "2026-05-15T11:00:00.000Z",
+      "temperature": "hot"
+    },
+    {
+      "lastInboundAt": "2026-05-14T13:00:00.000Z",
+      "temperature": "hot"
+    },
+    {
+      "lastInboundAt": "2026-05-14T12:00:00.000Z",
+      "temperature": "hot"
+    },
+    {
+      "lastInboundAt": "2026-05-14T11:59:59.999Z",
+      "temperature": "cold"
+    },
+    {
+      "lastInboundAt": "2026-05-12T12:00:00.000Z",
+      "temperature": "cold"
+    },
+    {
+      "lastInboundAt": "2026-05-15T12:10:00.000Z",
+      "temperature": "hot"
+    }
+  ],
+  "scoreFixtures": [
+    {
+      "input": {},
+      "output": {
+        "score": 0,
+        "band": "low_intent",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": []
+      }
+    },
+    {
+      "input": {
+        "facts": {
+          "event_date": "12 Sep 2026"
+        }
+      },
+      "output": {
+        "score": 20,
+        "band": "cold",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": true
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": [
+          "event_date"
+        ]
+      }
+    },
+    {
+      "input": {
+        "facts": {
+          "shoot_date": "12 Sep 2026",
+          "city": "Bangalore"
+        }
+      },
+      "output": {
+        "score": 35,
+        "band": "cold",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": true
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": [
+          "event_date",
+          "venue"
+        ]
+      }
+    },
+    {
+      "input": {
+        "facts": {
+          "city": "Mumbai",
+          "budget_range": "50k - 1L"
+        }
+      },
+      "output": {
+        "score": 30,
+        "band": "cold",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": [
+          "venue",
+          "budget"
+        ]
+      }
+    },
+    {
+      "input": {
+        "facts": {
+          "event_date": "not decided yet",
+          "city": "na",
+          "budget_range": "tbd"
+        }
+      },
+      "output": {
+        "score": 0,
+        "band": "low_intent",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": []
+      }
+    },
+    {
+      "input": {
+        "facts": {
+          "event_date": "12 Sep 2026",
+          "city": "Delhi",
+          "monthly_budget": "1L+"
+        },
+        "repliedToAi": true,
+        "askedForQuotation": true,
+        "askedAboutAvailability": true
+      },
+      "output": {
+        "score": 100,
+        "band": "hot",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": true
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": true
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": true
+          }
+        ],
+        "firedSignals": [
+          "event_date",
+          "venue",
+          "budget",
+          "quotation_requested",
+          "replied",
+          "availability_asked"
+        ]
+      }
+    },
+    {
+      "input": {
+        "repliedToAi": true
+      },
+      "output": {
+        "score": 20,
+        "band": "cold",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": true
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": [
+          "replied"
+        ]
+      }
+    },
+    {
+      "input": {
+        "askedForQuotation": true
+      },
+      "output": {
+        "score": 15,
+        "band": "low_intent",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": true
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": false
+          }
+        ],
+        "firedSignals": [
+          "quotation_requested"
+        ]
+      }
+    },
+    {
+      "input": {
+        "askedAboutAvailability": true
+      },
+      "output": {
+        "score": 15,
+        "band": "low_intent",
+        "signals": [
+          {
+            "key": "event_date",
+            "label": "Event date given",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "venue",
+            "label": "Venue given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "budget",
+            "label": "Budget given",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "quotation_requested",
+            "label": "Asked for a quotation",
+            "points": 15,
+            "fired": false
+          },
+          {
+            "key": "replied",
+            "label": "Replied to the AI",
+            "points": 20,
+            "fired": false
+          },
+          {
+            "key": "availability_asked",
+            "label": "Asked about availability",
+            "points": 15,
+            "fired": true
+          }
+        ],
+        "firedSignals": [
+          "availability_asked"
+        ]
+      }
+    }
+  ]
+}

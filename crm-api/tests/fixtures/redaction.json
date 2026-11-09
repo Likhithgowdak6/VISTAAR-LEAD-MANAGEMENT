@@ -1,0 +1,241 @@
+{
+  "generatedBy": "tools/make_redaction_fixtures.mjs",
+  "isSensitiveKey": {
+    "0": false,
+    "iv": true,
+    "IV": true,
+    "i_v": true,
+    "  iv  ": true,
+    "password": true,
+    "passwordHash": true,
+    "access_token": true,
+    "refreshToken": true,
+    "tokenHash": true,
+    "cookie": true,
+    "Authorization": true,
+    "clientSecret": true,
+    "phone": true,
+    "customerPhoneNumber": true,
+    "email": true,
+    "providerJid": true,
+    "encryptedPayload": true,
+    "authState": true,
+    "ciphertext": true,
+    "authTag": true,
+    "encryptionKey": true,
+    "rawPayload": true,
+    "private": false,
+    "car_delivery": false,
+    "arrival": false,
+    "festival": false,
+    "receive": false,
+    "deliverables": false,
+    "kind_of_event_private_socials_birthday_or_others": false,
+    "invoice": false,
+    "invite": false,
+    "video": false,
+    "service": false,
+    "tagSlug": false,
+    "stage": false,
+    "budget": false,
+    "guestCount": false,
+    "venue": false,
+    "notes": false,
+    "": false
+  },
+  "redact": [
+    {
+      "label": "primitives",
+      "input": "plain",
+      "output": "plain"
+    },
+    {
+      "label": "null",
+      "input": null,
+      "output": null
+    },
+    {
+      "label": "number",
+      "input": 42,
+      "output": 42
+    },
+    {
+      "label": "boolean",
+      "input": false,
+      "output": false
+    },
+    {
+      "label": "flat object",
+      "input": {
+        "stage": "enquiry",
+        "password": "hunter2"
+      },
+      "output": {
+        "stage": "enquiry",
+        "password": "[REDACTED]"
+      }
+    },
+    {
+      "label": "nested",
+      "input": {
+        "outer": {
+          "inner": {
+            "accessToken": "abc",
+            "keep": "yes"
+          }
+        }
+      },
+      "output": {
+        "outer": {
+          "inner": {
+            "accessToken": "[REDACTED]",
+            "keep": "yes"
+          }
+        }
+      }
+    },
+    {
+      "label": "lead fact blob",
+      "input": {
+        "kind_of_event_private_socials_birthday_or_others": "birthday",
+        "car_delivery": true,
+        "arrival": "2026-03-01",
+        "guestCount": 180
+      },
+      "output": {
+        "kind_of_event_private_socials_birthday_or_others": "birthday",
+        "car_delivery": true,
+        "arrival": "2026-03-01",
+        "guestCount": 180
+      }
+    },
+    {
+      "label": "array",
+      "input": [
+        {
+          "email": "a@b.c"
+        },
+        {
+          "venue": "Planters Lodge"
+        }
+      ],
+      "output": [
+        {
+          "email": "[REDACTED]"
+        },
+        {
+          "venue": "Planters Lodge"
+        }
+      ]
+    },
+    {
+      "label": "date",
+      "input": {
+        "when": "2026-09-29T10:15:00.000Z"
+      },
+      "output": {
+        "when": "2026-09-29T10:15:00.000Z"
+      }
+    },
+    {
+      "label": "iv inside",
+      "input": {
+        "iv": "deadbeef",
+        "invoice": "INV-1"
+      },
+      "output": {
+        "iv": "[REDACTED]",
+        "invoice": "INV-1"
+      }
+    }
+  ],
+  "redactCircular": {
+    "name": "loop",
+    "self": "[Circular]"
+  },
+  "assert": [
+    {
+      "label": "clean",
+      "input": {
+        "tagSlug": "vip",
+        "guestCount": 12
+      },
+      "throws": false,
+      "message": null
+    },
+    {
+      "label": "lead facts survive",
+      "input": {
+        "car_delivery": true,
+        "private": "yes"
+      },
+      "throws": false,
+      "message": null
+    },
+    {
+      "label": "top level secret",
+      "input": {
+        "password": "x"
+      },
+      "throws": true,
+      "message": "Activity metadata contains blocked sensitive key: password"
+    },
+    {
+      "label": "nested secret",
+      "input": {
+        "a": {
+          "b": {
+            "refreshToken": "x"
+          }
+        }
+      },
+      "throws": true,
+      "message": "Activity metadata contains blocked sensitive key: a.b.refreshToken"
+    },
+    {
+      "label": "inside array",
+      "input": {
+        "items": [
+          {
+            "ok": 1
+          },
+          {
+            "cookie": "x"
+          }
+        ]
+      },
+      "throws": true,
+      "message": "Activity metadata contains blocked sensitive key: items.1.cookie"
+    },
+    {
+      "label": "iv at top",
+      "input": {
+        "iv": "x"
+      },
+      "throws": true,
+      "message": "Activity metadata contains blocked sensitive key: iv"
+    },
+    {
+      "label": "not an object",
+      "input": "string",
+      "throws": false,
+      "message": null
+    },
+    {
+      "label": "null",
+      "input": null,
+      "throws": false,
+      "message": null
+    },
+    {
+      "label": "array at top",
+      "input": [
+        {
+          "email": "x"
+        }
+      ],
+      "throws": true,
+      "message": "Activity metadata contains blocked sensitive key: 0.email"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "generatedBy": "tools/make_commitment_retry_fixtures.mjs",
+  "constants": {
+    "MAX_COMMITMENT_RETRY_ATTEMPTS": 4,
+    "COMMITMENT_RETRY_BASE_BACKOFF_MS": 60000,
+    "COMMITMENT_RETRY_LEASE_MS": 120000,
+    "COMMITMENT_RETRY_STATUSES": {
+      "PENDING": "pending",
+      "CLAIMED": "claimed",
+      "FAILED_PERMANENT": "failed_permanent"
+    }
+  },
+  "backoffs": [
+    {
+      "attempts": 0,
+      "backoffMs": 60000
+    },
+    {
+      "attempts": 1,
+      "backoffMs": 60000
+    },
+    {
+      "attempts": 2,
+      "backoffMs": 120000
+    },
+    {
+      "attempts": 3,
+      "backoffMs": 240000
+    },
+    {
+      "attempts": 4,
+      "backoffMs": 480000
+    },
+    {
+      "attempts": 5,
+      "backoffMs": 960000
+    },
+    {
+      "attempts": 6,
+      "backoffMs": 1920000
+    },
+    {
+      "attempts": 10,
+      "backoffMs": 30720000
+    }
+  ]
+}

@@ -13,6 +13,7 @@
  * same target minute still produce exactly one run - and the next local day produces a new one.
  */
 import { getLocalDateParts } from '../whatsapp/automation/quiet-hours.js';
+import { claimDailyRun as defaultClaimDailyRun } from './daily-run.repository.js';
 
 const DEFAULT_TICK_INTERVAL_MS = 60_000;
 
@@ -54,6 +55,17 @@ export interface CreateDailySchedulerOptions {
   logger?: { error?: (...args: unknown[]) => void };
   /** Label used in the error log line, so two schedulers are distinguishable. */
   name?: string;
+  /**
+   * Stable key for the database claim. Defaults to `name`, but should be set explicitly: the
+   * log label is prose and may be reworded, and rewording it would silently re-run the job
+   * once on the day of the deploy.
+   */
+  jobKey?: string;
+  /**
+   * Claims the day in the database. Injected so tests can drive it; the default is the real
+   * one. See daily-run.repository.ts for why memory alone was not enough.
+   */
+  claimRun?: (params: { job: string; dateKey: string }) => Promise<boolean>;
 }
 
 export const createDailyScheduler = ({
@@ -66,7 +78,10 @@ export const createDailyScheduler = ({
   now = () => new Date(),
   logger = console,
   name = 'daily job',
+  jobKey,
+  claimRun = defaultClaimDailyRun,
 }: CreateDailySchedulerOptions) => {
+  const claimKey = jobKey ?? name;
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let lastFiredDateKey: string | null = null;
@@ -87,12 +102,25 @@ export const createDailyScheduler = ({
       return false;
     }
 
-    // Claimed before the run, not after: a job that throws (or one that outlives the next tick)
-    // must not be retried again and again for the rest of the day.
+    // IN-PROCESS FLAG FIRST, DATABASE CLAIM SECOND, and both before the run.
+    //
+    // The flag is a cheap pre-filter so a tick every minute does not hit the database every
+    // minute. It is NOT the guarantee: it is null again after a restart, which is exactly how
+    // a restart after DIGEST_HOUR used to send the owner a second digest.
+    //
+    // The claim is the guarantee, and it holds across restarts, processes and services - the
+    // same mechanism every other runner here uses for its own unit of work.
     lastFiredDateKey = dateKey;
     running = true;
 
     try {
+      const claimed = await claimRun({ job: claimKey, dateKey });
+
+      if (!claimed) {
+        // Somebody else has today. Not an error, and not worth a log line every minute.
+        return false;
+      }
+
       await run();
       return true;
     } catch (error: unknown) {

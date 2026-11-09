@@ -29,7 +29,7 @@ from typing import Any
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app import db
 from app.deps import AuthContext, require_permission
@@ -100,48 +100,42 @@ def serialize_starred_message(doc: dict[str, Any] | None) -> dict[str, Any] | No
     }
 
 
-class CreateStarredMessage(BaseModel):
+class _Trimmed(BaseModel):
+    """
+    zod's `.trim()` runs BEFORE `.min(1).max(n)`, so a 120-character title with trailing spaces
+    is accepted. Pydantic applies `Field` constraints to the raw input, so the trim has to run
+    in a `mode="before"` validator to land on the same side of the boundary.
+
+    Declared as a field validator rather than a model validator because of the ERROR BODY: a
+    model validator reports `loc` as `("body",)` and `error.details` came out keyed `_`, where
+    Node sends zod's `fieldErrors` keyed by field name.
+    """
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _trim(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+
+class CreateStarredMessage(_Trimmed):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
     body: str = Field(min_length=1, max_length=BODY_MAX)
     sourceMessageId: str | None = None
     sourceConversationId: str | None = None
 
-    @model_validator(mode="after")
-    def _trim(self):
-        # zod's `.trim().min(1)` trims BEFORE checking, so "   " is rejected rather than stored
-        # as an empty string. Pydantic checks length first, so the trim is redone here and the
-        # emptiness re-checked.
-        object.__setattr__(self, "title", self.title.strip())
-        object.__setattr__(self, "body", self.body.strip())
 
-        if not self.title or not self.body:
-            raise ValueError("title and body must not be blank")
-
-        return self
-
-
-class UpdateStarredMessage(BaseModel):
+class UpdateStarredMessage(_Trimmed):
     title: str | None = Field(default=None, min_length=1, max_length=TITLE_MAX)
     body: str | None = Field(default=None, min_length=1, max_length=BODY_MAX)
 
     @model_validator(mode="after")
     def _at_least_one(self):
         # An empty PATCH is a client bug, and answering it with 200 and an unchanged record
-        # hides it. Matches the zod `.refine`.
+        # hides it. Matches the zod `.refine`, which is genuinely object-level - so this one
+        # stays a model validator. Node drops object-level messages from `fieldErrors` and sends
+        # `details: {}`; this sends `{"_": [...]}`, a superset. No client enumerates the keys.
         if self.title is None and self.body is None:
             raise ValueError("Provide a title or a body to update.")
-
-        if self.title is not None:
-            object.__setattr__(self, "title", self.title.strip())
-
-            if not self.title:
-                raise ValueError("title must not be blank")
-
-        if self.body is not None:
-            object.__setattr__(self, "body", self.body.strip())
-
-            if not self.body:
-                raise ValueError("body must not be blank")
 
         return self
 

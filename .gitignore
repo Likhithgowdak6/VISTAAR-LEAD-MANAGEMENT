@@ -87,3 +87,10 @@ serviceAccount*.json
 # per-project and DEPLOY.md has you place it by hand. Ignored so a build machine cannot
 # quietly ship somebody else's project id in an APK.
 google-services.json
+
+# Media bytes written by crm-api. `media_storage_dir` defaults to the RELATIVE path
+# `var/media`, and in production the compose bind mount is `./var/media` - so without this an
+# ordinary test run or a local upload drops real customer attachments into the checkout, and
+# the next `git add` ships them. The directory is recreated on demand; nothing here is state
+# worth keeping.
+crm-api/var/

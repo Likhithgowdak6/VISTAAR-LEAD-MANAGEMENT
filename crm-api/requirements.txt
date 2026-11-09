@@ -1,6 +1,7 @@
 # Pinned exactly, matching ai-brain-service's convention: a floating version in a service that
 # talks to production MongoDB is a deploy that behaves differently from the one that was tested.
 fastapi==0.115.6
+python-multipart==0.0.20
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
@@ -16,7 +17,21 @@ redis==5.2.1
 # created by Node authenticates here with no second login. See app/auth.py.
 PyJWT==2.10.1
 
-pytest==8.3.4
-pytest-asyncio==0.25.0
 httpx==0.28.1
-mongomock-motor==0.0.36
+
+# Decrypts the AES-256-GCM field envelopes the Node backend wrote. `hazmat`'s AESGCM is the
+# direct counterpart of node:crypto's createDecipheriv with authTagLength 16 - see
+# app/encryption.py, and tests/test_encryption.py which decrypts fixtures Node produced.
+cryptography==44.0.0
+
+# Verifies and mints the bcrypt hashes the Node backend reads. Node uses bcryptjs; both emit
+# $2b$ and both truncate at 72 bytes, asserted against bcryptjs-generated fixtures in
+# tests/test_passwords.py rather than assumed.
+bcrypt==4.2.1
+
+# The IANA timezone database. NOT optional and NOT merely a Windows convenience: python:3.11-slim
+# carries no system tzdata either, so ZoneInfo("Asia/Kolkata") raises there too. Every analytics
+# boundary is a LOCAL midnight in the studio timezone, so without this the dashboard either
+# fails outright or - worse, if a fallback were ever added - silently reports UTC days and shifts
+# every number by 5.5 hours.
+tzdata==2024.2

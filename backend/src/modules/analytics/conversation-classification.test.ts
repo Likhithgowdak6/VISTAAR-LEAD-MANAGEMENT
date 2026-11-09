@@ -384,3 +384,130 @@ describe('needs attention', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * REGRESSION: the attention list and its MongoDB counterpart used to disagree.
+ *
+ * `classification-filters.ts` said the cross-check "is listed in the report as outstanding".
+ * Running it against 2,004 generated conversations found 28 disagreements, in both directions.
+ * Both implementations were wrong, each on its own terms, and both were changed.
+ *
+ * These tests pin the two fixes here; `classification-filters.test.ts` pins the query side, and
+ * the Python port asserts the two agree row-for-row on all 2,004.
+ */
+describe('needsAttention - the AI-only comparison bug', () => {
+  /**
+   * `needsAttention` used to short-circuit on `status === AWAITING`. AWAITING compares the
+   * inbound against the AI-ONLY reply time, so a thread a human had already answered still
+   * counted as waiting - which contradicts this module's own published definition of the
+   * status: ConversationFilters.tsx renders it as "newer than the last reply SENT".
+   */
+  it('does not need attention once a HUMAN has answered the latest inbound', () => {
+    const answeredByHand = conversation({
+      leadQualificationStatus: 'confirmed',
+      aiAutomationEnabled: true,
+      lastInboundAt: TUE,
+      lastAiReplyAt: MON,
+      lastDeliveredOutboundAt: WED,
+    });
+
+    // The status itself is unchanged and still correct: the AI has not replied.
+    expect(resolveAiResponseStatus(answeredByHand)).toBe(AI_RESPONSE_STATUSES.AWAITING);
+    // But nobody is waiting on us, so it is not an attention item.
+    expect(needsAttention(answeredByHand)).toBe(false);
+  });
+
+  it('still needs attention when nobody has answered at all', () => {
+    const genuinelyWaiting = conversation({
+      leadQualificationStatus: 'confirmed',
+      aiAutomationEnabled: true,
+      lastInboundAt: TUE,
+      lastAiReplyAt: MON,
+      lastDeliveredOutboundAt: null,
+    });
+
+    expect(resolveAiResponseStatus(genuinelyWaiting)).toBe(AI_RESPONSE_STATUSES.AWAITING);
+    expect(needsAttention(genuinelyWaiting)).toBe(true);
+  });
+
+  it('treats an answer at the SAME instant as the inbound as answered', () => {
+    // `>`, not `>=`. A same-millisecond reply reading as unanswered would strand the thread on
+    // the list forever.
+    expect(
+      needsAttention(
+        conversation({
+          leadQualificationStatus: 'confirmed',
+          lastInboundAt: TUE,
+          lastDeliveredOutboundAt: TUE,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('needsAttention - a stale failure on a thread a human owns', () => {
+  /**
+   * The MongoDB filter had no automation check on its failure branch, so a paused thread with
+   * an old AI send failure matched it. The rules never did, because PAUSED outranks FAILED.
+   *
+   * The rules are right: a human took the thread over, the customer is not waiting, and the
+   * failed AI send is not something anyone needs to act on. It remains visible through the
+   * inbox's own "AI reply failed" filter for every thread the AI still owns.
+   */
+  it('does not need attention when automation is off and nobody is waiting', () => {
+    const takenOver = conversation({
+      leadQualificationStatus: 'confirmed',
+      aiAutomationEnabled: false,
+      lastInboundAt: MON,
+      lastDeliveredOutboundAt: TUE,
+      lastAiSendFailedAt: WED,
+    });
+
+    expect(resolveAiResponseStatus(takenOver)).toBe(AI_RESPONSE_STATUSES.PAUSED);
+    expect(needsAttention(takenOver)).toBe(false);
+  });
+
+  it('DOES need attention when automation is off and the customer IS waiting', () => {
+    // The guard must not hide a paused thread somebody is waiting on. The AI will not answer
+    // it, so if nobody looks, nobody answers.
+    expect(
+      needsAttention(
+        conversation({
+          leadQualificationStatus: 'confirmed',
+          aiAutomationEnabled: false,
+          lastInboundAt: WED,
+          lastDeliveredOutboundAt: TUE,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('surfaces an unresolved failure while the AI still owns the thread', () => {
+    // A genuine failure is not hidden. With automation on it is both an attention item and
+    // reachable through the "AI reply failed" filter.
+    const failing = conversation({
+      leadQualificationStatus: 'confirmed',
+      aiAutomationEnabled: true,
+      lastAiReplyAt: MON,
+      lastAiSendFailedAt: WED,
+    });
+
+    expect(resolveAiResponseStatus(failing)).toBe(AI_RESPONSE_STATUSES.FAILED);
+    expect(needsAttention(failing)).toBe(true);
+  });
+
+  it('leaves the six AI status buckets untouched', () => {
+    // Only the attention list moved. A paused thread's failure becomes visible in its own
+    // right the moment automation resumes.
+    const paused = conversation({
+      leadQualificationStatus: 'confirmed',
+      aiAutomationEnabled: false,
+      lastAiSendFailedAt: WED,
+    });
+
+    expect(resolveAiResponseStatus(paused)).toBe(AI_RESPONSE_STATUSES.PAUSED);
+    expect(
+      resolveAiResponseStatus({ ...paused, aiAutomationEnabled: true }),
+    ).toBe(AI_RESPONSE_STATUSES.FAILED);
+  });
+});
