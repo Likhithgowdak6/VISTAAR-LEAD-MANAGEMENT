@@ -448,9 +448,12 @@ async def _attention_rows(
                 {"organizationId": context["scope"].organization_id, "_id": {"$in": contact_ids}}
             )
             async for contact in cursor:
-                phones[str(contact["_id"])] = encryption.decrypt_string(
-                    contact.get("encryptedPhone"), encryption.CONTACT_PHONE
-                )
+                try:
+                    phones[str(contact["_id"])] = encryption.decrypt_string(
+                        contact.get("encryptedPhone"), encryption.CONTACT_PHONE
+                    )
+                except Exception:
+                    phones[str(contact["_id"])] = None
 
     now = context["now"]
     rows = []
