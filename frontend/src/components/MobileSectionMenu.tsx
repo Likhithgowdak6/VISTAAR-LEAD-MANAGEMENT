@@ -165,21 +165,26 @@ const MobileSectionMenu = <TView extends string>({
             aria-label="Sections"
             // -1 so the panel can hold focus on open without becoming a Tab stop of its own.
             tabIndex={-1}
-            className="relative max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-hairline bg-ink-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] focus:outline-none"
+            className="relative max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl focus:outline-none"
           >
-            <div className="sticky top-0 flex items-center gap-3 border-b border-hairline bg-ink-2 px-4 py-3">
+            {/* Top Sheet Drag Indicator Pill */}
+            <div className="flex justify-center pt-2.5 pb-1">
+              <span className="h-1 w-9 rounded-full bg-slate-300 dark:bg-slate-700" />
+            </div>
+
+            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-5 py-3">
               {/* The initials moved here with the rest of the account block when the masthead
                   trigger gave way to the bottom bar - this sheet is now the only place on a
                   phone that answers "who am I signed in as". */}
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-key/40 bg-key/10 font-mono text-[0.6875rem] font-semibold text-key-soft">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 font-mono text-xs font-bold text-white shadow-sm shadow-blue-500/25">
                 {getInitials(userName)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-bone">
+                <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
                   {userName ?? 'Signed in'}
                 </p>
                 {organizationName ? (
-                  <p className="truncate font-mono text-[0.625rem] uppercase tracking-[0.12em] text-muted">
+                  <p className="truncate font-mono text-[0.625rem] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     {organizationName}
                   </p>
                 ) : null}
@@ -188,13 +193,13 @@ const MobileSectionMenu = <TView extends string>({
                 type="button"
                 onClick={close}
                 aria-label="Close menu"
-                className="tap-target shrink-0 rounded-md border border-hairline px-3 text-[0.6875rem] uppercase tracking-[0.1em] text-muted"
+                className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white active:scale-95 transition-all"
               >
                 Close
               </button>
             </div>
 
-            <nav aria-label="All sections" className="flex flex-col p-2">
+            <nav aria-label="All sections" className="flex flex-col p-2.5 space-y-0.5">
               {items.map((item) => {
                 const isActive = item.view === activeView;
 
@@ -204,28 +209,32 @@ const MobileSectionMenu = <TView extends string>({
                     type="button"
                     onClick={() => choose(item.view)}
                     aria-current={isActive}
-                    className={`flex min-h-12 items-center gap-3 rounded-lg px-3 text-left text-sm transition-colors ${
-                      isActive ? 'bg-panel text-key' : 'text-bone-dim active:bg-panel/60'
+                    className={`flex min-h-12 items-center gap-3.5 rounded-xl px-3.5 text-left text-sm font-medium transition-all duration-150 ${
+                      isActive
+                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
+                        : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800'
                     }`}
                   >
                     <span
                       aria-hidden="true"
-                      className={`h-5 w-[3px] rounded-full ${isActive ? 'bg-key' : 'bg-transparent'}`}
+                      className={`h-5 w-1 rounded-full transition-colors ${
+                        isActive ? 'bg-blue-600 dark:bg-blue-400' : 'bg-transparent'
+                      }`}
                     />
-                    {item.label}
+                    <span className="flex-1 truncate">{item.label}</span>
                   </button>
                 );
               })}
             </nav>
 
-            <div className="flex flex-col gap-1 border-t border-hairline p-2">
+            <div className="flex flex-col gap-1 border-t border-slate-200/80 dark:border-slate-800/80 p-3">
               <ThemeToggle
                 showLabel
-                className="min-h-12 w-full justify-start border-none px-3 text-sm text-bone-dim shadow-none hover:bg-panel/60 active:bg-panel/60 dark:bg-transparent"
+                className="min-h-12 w-full justify-start rounded-xl border-none px-3.5 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-none hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
               />
               <a
                 href="whatsapp-admin://open"
-                className="flex min-h-12 items-center rounded-lg px-3 text-sm text-bone-dim active:bg-panel/60"
+                className="flex min-h-12 items-center rounded-xl px-3.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
               >
                 W-Staff
               </a>
@@ -235,14 +244,14 @@ const MobileSectionMenu = <TView extends string>({
                   close();
                   onChangePassword();
                 }}
-                className="flex min-h-12 items-center rounded-lg px-3 text-left text-sm text-bone-dim active:bg-panel/60"
+                className="flex min-h-12 items-center rounded-xl px-3.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
               >
                 Change password
               </button>
               <button
                 type="button"
                 onClick={onSignOut}
-                className="flex min-h-12 items-center rounded-lg px-3 text-left text-sm text-danger active:bg-panel/60"
+                className="flex min-h-12 items-center rounded-xl px-3.5 text-left text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 active:bg-red-100 dark:active:bg-red-950/60"
               >
                 Sign out
               </button>

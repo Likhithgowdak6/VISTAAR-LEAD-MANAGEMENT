@@ -254,8 +254,8 @@ html.dark {
   background-color: #0b0f19;
 
   /* ---- Core SaaS Surfaces & Accents (Dark Mode) --------------------------- */
-  --color-ink: #f8fafc;
-  --color-ink-2: #e2e8f0;
+  --color-ink: #0b0f19;
+  --color-ink-2: #111827;
   --color-panel: #111827;
   --color-panel-2: #1e293b;
   --color-panel-3: #334155;
@@ -291,6 +291,34 @@ html.dark {
   --color-gray-700: #e5e7eb;
   --color-gray-800: #f3f4f6;
   --color-gray-900: #f9fafb;
+
+  /* Accent & status colors in dark mode */
+  --color-blue-50: #0f1d38;
+  --color-blue-100: #172a50;
+  --color-blue-200: #1e3a6c;
+  --color-blue-900: #dbeafe;
+  --color-blue-950: #eff6ff;
+
+  --color-indigo-50: #141738;
+  --color-indigo-100: #1c2250;
+  --color-indigo-200: #27306c;
+
+  --color-amber-50: #2a1b08;
+  --color-amber-100: #452408;
+  --color-amber-200: #78350f;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+
+  --color-red-50: #2e0d11;
+  --color-red-100: #450a0a;
+  --color-red-200: #7f1d1d;
+  --color-red-700: #fca5a5;
+  --color-red-800: #fecaca;
+
+  --color-emerald-50: #042416;
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #047857;
+  --color-emerald-800: #a7f3d0;
 }
 
 html.dark body {
@@ -359,8 +387,9 @@ html.dark .chip {
 }
 
 html.dark .m-appbar {
-  background: rgba(17, 24, 39, 0.92);
-  border-bottom-color: #1e293b;
+  background: rgba(11, 15, 25, 0.94);
+  border-bottom-color: rgba(30, 41, 59, 0.8);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
 }
 
 html.dark .m-appbar-title {
@@ -712,13 +741,15 @@ html.dark [data-mobile-sheet] {
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: var(--m-gap-tight);
-  min-height: var(--m-appbar-h);
-  padding: 0 var(--m-gap);
+  gap: 0.75rem;
+  min-height: 56px;
+  padding: 0 1rem;
   padding-top: var(--m-safe-top);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
 }
 
 .m-appbar-action {

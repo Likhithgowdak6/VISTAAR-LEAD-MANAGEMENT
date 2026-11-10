@@ -726,12 +726,12 @@ const AppShell = () => {
             onBack={() => setSelectedLeadId(null)}
           />
         ) : (
-          <div className={isMobileViewport ? 'min-h-0 flex-1 m-nav-clearance' : 'min-h-0 flex-1'}>
+          <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Leads" isTab>
             <LeadsPage onOpenLead={setSelectedLeadId} />
-          </div>
+          </SectionScreen>
         )
       ) : view === 'tasks' && canManageTasks ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks" isTab>
           <TasksPage onOpenTask={openTaskTarget} />
         </SectionScreen>
       ) : view === 'accounts' && canReadAccounts ? (
@@ -759,7 +759,7 @@ const AppShell = () => {
           <LeadSourcesPage />
         </SectionScreen>
       ) : view === 'analytics' ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Analytics">
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Dashboard" isTab>
           <AnalyticsPage onOpenConversation={openConversation} onDrillDown={openInboxWithFilters} />
         </SectionScreen>
       ) : view === 'settings' && canManageSettings ? (
@@ -793,24 +793,29 @@ const AppShell = () => {
               the list is hidden and the thread owns the bottom of the screen, where the
               composer - not the nav bar - sits. */}
           <div
-            className={`min-h-0 w-full lg:block lg:w-[22rem] lg:shrink-0 xl:w-[24rem] border-r border-slate-200/80 bg-white ${
+            className={`flex flex-col min-h-0 w-full lg:block lg:w-[22rem] lg:shrink-0 xl:w-[24rem] border-r border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 ${
               selectedId ? 'hidden' : 'block'
             } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
-            <ConversationList
-              key={`list-${listRefreshKey}-${drillDown?.seq ?? 0}`}
-              selectedId={selectedId}
-              onSelect={selectConversation}
-              initialFilters={
-                drillDown
-                  ? {
-                      enquiryClass: asEnquiryClass(drillDown.filters.enquiryClass),
-                      aiStatus: asAiStatus(drillDown.filters.aiStatus),
-                      needsAttention: drillDown.filters.needsAttention === true,
-                    }
-                  : undefined
-              }
-            />
+            {isMobileViewport && !selectedId ? (
+              <MobileAppBar title="Inbox" />
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ConversationList
+                key={`list-${listRefreshKey}-${drillDown?.seq ?? 0}`}
+                selectedId={selectedId}
+                onSelect={selectConversation}
+                initialFilters={
+                  drillDown
+                    ? {
+                        enquiryClass: asEnquiryClass(drillDown.filters.enquiryClass),
+                        aiStatus: asAiStatus(drillDown.filters.aiStatus),
+                        needsAttention: drillDown.filters.needsAttention === true,
+                      }
+                    : undefined
+                }
+              />
+            </div>
           </div>
           {selectedId ? (
             <ConversationView

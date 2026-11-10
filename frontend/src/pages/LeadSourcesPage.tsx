@@ -77,25 +77,25 @@ const LeadSourcesPage = () => {
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Lead sources</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Lead sources</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Where your Facebook lead ads reach the CRM. New leads arrive in the inbox as unassigned,
           ready to be picked up — nothing is messaged automatically.
         </p>
       </div>
 
       {accounts.length === 0 && !loading ? (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <p className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-800 dark:text-amber-200">
           Add a WhatsApp number on the Accounts page first — imported leads need a number to open
           against.
         </p>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 p-4 sm:p-5 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-900">Connect Facebook leads</h3>
-                <p className="mt-0.5 text-xs text-slate-600">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-blue-100">Connect Facebook leads</h3>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-blue-300/80">
                   Sign in with Facebook and pick your lead form. Nothing to copy or paste.
                 </p>
               </div>
@@ -105,7 +105,7 @@ const LeadSourcesPage = () => {
                   setWizardAtConnect(false);
                   setWizardOpen(true);
                 }}
-                className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                className="shrink-0 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 active:scale-95 transition-all"
               >
                 Connect Facebook
               </button>
