@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { getInitials } from '../lib/format';
+import ThemeToggle from './ThemeToggle';
 
 /** Everything inside the sheet a Tab can land on. Queried live - the list changes with role. */
 const FOCUSABLE =
@@ -218,6 +219,10 @@ const MobileSectionMenu = <TView extends string>({
             </nav>
 
             <div className="flex flex-col gap-1 border-t border-hairline p-2">
+              <ThemeToggle
+                showLabel
+                className="min-h-12 w-full justify-start border-none px-3 text-sm text-bone-dim shadow-none hover:bg-panel/60 active:bg-panel/60 dark:bg-transparent"
+              />
               <a
                 href="whatsapp-admin://open"
                 className="flex min-h-12 items-center rounded-lg px-3 text-sm text-bone-dim active:bg-panel/60"

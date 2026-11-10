@@ -3,6 +3,7 @@ import AppShell from './pages/AppShell';
 import LoginPage from './pages/LoginPage';
 import Spinner from './components/Spinner';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
+import { ThemeProvider } from './context/ThemeContext';
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, bootstrapping } = useAuth();
@@ -27,9 +28,11 @@ const AuthenticatedApp = () => {
 };
 
 const App = () => (
-  <AuthProvider>
-    <AuthenticatedApp />
-  </AuthProvider>
+  <ThemeProvider>
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  </ThemeProvider>
 );
 
 export default App;

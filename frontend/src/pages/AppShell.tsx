@@ -33,6 +33,7 @@ import TasksPage from './TasksPage';
 import TeamPage from './TeamPage';
 import LeadsPage from './LeadsPage';
 import LeadDetailPage from './LeadDetailPage';
+import ThemeToggle from '../components/ThemeToggle';
 
 type AppView =
   | 'leads'
@@ -674,6 +675,7 @@ const AppShell = () => {
               ) : null}
             </nav>
             <div className="order-2 ml-auto flex shrink-0 items-center gap-2.5 lg:order-3">
+              <ThemeToggle />
               <a
                 href="whatsapp-admin://open"
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-700 shadow-xs transition hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50"
