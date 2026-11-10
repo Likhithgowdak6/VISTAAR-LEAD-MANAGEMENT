@@ -1,6 +1,20 @@
+import { Capacitor } from '@capacitor/core';
 import { type ApiErrorFields } from '../types';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api/v1';
+export const REMOTE_PRODUCTION_API_URL = 'https://vistaarcrm.duckdns.org/api/v1';
+
+export const API_BASE_URL = (() => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (Capacitor.isNativePlatform()) {
+    // When running inside the native Android APK, the WebView's origin is https://localhost.
+    // Relative paths (/api/v1) or localhost URLs resolve to the handset itself rather than the server.
+    if (!envUrl || envUrl.startsWith('/') || envUrl.includes('localhost')) {
+      return REMOTE_PRODUCTION_API_URL;
+    }
+    return envUrl;
+  }
+  return envUrl || 'http://localhost:5001/api/v1';
+})();
 
 export class ApiError extends Error {
   readonly status: number;

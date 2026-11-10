@@ -134,7 +134,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const login = useCallback(
     async ({ organizationSlug, email, password }: LoginCredentials) => {
       const payload: unknown = await loginRequest({ organizationSlug, email, password });
-      applyAuth(readAuthPayload(payload));
+      const nextAuth = readAuthPayload(payload);
+      if (!nextAuth.token || !nextAuth.user) {
+        throw new Error('Sign in failed: invalid credentials or session could not be established.');
+      }
+      applyAuth(nextAuth);
     },
     [applyAuth],
   );

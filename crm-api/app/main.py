@@ -21,6 +21,7 @@ running the same sweep would send a customer the same message twice.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import cache, db
@@ -110,6 +111,32 @@ app = FastAPI(
 # Before the error handlers read it. Node assigns the id in `requestContextMiddleware`, which
 # is mounted ahead of every route for the same reason.
 app.add_middleware(RequestContextMiddleware)
+
+# Allowed origins for web and native Capacitor mobile app (https://localhost).
+origin_cfg = str(getattr(settings, "frontend_origin", "") or "")
+allowed_origins = [
+    entry.strip()
+    for entry in origin_cfg.split(",")
+    if entry.strip()
+]
+for default_origin in (
+    "https://localhost",
+    "capacitor://localhost",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://vistaarcrm.duckdns.org",
+):
+    if default_origin not in allowed_origins:
+        allowed_origins.append(default_origin)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["x-request-id", "content-disposition"],
+)
 
 install_error_handlers(app)
 
