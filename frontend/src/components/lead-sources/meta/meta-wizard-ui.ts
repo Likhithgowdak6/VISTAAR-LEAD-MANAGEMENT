@@ -8,9 +8,9 @@
  */
 
 export const inputClass =
-  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none disabled:opacity-60';
+  'w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none disabled:opacity-60';
 
-export const labelClass = 'mb-1 block text-xs font-medium text-slate-600';
+export const labelClass = 'mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300';
 
 /**
  * `disabled:opacity-60` on top of the dimmed fill, unlike the older forms next door.
@@ -24,15 +24,15 @@ export const primaryButtonClass =
   'rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-blue-300 disabled:opacity-60';
 
 export const secondaryButtonClass =
-  'rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50';
+  'rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50';
 
 /** A pickable row (a page, a form). Selection is a ring rather than a fill, so the name stays readable. */
 export const choiceRowClass =
   'flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50';
 
-export const choiceRowSelectedClass = 'border-blue-500 bg-blue-50 ring-1 ring-blue-500';
+export const choiceRowSelectedClass = 'border-blue-500 bg-blue-50 dark:bg-blue-950/60 ring-1 ring-blue-500';
 
-export const choiceRowIdleClass = 'border-slate-200 bg-white hover:bg-slate-50';
+export const choiceRowIdleClass = 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/60';
 
 /** `event_date` -> `Event date`. The stored keys are snake_case; people are not. */
 export const prettyFactKey = (key: string): string => {

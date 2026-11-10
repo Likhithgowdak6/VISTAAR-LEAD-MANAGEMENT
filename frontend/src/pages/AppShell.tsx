@@ -594,7 +594,7 @@ const AppShell = () => {
   return (
     // `app-shell` swaps 100vh for 100dvh below lg only; see index.css on why the composer
     // ended up under the browser chrome without it.
-    <div className="app-shell flex h-screen flex-col bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
+    <div className="app-shell flex h-screen flex-col bg-slate-100/60 dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
       <OfflineBanner />
       {/* THE MASTHEAD IS DESKTOP-ONLY NOW.
           It needs ~790px for nine letterspaced labels plus the account controls. On a phone

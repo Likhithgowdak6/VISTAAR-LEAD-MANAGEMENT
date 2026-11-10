@@ -316,7 +316,7 @@ const MessageComposer = ({
       aria-label="Send a message"
       // The bottom inset ADDS to p-3 so the send button clears the gesture bar; shrink-0 stops
       // the composer being squeezed to nothing when the thread above it is long.
-      className="shrink-0 border-t border-slate-200 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+      className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
     >
       {error ? (
         <p role="alert" className="mb-2 text-sm text-red-600">
@@ -533,12 +533,12 @@ const MessageComposer = ({
           value={body}
           onChange={handleBodyChange}
           placeholder="Type a reply…"
-          className="max-h-32 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+          className="max-h-32 flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
         />
         <button
           type="submit"
           disabled={sending || (body.trim() === '' && !attachment)}
-          className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 font-semibold text-white shadow-sm shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:shadow-none"
+          className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 font-semibold text-white shadow-sm shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 dark:disabled:from-slate-800 dark:disabled:to-slate-800 dark:disabled:text-slate-500 disabled:shadow-none"
         >
           {sending ? (attachment ? 'Uploading…' : 'Sending…') : 'Send'}
         </button>

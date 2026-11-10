@@ -486,13 +486,13 @@ const ConversationView = ({
             }
           />
         ) : (
-          <header className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3.5 shadow-xs">
+          <header className="flex items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 px-5 py-3.5 shadow-xs">
             <div className="flex min-w-0 items-center gap-3">
               {onBack ? (
                 <button
                   type="button"
                   onClick={onBack}
-                  className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 lg:hidden"
+                  className="shrink-0 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 lg:hidden"
                 >
                   ← Inbox
                 </button>
@@ -505,15 +505,15 @@ const ConversationView = ({
                 />
               ) : null}
               <div className="min-w-0">
-                <h2 className="truncate text-base font-bold text-slate-900">
+                <h2 className="truncate text-base font-bold text-slate-900 dark:text-white">
                   {conversation?.displayName}
                 </h2>
-                <p className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   <span className="truncate font-mono">{conversation?.leadId}</span>
                   {whatsappAccount ? (
                     <>
                       <span aria-hidden="true">·</span>
-                      <span className="truncate font-medium text-blue-600">via {whatsappAccount.name}</span>
+                      <span className="truncate font-medium text-blue-600 dark:text-blue-400">via {whatsappAccount.name}</span>
                     </>
                   ) : null}
                 </p>
@@ -529,7 +529,7 @@ const ConversationView = ({
                 type="button"
                 onClick={() => setDetailsOpen((open) => !open)}
                 aria-pressed={detailsOpen}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-slate-300"
+                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-xs transition hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
               >
                 {detailsOpen ? 'Hide details' : 'Details'}
               </button>
@@ -540,7 +540,7 @@ const ConversationView = ({
         <ConversationSummaryPanel key={conversationId} conversationId={conversationId} />
 
         {orderedMessages.length === 0 ? (
-          <div className="flex-1 bg-slate-100">
+          <div className="flex-1 bg-slate-100/60 dark:bg-[#0b0f19]">
             <EmptyState title="No messages yet" description="Send the first message below." />
           </div>
         ) : (

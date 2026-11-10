@@ -198,14 +198,14 @@ const LeadsPage = ({ onOpenLead }: Props) => {
   });
 
   return (
-    <div className="flex h-full flex-col bg-slate-50/50">
-      <div className="shrink-0 border-b border-slate-200/80 bg-white px-5 pb-4 pt-5 shadow-xs">
+    <div className="flex h-full flex-col bg-slate-100/60 dark:bg-[#0b0f19]">
+      <div className="shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 px-5 pb-4 pt-5 shadow-xs">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">Leads</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Browse, search, and manage all prospective clients</p>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Leads</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Browse, search, and manage all prospective clients</p>
           </div>
-          <span className="rounded-full bg-blue-50 px-2.5 py-1 font-mono text-xs font-bold text-blue-700">
+          <span className="rounded-full bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 font-mono text-xs font-bold text-blue-700 dark:text-blue-300">
             {conversations.length}
           </span>
         </div>
@@ -217,7 +217,7 @@ const LeadsPage = ({ onOpenLead }: Props) => {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search leads by name..."
             aria-label="Search leads by name"
-            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 text-sm text-slate-900 placeholder:text-slate-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="h-11 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
 

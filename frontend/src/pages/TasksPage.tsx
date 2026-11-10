@@ -279,8 +279,10 @@ const TasksPage = ({ onOpenTask }: Props) => {
           type="button"
           onClick={() => selectScope('mine')}
           aria-pressed={scope === 'mine'}
-          className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-colors ${
-            scope === 'mine' ? 'bg-bone text-ink' : 'border border-hairline text-bone-dim'
+          className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-all ${
+            scope === 'mine'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+              : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
           }`}
         >
           Mine
@@ -290,8 +292,10 @@ const TasksPage = ({ onOpenTask }: Props) => {
             type="button"
             onClick={() => selectScope('team')}
             aria-pressed={scope === 'team'}
-            className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-colors ${
-              scope === 'team' ? 'bg-bone text-ink' : 'border border-hairline text-bone-dim'
+            className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-all ${
+              scope === 'team'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
+                : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
             }`}
           >
             Team
@@ -312,12 +316,12 @@ const TasksPage = ({ onOpenTask }: Props) => {
             className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-all ${
               status === chip.value
                 ? 'bg-blue-600 text-white shadow-xs'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                : 'border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
             }`}
           >
             <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} />
             {chip.label}
-            <span className={status === chip.value ? 'text-white/80' : 'text-slate-400 font-mono'}>
+            <span className={status === chip.value ? 'text-white/80' : 'text-slate-400 dark:text-slate-500 font-mono'}>
               {counts[chip.count]}
             </span>
           </button>
@@ -330,7 +334,7 @@ const TasksPage = ({ onOpenTask }: Props) => {
         value={searchInput}
         onChange={(event) => setSearchInput(event.target.value)}
         placeholder="Search by customer or task…"
-        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        className="h-11 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
       />
 
       {loading ? <Spinner label="Loading tasks…" /> : null}

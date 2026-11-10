@@ -41,16 +41,16 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
 
   const bubbleClasses = isOutbound
     ? isAi
-      ? 'border border-blue-200/90 bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white text-slate-800 shadow-sm rounded-2xl rounded-tr-xs'
+      ? 'border border-blue-200/90 dark:border-blue-900/60 bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white dark:from-slate-900 dark:via-blue-950/40 dark:to-slate-900 text-slate-800 dark:text-slate-100 shadow-sm rounded-2xl rounded-tr-xs'
       : 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm shadow-blue-500/20 rounded-2xl rounded-tr-xs'
-    : 'border border-slate-200/90 bg-white text-slate-800 shadow-sm rounded-2xl rounded-tl-xs';
+    : 'border border-slate-200/90 dark:border-slate-800/90 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm rounded-2xl rounded-tl-xs';
 
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[80%] px-3.5 py-2.5 text-sm transition-all duration-150 animate-slide-up ${bubbleClasses}`}>
         {isAi ? (
-          <div className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-blue-600">
-            <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 text-[8px] text-white">
+          <div className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+            <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 dark:bg-blue-500 text-[8px] text-white">
               ★
             </span>
             <span>AI Auto-Reply</span>
@@ -71,7 +71,7 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
 
         <div
           className={`mt-1 flex items-center justify-end gap-2 text-[0.6875rem] ${
-            isOutbound && !isAi ? 'text-white/80' : 'text-slate-400'
+            isOutbound && !isAi ? 'text-white/80' : 'text-slate-400 dark:text-slate-500'
           }`}
         >
           {/* First in the row and small: a reading aid, not a call to action. The accessible
@@ -133,14 +133,14 @@ const MessageThread = ({
   starredMessageIds,
   starPendingId = null,
 }: Props) => (
-  <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-slate-50/70 p-4 lg:p-6">
+  <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-slate-100/60 dark:bg-[#0b0f19] p-4 lg:p-6">
     {hasMore ? (
       <div className="flex justify-center">
         <button
           type="button"
           onClick={onLoadOlder}
           disabled={loadingOlder}
-          className="rounded-full border border-slate-300 bg-white px-3.5 py-1 text-xs font-semibold text-slate-600 shadow-xs transition hover:bg-slate-50 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+          className="rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 shadow-xs transition hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
         >
           {loadingOlder ? 'Loading…' : 'Load older'}
         </button>
