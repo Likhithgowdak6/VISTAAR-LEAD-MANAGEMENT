@@ -165,14 +165,14 @@ const MobileSectionMenu = <TView extends string>({
             aria-label="Sections"
             // -1 so the panel can hold focus on open without becoming a Tab stop of its own.
             tabIndex={-1}
-            className="relative max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl focus:outline-none"
+            className="m-sheet-panel relative max-h-[85dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-t pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl focus:outline-none"
           >
             {/* Top Sheet Drag Indicator Pill */}
             <div className="flex justify-center pt-2.5 pb-1">
               <span className="h-1 w-9 rounded-full bg-slate-300 dark:bg-slate-700" />
             </div>
 
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-5 py-3">
+            <div className="m-sheet-header sticky top-0 z-10 flex items-center gap-3 backdrop-blur-md px-5 py-3">
               {/* The initials moved here with the rest of the account block when the masthead
                   trigger gave way to the bottom bar - this sheet is now the only place on a
                   phone that answers "who am I signed in as". */}
@@ -180,11 +180,11 @@ const MobileSectionMenu = <TView extends string>({
                 {getInitials(userName)}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
+                <p className="truncate text-sm font-bold">
                   {userName ?? 'Signed in'}
                 </p>
                 {organizationName ? (
-                  <p className="truncate font-mono text-[0.625rem] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <p className="truncate font-mono text-[0.625rem] font-semibold uppercase tracking-wider opacity-70">
                     {organizationName}
                   </p>
                 ) : null}
@@ -193,7 +193,7 @@ const MobileSectionMenu = <TView extends string>({
                 type="button"
                 onClick={close}
                 aria-label="Close menu"
-                className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white active:scale-95 transition-all"
+                className="m-sheet-item shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider active:scale-95 transition-all"
               >
                 Close
               </button>
@@ -210,9 +210,7 @@ const MobileSectionMenu = <TView extends string>({
                     onClick={() => choose(item.view)}
                     aria-current={isActive}
                     className={`flex min-h-12 items-center gap-3.5 rounded-xl px-3.5 text-left text-sm font-medium transition-all duration-150 ${
-                      isActive
-                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
-                        : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800'
+                      isActive ? 'm-sheet-item-active shadow-xs' : 'm-sheet-item'
                     }`}
                   >
                     <span
@@ -230,11 +228,11 @@ const MobileSectionMenu = <TView extends string>({
             <div className="flex flex-col gap-1 border-t border-slate-200/80 dark:border-slate-800/80 p-3">
               <ThemeToggle
                 showLabel
-                className="min-h-12 w-full justify-start rounded-xl border-none px-3.5 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-none hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
+                className="m-sheet-item min-h-12 w-full justify-start rounded-xl border-none px-3.5 text-sm font-medium shadow-none"
               />
               <a
                 href="whatsapp-admin://open"
-                className="flex min-h-12 items-center rounded-xl px-3.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
+                className="m-sheet-item flex min-h-12 items-center rounded-xl px-3.5 text-sm font-medium"
               >
                 W-Staff
               </a>
@@ -244,7 +242,7 @@ const MobileSectionMenu = <TView extends string>({
                   close();
                   onChangePassword();
                 }}
-                className="flex min-h-12 items-center rounded-xl px-3.5 text-left text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 active:bg-slate-100 dark:active:bg-slate-800"
+                className="m-sheet-item flex min-h-12 items-center rounded-xl px-3.5 text-left text-sm font-medium"
               >
                 Change password
               </button>

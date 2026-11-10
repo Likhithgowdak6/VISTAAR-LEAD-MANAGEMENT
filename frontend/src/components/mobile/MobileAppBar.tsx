@@ -55,9 +55,9 @@ const MobileAppBar = ({ onBack, backLabel, title, subtitle, actions, asHeading }
       {onBack ? (
         <>
           {asHeading ? (
-            <h1 className="m-appbar-title font-bold text-slate-900 dark:text-white">{title}</h1>
+            <h1 className="m-appbar-title font-bold">{title}</h1>
           ) : (
-            <p className="m-appbar-title font-bold text-slate-900 dark:text-white">{title}</p>
+            <p className="m-appbar-title font-bold">{title}</p>
           )}
           <p className="truncate text-[0.6875rem] leading-tight text-slate-500 dark:text-slate-400">
             {subtitle ?? 'Vistaar CRM'}
@@ -66,10 +66,10 @@ const MobileAppBar = ({ onBack, backLabel, title, subtitle, actions, asHeading }
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <span className="truncate text-base font-bold tracking-tight text-slate-900 dark:text-white">
+            <span className="m-appbar-brand truncate">
               Vistaar CRM
             </span>
-            <span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-0.5 font-mono text-[0.625rem] font-bold uppercase tracking-wider text-blue-600 dark:bg-blue-500/20 dark:text-blue-400">
+            <span className="m-appbar-pill shrink-0">
               {title}
             </span>
           </div>
@@ -84,9 +84,7 @@ const MobileAppBar = ({ onBack, backLabel, title, subtitle, actions, asHeading }
 
     <div className="flex shrink-0 items-center gap-1.5">
       {actions}
-      <ThemeToggle
-        className="h-8 w-8 rounded-xl border border-slate-200/80 bg-slate-100/70 p-0 text-slate-600 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:text-white"
-      />
+      <ThemeToggle className="m-appbar-toggle" />
     </div>
   </header>
 );

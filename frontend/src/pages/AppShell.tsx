@@ -797,9 +797,6 @@ const AppShell = () => {
               selectedId ? 'hidden' : 'block'
             } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
-            {isMobileViewport && !selectedId ? (
-              <MobileAppBar title="Inbox" />
-            ) : null}
             <div className="min-h-0 flex-1 overflow-hidden">
               <ConversationList
                 key={`list-${listRefreshKey}-${drillDown?.seq ?? 0}`}

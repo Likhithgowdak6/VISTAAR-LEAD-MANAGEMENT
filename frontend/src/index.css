@@ -254,8 +254,8 @@ html.dark {
   background-color: #0b0f19;
 
   /* ---- Core SaaS Surfaces & Accents (Dark Mode) --------------------------- */
-  --color-ink: #0b0f19;
-  --color-ink-2: #111827;
+  --color-ink: #f8fafc;
+  --color-ink-2: #e2e8f0;
   --color-panel: #111827;
   --color-panel-2: #1e293b;
   --color-panel-3: #334155;
@@ -265,60 +265,193 @@ html.dark {
   --color-bone: #f8fafc;
   --color-bone-dim: #94a3b8;
   --color-muted: #64748b;
+}
 
-  /* Surfaces & text inversion for standard Tailwind slate/gray utility classes */
-  --color-white: #111827;
-  --color-black: #ffffff;
+/* ---------------------------------------------------------------------------
+ * Dark Mode Standard Utilities Adaptations (Without corrupting color tokens)
+ * ------------------------------------------------------------------------ */
+html.dark .bg-white:not(.keep-white) {
+  background-color: #111827;
+}
 
-  --color-slate-50: #0b0f19;
-  --color-slate-100: #131b2e;
-  --color-slate-200: #1e293b;
-  --color-slate-300: #334155;
-  --color-slate-400: #64748b;
-  --color-slate-500: #94a3b8;
-  --color-slate-600: #cbd5e1;
-  --color-slate-700: #e2e8f0;
-  --color-slate-800: #f1f5f9;
-  --color-slate-900: #f8fafc;
+html.dark .text-white,
+html.dark [class*='text-white'] {
+  color: #ffffff !important;
+}
 
-  --color-gray-50: #0b0f19;
-  --color-gray-100: #131b2e;
-  --color-gray-200: #1e293b;
-  --color-gray-300: #334155;
-  --color-gray-400: #64748b;
-  --color-gray-500: #9ca3af;
-  --color-gray-600: #d1d5db;
-  --color-gray-700: #e5e7eb;
-  --color-gray-800: #f3f4f6;
-  --color-gray-900: #f9fafb;
+html.dark .text-slate-900:not([class*='dark:text-']) {
+  color: #f8fafc;
+}
 
-  /* Accent & status colors in dark mode */
-  --color-blue-50: #0f1d38;
-  --color-blue-100: #172a50;
-  --color-blue-200: #1e3a6c;
-  --color-blue-900: #dbeafe;
-  --color-blue-950: #eff6ff;
+html.dark .text-slate-800:not([class*='dark:text-']) {
+  color: #e2e8f0;
+}
 
-  --color-indigo-50: #141738;
-  --color-indigo-100: #1c2250;
-  --color-indigo-200: #27306c;
+html.dark .text-slate-700:not([class*='dark:text-']) {
+  color: #cbd5e1;
+}
 
-  --color-amber-50: #2a1b08;
-  --color-amber-100: #452408;
-  --color-amber-200: #78350f;
-  --color-amber-800: #fde68a;
-  --color-amber-900: #fef3c7;
+html.dark .text-slate-600:not([class*='dark:text-']) {
+  color: #94a3b8;
+}
 
-  --color-red-50: #2e0d11;
-  --color-red-100: #450a0a;
-  --color-red-200: #7f1d1d;
-  --color-red-700: #fca5a5;
-  --color-red-800: #fecaca;
+html.dark .border-slate-200:not([class*='dark:border-']) {
+  border-color: #1e293b;
+}
 
-  --color-emerald-50: #042416;
-  --color-emerald-100: #064e3b;
-  --color-emerald-200: #047857;
-  --color-emerald-800: #a7f3d0;
+html.dark .border-slate-200\/80:not([class*='dark:border-']) {
+  border-color: rgba(30, 41, 59, 0.8);
+}
+
+html.dark .bg-slate-50:not([class*='dark:bg-']) {
+  background-color: #0b0f19;
+}
+
+html.dark .bg-slate-50\/60:not([class*='dark:bg-']) {
+  background-color: rgba(11, 15, 25, 0.6);
+}
+
+html.dark .bg-slate-50\/50:not([class*='dark:bg-']) {
+  background-color: rgba(11, 15, 25, 0.5);
+}
+
+html.dark .bg-slate-100:not([class*='dark:bg-']) {
+  background-color: #1e293b;
+}
+
+/* Explicit Dark Mode Overrides (Guarantees true contrast for mobile components) */
+html.dark .bg-slate-900,
+html.dark [class*='bg-slate-900'] {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-slate-950,
+html.dark [class*='bg-slate-950'] {
+  background-color: #020617 !important;
+}
+
+html.dark .bg-slate-800,
+html.dark [class*='bg-slate-800'] {
+  background-color: #1e293b !important;
+}
+
+/* Dedicated Mobile App Bar styling */
+.m-appbar-brand {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #0f172a;
+}
+html.dark .m-appbar-brand {
+  color: #ffffff !important;
+}
+
+.m-appbar-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+html.dark .m-appbar-pill {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #93c5fd !important;
+}
+
+.m-appbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.125rem;
+  width: 2.125rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+html.dark .m-appbar-toggle {
+  border-color: #334155 !important;
+  background: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+/* Dedicated Mobile Sheet styling */
+.m-sheet-panel {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+html.dark .m-sheet-panel {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.m-sheet-header {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid #e2e8f0;
+}
+html.dark .m-sheet-header {
+  background-color: rgba(15, 23, 42, 0.95) !important;
+  border-bottom-color: #1e293b !important;
+}
+
+.m-sheet-item {
+  color: #334155;
+  transition: all 150ms ease;
+}
+.m-sheet-item:hover,
+.m-sheet-item:active {
+  background-color: #f1f5f9;
+}
+.m-sheet-panel button.m-sheet-item,
+.m-sheet-panel a.m-sheet-item {
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+.m-sheet-panel button.m-sheet-item:hover,
+.m-sheet-panel button.m-sheet-item:active,
+.m-sheet-panel a.m-sheet-item:hover,
+.m-sheet-panel a.m-sheet-item:active {
+  background-color: #f1f5f9 !important;
+}
+
+html.dark .m-sheet-item {
+  color: #cbd5e1 !important;
+}
+html.dark .m-sheet-item:hover,
+html.dark .m-sheet-item:active {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}
+html.dark .m-sheet-panel button.m-sheet-item,
+html.dark .m-sheet-panel a.m-sheet-item {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: #cbd5e1 !important;
+}
+html.dark .m-sheet-panel button.m-sheet-item:hover,
+html.dark .m-sheet-panel button.m-sheet-item:active,
+html.dark .m-sheet-panel a.m-sheet-item:hover,
+html.dark .m-sheet-panel a.m-sheet-item:active {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}
+
+.m-sheet-item-active {
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+html.dark .m-sheet-item-active {
+  background-color: rgba(37, 99, 235, 0.22) !important;
+  color: #60a5fa !important;
+  font-weight: 600;
 }
 
 html.dark body {
