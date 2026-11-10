@@ -85,7 +85,7 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
     type="button"
     onClick={onClick}
     aria-current={active}
-    className={`relative shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-150 sm:px-3 ${
+    className={`relative shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-150 active:scale-95 sm:px-3 ${
       active
         ? 'bg-blue-50 text-blue-700 shadow-xs'
         : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
@@ -95,7 +95,7 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
     {active ? (
       <span
         aria-hidden="true"
-        className="absolute inset-x-2.5 -bottom-px h-0.5 rounded-full bg-blue-600 shadow-xs"
+        className="absolute inset-x-2.5 -bottom-px h-0.5 rounded-full bg-blue-600 shadow-xs animate-scale-in"
       />
     ) : null}
   </button>
@@ -132,7 +132,7 @@ const SectionScreen = ({
     {/* m-nav-clearance keeps the last row clear of the fixed bottom bar. Applied to the
         scroller rather than the page so the bar overlaps nothing. */}
     <div
-      className={`min-h-0 flex-1 overflow-y-auto ${mobile ? 'm-nav-clearance m-has-appbar' : ''}`}
+      className={`min-h-0 flex-1 overflow-y-auto animate-fade-in ${mobile ? 'm-nav-clearance m-has-appbar' : ''}`}
     >
       {children}
     </div>
@@ -763,7 +763,7 @@ const AppShell = () => {
           <SettingsPage />
         </SectionScreen>
       ) : (
-        <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50">
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50 animate-fade-in">
           {!isMobileViewport ? (
             <InboxSidebar
               activeFolder={inboxFolder}
@@ -847,7 +847,7 @@ const AppShell = () => {
           ) : (
             /* Hidden on small: with no thread open the list already fills the screen, and an
                empty "select a conversation" panel below it would just be dead space. */
-            <div className="hidden flex-1 lg:flex flex-col items-center justify-center bg-slate-50/60 p-8">
+            <div className="hidden flex-1 lg:flex flex-col items-center justify-center bg-slate-50/60 p-8 animate-fade-in">
               <EmptyState
                 title="Select a conversation"
                 description="Choose a conversation from the list to view its thread."

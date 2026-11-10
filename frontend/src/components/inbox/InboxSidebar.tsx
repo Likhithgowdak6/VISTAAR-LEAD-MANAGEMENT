@@ -187,9 +187,9 @@ export const InboxSidebar = ({
         )}
 
         {/* AI Assistant Quick Status Box */}
-        <div className="rounded-2xl border border-blue-100/80 bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white p-3.5 shadow-sm">
+        <div className="rounded-2xl border border-blue-100/80 bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white p-3.5 shadow-sm transition-all hover:shadow-md">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20 animate-glow-pulse">
               <Icons.Sparkles size={12} />
             </div>
             <span className="text-xs font-bold text-slate-800">AI Auto-Qualify</span>

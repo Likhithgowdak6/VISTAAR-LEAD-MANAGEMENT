@@ -30,7 +30,7 @@ const LeadCard = ({ conversation, stages, tagsById, onOpen }: Props) => {
       <button
         type="button"
         onClick={() => onOpen(conversation.id)}
-        className="flex w-full flex-col gap-2 border-b border-slate-100 bg-white p-4 text-left transition-all duration-150 hover:bg-slate-50/80 active:bg-slate-100"
+        className="flex w-full flex-col gap-2 border-b border-slate-100 bg-white p-4 text-left transition-all duration-150 hover:bg-slate-50/80 hover:translate-x-1 active:scale-[0.99] active:bg-slate-100"
       >
         <div className="flex items-center gap-3 min-w-0">
           <Avatar name={conversation.displayName} size="sm" />

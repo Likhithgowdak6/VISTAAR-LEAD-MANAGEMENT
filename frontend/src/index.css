@@ -394,6 +394,17 @@
   }
 }
 
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -408,7 +419,7 @@
 @keyframes scaleIn {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.97);
   }
   to {
     opacity: 1;
@@ -416,39 +427,56 @@
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .animate-fade-in {
-    animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+@keyframes pulseKey {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
   }
+  50% {
+    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0);
+  }
+}
 
-  .animate-slide-up {
-    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+@keyframes glowPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
   }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.06);
+  }
+}
 
-  .animate-slide-in-right {
-    animation: slideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
+.animate-fade-in {
+  animation: fadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-  .animate-scale-in {
-    animation: scaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
+.animate-slide-up {
+  animation: slideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-  .animate-rise {
-    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
+.animate-slide-down {
+  animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-  @keyframes pulse-key {
-    0%, 100% {
-      box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
-    }
-    50% {
-      box-shadow: 0 0 0 6px rgba(37, 99, 235, 0);
-    }
-  }
+.animate-slide-in-right {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-  .animate-pulse-key {
-    animation: pulse-key 2.4s ease-in-out infinite;
-  }
+.animate-scale-in {
+  animation: scaleIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-rise {
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-pulse-key {
+  animation: pulseKey 2.4s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glowPulse 2s ease-in-out infinite;
 }
 
 /* ---------------------------------------------------------------------------

@@ -47,7 +47,7 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
 
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[80%] px-3.5 py-2.5 text-sm transition-all duration-150 ${bubbleClasses}`}>
+      <div className={`max-w-[80%] px-3.5 py-2.5 text-sm transition-all duration-150 animate-slide-up ${bubbleClasses}`}>
         {isAi ? (
           <div className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-blue-600">
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 text-[8px] text-white">

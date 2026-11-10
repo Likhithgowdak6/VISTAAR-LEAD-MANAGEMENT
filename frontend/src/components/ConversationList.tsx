@@ -457,7 +457,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   type="button"
                   onClick={() => onSelect(conversation.id)}
                   aria-current={isSelected}
-                  className={`relative flex w-full flex-col gap-2 p-3.5 pl-4 pr-16 text-left transition-all duration-150 ${
+                  className={`relative flex w-full flex-col gap-2 p-3.5 pl-4 pr-16 text-left transition-all duration-150 hover:translate-x-0.5 active:scale-[0.99] ${
                     isSelected
                       ? 'bg-blue-50/70 shadow-xs'
                       : 'bg-white hover:bg-slate-50/90'

@@ -431,7 +431,7 @@ const ConversationView = ({
   const whatsappAccount = detail?.whatsappAccount ?? null;
 
   return (
-    <div className="flex min-w-0 flex-1">
+    <div className="flex min-w-0 flex-1 animate-fade-in">
       {/* Below xl the thread and the lead panel take turns rather than splitting the width; the
           existing Details / Hide details button is the switch. From xl both are visible. */}
       <section className={`min-w-0 flex-1 flex-col xl:flex ${detailsOpen ? 'hidden' : 'flex'}`}>

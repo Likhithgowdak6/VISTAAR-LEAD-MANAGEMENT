@@ -72,7 +72,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
       data-testid="task-card"
       data-status={task.status}
       data-late={late}
-      className="flex items-start gap-3.5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:shadow-md hover:border-slate-300"
+      className="flex items-start gap-3.5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:shadow-md hover:-translate-y-0.5 hover:border-slate-300"
     >
       {/* Only pending work can be completed, so for closed rows this is a static marker rather
           than a dead button that looks tappable. */}
