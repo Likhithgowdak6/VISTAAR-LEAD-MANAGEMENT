@@ -10,7 +10,11 @@ import { type Stage } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { BUILTIN_STAGES } from '../lib/stages';
 
-const StagesPage = () => {
+interface StagesPageProps {
+  embedded?: boolean;
+}
+
+const StagesPage = ({ embedded = false }: StagesPageProps) => {
   const { authedRequest, permissions } = useAuth();
   const [stages, setStages] = useState<Stage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,27 +38,29 @@ const StagesPage = () => {
     load();
   }, [load]);
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Lead stages</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          The 7 built-in stages (New, Contacted, Qualified, Proposal, Won, Lost, Closed) are
-          permanent. Add custom stages here — once added, everyone can pick them on a lead.
-        </p>
-      </div>
+  const content = (
+    <div className="space-y-4">
+      {!embedded ? (
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Lead stages</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            The 7 built-in stages (New, Contacted, Qualified, Proposal, Won, Lost, Closed) are
+            permanent. Add custom stages here — once added, everyone can pick them on a lead.
+          </p>
+        </div>
+      ) : null}
 
       {canManage ? <AddStageForm onCreated={load} /> : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="border-b border-slate-100 dark:border-slate-800 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
           Built-in (permanent)
         </div>
         <ul>
           {BUILTIN_STAGES.map((stage) => (
             <li
               key={stage.key}
-              className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-slate-700"
+              className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 px-4 py-3 text-slate-700 dark:text-slate-300"
             >
               {stage.label}
             </li>
@@ -62,8 +68,8 @@ const StagesPage = () => {
         </ul>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="border-b border-slate-100 dark:border-slate-800 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
           Custom
         </div>
         {loading ? (
@@ -72,7 +78,7 @@ const StagesPage = () => {
           </div>
         ) : null}
         {error ? (
-          <p role="alert" className="p-4 text-sm text-red-600">
+          <p role="alert" className="p-4 text-sm text-red-600 dark:text-red-400">
             {error}
           </p>
         ) : null}
@@ -85,6 +91,16 @@ const StagesPage = () => {
           ))}
         </ul>
       </div>
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+      {content}
     </div>
   );
 };

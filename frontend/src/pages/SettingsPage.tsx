@@ -12,7 +12,6 @@ import { useAuth } from '../auth/AuthContext';
 import Spinner from '../components/Spinner';
 import { errorMessage } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
-import { GoogleCalendarIntegrationCard } from '../components/google-calendar/GoogleCalendarIntegrationCard';
 
 const SettingsPage = () => {
   const { authedRequest, permissions } = useAuth();
@@ -246,9 +245,6 @@ const SettingsPage = () => {
           </form>
         )}
       </div>
-
-      {/* Google Calendar Two-Way Integration & Reminders */}
-      <GoogleCalendarIntegrationCard />
 
       {testModeNumbers.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-amber-300 bg-amber-50 p-4">

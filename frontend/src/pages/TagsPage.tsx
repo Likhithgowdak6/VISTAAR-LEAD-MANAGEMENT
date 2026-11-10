@@ -9,7 +9,11 @@ import TagRow from '../components/tags/TagRow';
 import { type Tag } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
-const TagsPage = () => {
+interface TagsPageProps {
+  embedded?: boolean;
+}
+
+const TagsPage = ({ embedded = false }: TagsPageProps) => {
   const { authedRequest, permissions } = useAuth();
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,22 +40,24 @@ const TagsPage = () => {
   const active = tags.filter((tag) => tag.status !== 'archived');
   const archived = tags.filter((tag) => tag.status === 'archived');
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Tags</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Labels you can attach to a lead — a lead can carry many at once. Unlike a stage, tags
-          describe what is true about a lead (budget, unit type, language) rather than where it sits
-          in the pipeline. Archiving keeps a tag on leads that already have it, but removes it from
-          the picker.
-        </p>
-      </div>
+  const content = (
+    <div className="space-y-4">
+      {!embedded ? (
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Tags</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Labels you can attach to a lead — a lead can carry many at once. Unlike a stage, tags
+            describe what is true about a lead (budget, unit type, language) rather than where it sits
+            in the pipeline. Archiving keeps a tag on leads that already have it, but removes it from
+            the picker.
+          </p>
+        </div>
+      ) : null}
 
       {canManage ? <AddTagForm onCreated={load} /> : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="border-b border-slate-100 dark:border-slate-800 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
           Active
         </div>
         {loading ? (
@@ -60,7 +66,7 @@ const TagsPage = () => {
           </div>
         ) : null}
         {error ? (
-          <p role="alert" className="p-4 text-sm text-red-600">
+          <p role="alert" className="p-4 text-sm text-red-600 dark:text-red-400">
             {error}
           </p>
         ) : null}
@@ -80,8 +86,8 @@ const TagsPage = () => {
       </div>
 
       {archived.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
+        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="border-b border-slate-100 dark:border-slate-800 px-4 py-2 text-xs font-semibold uppercase text-slate-400">
             Archived
           </div>
           <ul>
@@ -91,6 +97,16 @@ const TagsPage = () => {
           </ul>
         </div>
       ) : null}
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+      {content}
     </div>
   );
 };

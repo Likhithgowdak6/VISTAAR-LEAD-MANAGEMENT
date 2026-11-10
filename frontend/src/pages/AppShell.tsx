@@ -25,8 +25,10 @@ import { readMetaConnectReturn } from '../lib/meta-connect';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import AccountsPage from './AccountsPage';
 import AiKnowledgePage from './AiKnowledgePage';
+import CalendarPage from './CalendarPage';
 import LeadSourcesPage from './LeadSourcesPage';
 import SettingsPage from './SettingsPage';
+import StagesAndTagsPage from './StagesAndTagsPage';
 import StagesPage from './StagesPage';
 import TagsPage from './TagsPage';
 import TasksPage from './TasksPage';
@@ -39,10 +41,12 @@ import OfflineBanner from '../components/mobile/OfflineBanner';
 type AppView =
   | 'leads'
   | 'inbox'
+  | 'calendar'
   | 'tasks'
   | 'analytics'
   | 'accounts'
   | 'team'
+  | 'stages-and-tags'
   | 'stages'
   | 'tags'
   | 'ai-knowledge'
@@ -158,6 +162,18 @@ const AppShell = () => {
   const deepLink = useMemo(() => readDeepLinkTarget(), []);
 
   const [view, setView] = useState<AppView>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        const search = window.location.search;
+        if (path.includes('/calendar') || search.includes('google_calendar_')) {
+          return 'calendar';
+        }
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+
     // An explicit lead link wins over the Meta return AND over the default landing screen: it
     // names one record, which is a stronger instruction than either "you just came back from
     // Facebook" or "show me the usual first screen". A notification that opens a thread must
@@ -574,12 +590,12 @@ const AppShell = () => {
   const navItems: MobileNavItem<AppView>[] = [
     { view: 'leads', label: 'Leads' },
     { view: 'inbox', label: 'Inbox' },
+    { view: 'calendar', label: 'Calendar' },
     ...(canManageTasks ? ([{ view: 'tasks', label: 'Tasks' }] as const) : []),
     { view: 'analytics', label: 'Analytics' },
     ...(canReadAccounts ? ([{ view: 'accounts', label: 'Accounts' }] as const) : []),
     ...(canReadUsers ? ([{ view: 'team', label: 'Team' }] as const) : []),
-    ...(canManageStages ? ([{ view: 'stages', label: 'Stages' }] as const) : []),
-    ...(canManageTags ? ([{ view: 'tags', label: 'Tags' }] as const) : []),
+    ...(canManageStages || canManageTags ? ([{ view: 'stages-and-tags', label: 'Stages & Tags' }] as const) : []),
     ...(canManageLeadSources ? ([{ view: 'lead-sources', label: 'Lead sources' }] as const) : []),
     ...(canManageAiKnowledge ? ([{ view: 'ai-knowledge', label: 'Knowledge' }] as const) : []),
     ...(canManageSettings ? ([{ view: 'settings', label: 'Settings' }] as const) : []),
@@ -635,6 +651,9 @@ const AppShell = () => {
               <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
                 Inbox
               </NavButton>
+              <NavButton active={view === 'calendar'} onClick={() => setView('calendar')}>
+                Calendar
+              </NavButton>
               {canManageTasks ? (
                 <NavButton active={view === 'tasks'} onClick={() => setView('tasks')}>
                   Tasks
@@ -650,14 +669,12 @@ const AppShell = () => {
                   Team
                 </NavButton>
               ) : null}
-              {canManageStages ? (
-                <NavButton active={view === 'stages'} onClick={() => setView('stages')}>
-                  Stages
-                </NavButton>
-              ) : null}
-              {canManageTags ? (
-                <NavButton active={view === 'tags'} onClick={() => setView('tags')}>
-                  Tags
+              {canManageStages || canManageTags ? (
+                <NavButton
+                  active={view === 'stages-and-tags' || view === 'stages' || view === 'tags'}
+                  onClick={() => setView('stages-and-tags')}
+                >
+                  Stages &amp; Tags
                 </NavButton>
               ) : null}
               {canManageLeadSources ? (
@@ -742,13 +759,13 @@ const AppShell = () => {
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Team">
           <TeamPage />
         </SectionScreen>
-      ) : view === 'stages' && canManageStages ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Stages">
-          <StagesPage />
+      ) : view === 'calendar' ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Calendar">
+          <CalendarPage />
         </SectionScreen>
-      ) : view === 'tags' && canManageTags ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tags">
-          <TagsPage />
+      ) : (view === 'stages-and-tags' || view === 'stages' || view === 'tags') && (canManageStages || canManageTags) ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Stages & Tags">
+          <StagesAndTagsPage defaultTab={view === 'tags' ? 'tags' : 'stages'} />
         </SectionScreen>
       ) : view === 'ai-knowledge' && canManageAiKnowledge ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Knowledge">

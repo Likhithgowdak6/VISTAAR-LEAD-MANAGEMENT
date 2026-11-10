@@ -80,7 +80,7 @@ async def get_google_auth_url(
     org_id = str(auth.organization_id)
     user_id = str(auth.user_id)
     auth_url = build_google_authorization_url(organization_id=org_id, user_id=user_id)
-    return {"authUrl": auth_url}
+    return {"data": {"authUrl": auth_url}, "authUrl": auth_url}
 
 
 @router.get("/callback")
@@ -93,21 +93,21 @@ async def google_oauth_callback(
     if error:
         logger.warning("Google OAuth error in callback: %s", error)
         frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/settings?google_calendar_error={error}"
+        target_url = f"{frontend_base}/calendar?google_calendar_error={error}"
         return HTMLResponse(
             content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
                     f"<body><h3>Google Authorization Cancelled</h3><p>{error}</p>"
-                    f"<a href='{target_url}'>Click here to return to Settings</a></body></html>",
+                    f"<a href='{target_url}'>Click here to return to Calendar</a></body></html>",
             status_code=400,
         )
 
     if not code or not state:
         frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/settings?google_calendar_error=missing_parameters"
+        target_url = f"{frontend_base}/calendar?google_calendar_error=missing_parameters"
         return HTMLResponse(
             content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
                     f"<body><h3>Missing OAuth parameters</h3>"
-                    f"<a href='{target_url}'>Click here to return to Settings</a></body></html>",
+                    f"<a href='{target_url}'>Click here to return to Calendar</a></body></html>",
             status_code=400,
         )
 
@@ -153,9 +153,9 @@ async def google_oauth_callback(
                     upsert=True,
                 )
 
-        # Redirect user back to settings with success flag
+        # Redirect user back to calendar with success flag
         frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/settings?google_calendar_connected=true"
+        target_url = f"{frontend_base}/calendar?google_calendar_connected=true"
         return HTMLResponse(
             content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
                     f"<body><h3>Google Calendar Connected!</h3><p>Redirecting back to Vistaar CRM...</p>"
@@ -165,10 +165,10 @@ async def google_oauth_callback(
         logger.exception("Google OAuth callback exception: %s", exc)
         frontend_base = getattr(settings, "frontend_origin", "") or ""
         err_msg = str(getattr(exc, "message", exc))
-        target_url = f"{frontend_base}/settings?google_calendar_error={err_msg}"
+        target_url = f"{frontend_base}/calendar?google_calendar_error={err_msg}"
         return HTMLResponse(
             content=f"<html><head><meta http-equiv='refresh' content='2;url={target_url}' /></head>"
-                    f"<body><h3>Connection Error</h3><p>{exc}</p><a href='{target_url}'>Back to Settings</a></body></html>",
+                    f"<body><h3>Connection Error</h3><p>{exc}</p><a href='{target_url}'>Back to Calendar</a></body></html>",
             status_code=500,
         )
 
@@ -182,7 +182,8 @@ async def get_google_calendar_status(
     user_id = auth.user_id
     conn = await get_connection(organization_id=org_id, user_id=user_id)
     if not conn:
-        return {"connected": False, "connection": None, "calendars": [], "uncertainCount": 0}
+        not_conn = {"connected": False, "connection": None, "calendars": [], "uncertainCount": 0}
+        return {"data": not_conn, **not_conn}
 
     database = db.get_database()
     calendars_cursor = database[CALENDARS_COLLECTION].find({"connectionId": conn["_id"]})
@@ -193,12 +194,13 @@ async def get_google_calendar_status(
         "reviewStatus": "needs_review",
     })
 
-    return {
+    result = {
         "connected": conn.get("status") == "connected",
         "connection": serialize_connection(conn),
         "calendars": calendars,
         "uncertainCount": uncertain_count,
     }
+    return {"data": result, **result}
 
 
 @router.get("/calendars")
@@ -215,7 +217,7 @@ async def list_google_calendars(
     database = db.get_database()
     calendars_cursor = database[CALENDARS_COLLECTION].find({"connectionId": conn["_id"]})
     calendars = [serialize_calendar(c) async for c in calendars_cursor]
-    return {"calendars": calendars}
+    return {"data": {"calendars": calendars}, "calendars": calendars}
 
 
 @router.post("/calendars")
@@ -262,7 +264,8 @@ async def update_google_calendars(
         for k in total_stats:
             total_stats[k] += stats.get(k, 0)
 
-    return {"success": True, "stats": total_stats}
+    res = {"success": True, "stats": total_stats}
+    return {"data": res, **res}
 
 
 @router.post("/sync-now")
@@ -284,7 +287,8 @@ async def manual_sync_now(
         for k in total_stats:
             total_stats[k] += stats.get(k, 0)
 
-    return {"success": True, "stats": total_stats}
+    res = {"success": True, "stats": total_stats}
+    return {"data": res, **res}
 
 
 @router.post("/disconnect")
@@ -314,7 +318,8 @@ async def disconnect_google_calendar(
             logger.info("Could not stop watch channels during disconnect: %s", exc)
 
     success = await disconnect_connection(organization_id=org_id, user_id=user_id)
-    return {"success": success}
+    res = {"success": success}
+    return {"data": res, **res}
 
 
 @router.post("/webhook")
@@ -366,7 +371,8 @@ async def list_uncertain_events(
     }).sort("startTime", 1).limit(limit)
 
     items = [serialize_event_sync(doc) async for doc in cursor]
-    return {"events": items}
+    res = {"events": items}
+    return {"data": res, **res}
 
 
 @router.post("/events/{event_sync_id}/confirm")
@@ -416,5 +422,7 @@ async def confirm_uncertain_event(
             custom_minutes=conn.get("customReminderMinutes", 120),
         )
 
-    return {"success": True, "event": serialize_event_sync(updated_doc)}
+    event_data = serialize_event_sync(updated_doc)
+    res = {"success": True, "event": event_data}
+    return {"data": res, **res}
 
