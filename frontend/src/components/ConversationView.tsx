@@ -15,6 +15,7 @@ import {
 } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { useIsMobileViewport, useMobileBackLayer } from '../hooks/useMobileBackLayer';
+import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { findStageByKey, mergeStages } from '../lib/stages';
 import { useRealtime } from '../realtime/RealtimeProvider';
@@ -117,6 +118,11 @@ const ConversationView = ({
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
 
   const isMobile = useIsMobileViewport();
+
+  const { style: swipeStyle, isSwiping } = useEdgeSwipeBack({
+    onBack: onBack ?? (() => {}),
+    enabled: Boolean(isMobile && onBack && !detailsOpen),
+  });
   /**
    * The template writer, opened from the composer.
    *
@@ -431,7 +437,10 @@ const ConversationView = ({
   const whatsappAccount = detail?.whatsappAccount ?? null;
 
   return (
-    <div className="flex min-w-0 flex-1 animate-fade-in">
+    <div
+      className={`flex min-w-0 flex-1 animate-fade-in ${isSwiping ? 'select-none pointer-events-none' : ''}`}
+      style={swipeStyle}
+    >
       {/* Below xl the thread and the lead panel take turns rather than splitting the width; the
           existing Details / Hide details button is the switch. From xl both are visible. */}
       <section className={`min-w-0 flex-1 flex-col xl:flex ${detailsOpen ? 'hidden' : 'flex'}`}>

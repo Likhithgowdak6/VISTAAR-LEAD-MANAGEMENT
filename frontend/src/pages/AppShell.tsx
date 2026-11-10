@@ -34,6 +34,7 @@ import TeamPage from './TeamPage';
 import LeadsPage from './LeadsPage';
 import LeadDetailPage from './LeadDetailPage';
 import ThemeToggle from '../components/ThemeToggle';
+import OfflineBanner from '../components/mobile/OfflineBanner';
 
 type AppView =
   | 'leads'
@@ -594,6 +595,7 @@ const AppShell = () => {
     // `app-shell` swaps 100vh for 100dvh below lg only; see index.css on why the composer
     // ended up under the browser chrome without it.
     <div className="app-shell flex h-screen flex-col bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
+      <OfflineBanner />
       {/* THE MASTHEAD IS DESKTOP-ONLY NOW.
           It needs ~790px for nine letterspaced labels plus the account controls. On a phone
           navigation has moved to the bottom bar, where the thumb is, and each screen carries
@@ -864,10 +866,29 @@ const AppShell = () => {
           being typed. Back returns to the list, which brings the bar back with it. */}
       {isMobileViewport && !(view === 'inbox' && selectedId) ? (
         <MobileBottomNav
-          active={view === 'leads' ? 'leads' : view === 'inbox' ? 'inbox' : 'more'}
+          active={
+            view === 'leads'
+              ? 'leads'
+              : view === 'inbox'
+                ? 'inbox'
+                : view === 'analytics'
+                  ? 'analytics'
+                  : view === 'tasks'
+                    ? 'tasks'
+                    : 'more'
+          }
           onLeads={goToLeads}
           onInbox={goToInbox}
+          onAnalytics={() => {
+            setSelectedId(null);
+            setView('analytics');
+          }}
+          onTasks={() => {
+            setSelectedId(null);
+            setView('tasks');
+          }}
           onMore={() => setMoreOpen(true)}
+          canManageTasks={canManageTasks}
         />
       ) : null}
 

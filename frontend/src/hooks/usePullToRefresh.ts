@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { hapticNotification, hapticSelection } from '../lib/haptics';
 
 /**
  * Pull down at the top of a list to refetch it.
@@ -200,6 +201,10 @@ export const usePullToRefresh = ({
 
       const distance = computePullDistance(deltaY);
 
+      if (distance >= THRESHOLD_PX && pullDistanceRef.current < THRESHOLD_PX) {
+        void hapticSelection();
+      }
+
       // Only once the pull is real. Calling this for every downward touch at the top would
       // suppress legitimate scrolling on a list shorter than its container.
       if (distance > 0 && event.cancelable) {
@@ -228,6 +233,9 @@ export const usePullToRefresh = ({
 
       void Promise.resolve()
         .then(() => onRefreshRef.current())
+        .then(() => {
+          void hapticNotification('success');
+        })
         .catch(() => {
           // Swallowed on purpose. The screen owns its own error display; what must not happen
           // is the indicator spinning forever because a fetch rejected.

@@ -7,6 +7,7 @@ import StageBadge from '../components/StageBadge';
 import CallAction from '../components/lead/CallAction';
 import LeadFormSection from '../components/lead/LeadFormSection';
 import MobileAppBar from '../components/mobile/MobileAppBar';
+import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack';
 import { mergeStages, findStageByKey } from '../lib/stages';
 import {
   type AuthValue,
@@ -51,6 +52,11 @@ const LeadDetailPage = ({ conversationId, onMessage, onBack }: Props) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { style: swipeStyle, isSwiping } = useEdgeSwipeBack({
+    onBack,
+    enabled: true,
+  });
+
   const load = useCallback(async () => {
     try {
       const [detail, stagePayload, tagPayload] = await Promise.all([
@@ -81,7 +87,10 @@ const LeadDetailPage = ({ conversationId, onMessage, onBack }: Props) => {
   const enquiry = conversation?.summary ?? conversation?.lastMessagePreview ?? null;
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className={`flex h-full flex-col ${isSwiping ? 'select-none pointer-events-none' : ''}`}
+      style={swipeStyle}
+    >
       <MobileAppBar
         onBack={onBack}
         backLabel="Back to leads"

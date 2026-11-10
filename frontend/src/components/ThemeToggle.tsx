@@ -1,4 +1,5 @@
 import { useTheme } from '../context/ThemeContext';
+import { hapticImpact } from '../lib/haptics';
 
 export interface ThemeToggleProps {
   className?: string;
@@ -9,10 +10,15 @@ export const ThemeToggle = ({ className = '', showLabel = false }: ThemeTogglePr
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
 
+  const handleToggle = () => {
+    hapticImpact('light');
+    toggleTheme();
+  };
+
   return (
     <button
       type="button"
-      onClick={toggleTheme}
+      onClick={handleToggle}
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       className={`group relative inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-700 shadow-xs transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-600 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-500 dark:hover:bg-slate-700 ${className}`}
