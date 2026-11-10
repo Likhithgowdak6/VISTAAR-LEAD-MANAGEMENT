@@ -226,6 +226,7 @@ def create_all_runners() -> RunnerRegistry:
     from app.promise_follow_up import create_promise_follow_up_runner
     from app.realtime_outbox import create_realtime_outbox_runner
     from app.reminder_runner import create_reminder_runner
+    from app.google_calendar_runner import create_google_calendar_runner
 
     registry = RunnerRegistry()
     registry.register(create_delivery_runner())
@@ -241,6 +242,7 @@ def create_all_runners() -> RunnerRegistry:
     registry.register(create_payment_follow_up_runner())
     registry.register(create_event_reminder_runner())
     registry.register(create_owner_call_escalation_runner())
+    registry.register(create_google_calendar_runner())
 
     return registry
 

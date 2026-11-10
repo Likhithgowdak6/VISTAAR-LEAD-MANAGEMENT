@@ -65,6 +65,7 @@ CONTACT_PROVIDER_JIDS = "wam-crm-ai:v1:contact.encryptedProviderJids"
 WHATSAPP_ACCOUNT_PHONE = "wam-crm-ai:v1:whatsappAccount.encryptedPhone"
 WHATSAPP_ACCOUNT_JID = "wam-crm-ai:v1:whatsappAccount.encryptedJid"
 LEAD_SUBMISSION_PAYLOAD = "wam-crm-ai:v1:leadSubmission.encryptedPayload"
+GOOGLE_CALENDAR_TOKEN = "wam-crm-ai:v1:googleCalendar.encryptedToken"
 
 
 class EncryptionOperationError(Exception):

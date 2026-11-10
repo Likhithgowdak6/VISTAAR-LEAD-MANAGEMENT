@@ -16,7 +16,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env", "backend/.env", "../backend/.env"),
+        extra="ignore",
+    )
 
     # The same connection string Mongoose uses. It must carry `replicaSet=rs0`: the deployment
     # runs mongod with `--replSet rs0` and the Node backend opens transactions against it, so a
@@ -158,6 +161,16 @@ class Settings(BaseSettings):
     vapi_api_key: str = ""
     vapi_assistant_id: str = ""
     vapi_phone_number_id: str = ""
+
+    # Google Calendar Two-Way Integration
+    google_calendar_enabled: bool = False
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
+    google_calendar_webhook_url: str = ""
+    google_calendar_oauth_state_ttl_ms: int = 600_000
+    google_calendar_sweep_interval_ms: int = 60_000
+    google_calendar_channel_renew_window_hours: int = 24
 
 
 settings = Settings()

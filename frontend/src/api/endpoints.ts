@@ -1840,3 +1840,158 @@ export const removePushDevice = ({
     token,
     body: { token: deviceToken },
   });
+
+// ---------------------------------------------------------------------------------------
+// Google Calendar Two-Way Integration & Reminders
+// ---------------------------------------------------------------------------------------
+
+export interface GoogleCalendarConnectionInfo {
+  id: string;
+  organizationId: string;
+  userId: string;
+  accountEmail: string;
+  status: string;
+  scopes: string[];
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
+  defaultReminderMinutes: number;
+  customReminderMinutes: number;
+  ownerAlarmEnabled: boolean;
+  ownerNotificationEnabled: boolean;
+}
+
+export interface GoogleCalendarItem {
+  id: string;
+  connectionId: string;
+  calendarId: string;
+  summary: string;
+  description: string;
+  timeZone: string;
+  isPrimary: boolean;
+  syncEnabled: boolean;
+  lastSyncedAt: string | null;
+}
+
+export interface GoogleCalendarStatusResponse {
+  connected: boolean;
+  connection: GoogleCalendarConnectionInfo | null;
+  calendars: GoogleCalendarItem[];
+  uncertainCount: number;
+}
+
+export interface UncertainEventItem {
+  id: string;
+  googleCalendarId: string;
+  googleEventId: string;
+  summary: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  classification: string;
+  classificationReason: string;
+  matchMethod: string;
+  matchConfidence: number;
+  candidateContacts: Array<{
+    conversationId: string;
+    contactId: string | null;
+    displayName: string;
+    leadId?: string;
+    confidence: number;
+    reason: string;
+  }>;
+  reviewStatus: string;
+}
+
+export const getGoogleCalendarStatus = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<GoogleCalendarStatusResponse>> =>
+  apiFetch('/integrations/google-calendar/status', { token });
+
+export const getGoogleCalendarAuthUrl = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<{ authUrl: string }>> =>
+  apiFetch('/integrations/google-calendar/auth-url', { token });
+
+export const listGoogleCalendars = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<{ calendars: GoogleCalendarItem[] }>> =>
+  apiFetch('/integrations/google-calendar/calendars', { token });
+
+export const updateGoogleCalendars = ({
+  token,
+  calendars,
+  defaultReminderMinutes,
+  customReminderMinutes,
+  ownerAlarmEnabled,
+  ownerNotificationEnabled,
+}: {
+  token?: string | null;
+  calendars: Array<{ calendarId: string; syncEnabled: boolean }>;
+  defaultReminderMinutes?: number;
+  customReminderMinutes?: number;
+  ownerAlarmEnabled?: boolean;
+  ownerNotificationEnabled?: boolean;
+}): Promise<ApiSuccessResponse<{ success: boolean; stats: Record<string, number> }>> =>
+  apiFetch('/integrations/google-calendar/calendars', {
+    method: 'POST',
+    token,
+    body: {
+      calendars,
+      defaultReminderMinutes,
+      customReminderMinutes,
+      ownerAlarmEnabled,
+      ownerNotificationEnabled,
+    },
+  });
+
+export const syncGoogleCalendarNow = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<{ success: boolean; stats: Record<string, number> }>> =>
+  apiFetch('/integrations/google-calendar/sync-now', {
+    method: 'POST',
+    token,
+  });
+
+export const disconnectGoogleCalendar = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<{ success: boolean }>> =>
+  apiFetch('/integrations/google-calendar/disconnect', {
+    method: 'POST',
+    token,
+  });
+
+export const listUncertainEvents = ({
+  token,
+}: {
+  token?: string | null;
+}): Promise<ApiSuccessResponse<{ events: UncertainEventItem[] }>> =>
+  apiFetch('/integrations/google-calendar/uncertain-events', { token });
+
+export const confirmUncertainEvent = ({
+  token,
+  eventSyncId,
+  classification,
+  conversationId,
+  contactId,
+}: {
+  token?: string | null;
+  eventSyncId: string;
+  classification: string;
+  conversationId?: string | null;
+  contactId?: string | null;
+}): Promise<ApiSuccessResponse<{ success: boolean; event: UncertainEventItem }>> =>
+  apiFetch(`/integrations/google-calendar/events/${eventSyncId}/confirm`, {
+    method: 'POST',
+    token,
+    body: { classification, conversationId, contactId },
+  });

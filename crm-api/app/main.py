@@ -51,6 +51,7 @@ from app.routers import (
     templates,
     users,
     whatsapp_accounts,
+    google_calendar,
 )
 from app.config import settings
 
@@ -79,6 +80,13 @@ async def lifespan(_: FastAPI):
     # When running multi-worker Uvicorn (e.g. uvicorn --workers 4), runners are executed in
     # a dedicated single-instance worker container/process (`python -m app.worker`) to prevent
     # 4x runner duplication across worker processes.
+    if settings.node_env != "test":
+        try:
+            from app.google_calendar_models import ensure_google_calendar_indexes
+            await ensure_google_calendar_indexes()
+        except Exception as exc:
+            logger.warning("Could not ensure Google Calendar indexes: %s", exc)
+
     runners = None
     if settings.node_env != "test" and settings.enable_background_runners:
         from app.runners import create_all_runners
@@ -361,6 +369,13 @@ app.include_router(
     whatsapp_accounts.router,
     prefix=f"{API_PREFIX}/whatsapp-accounts",
     tags=["whatsapp-accounts"],
+)
+
+# Google Calendar Two-Way Integration & Reminders (10 routes)
+app.include_router(
+    google_calendar.router,
+    prefix=f"{API_PREFIX}/integrations/google-calendar",
+    tags=["google-calendar"],
 )
 
 
