@@ -62,6 +62,8 @@ def test_wrong_secret_fails_verification():
 
 
 def test_build_google_authorization_url():
+    import urllib.parse
+
     client_id = "google-client-id-123.apps.googleusercontent.com"
     redirect_uri = "https://vistaarcrm.duckdns.org/api/v1/integrations/google-calendar/callback"
     secret = "secret-123"
@@ -79,6 +81,16 @@ def test_build_google_authorization_url():
     assert "access_type=offline" in url
     assert "prompt=consent" in url
     assert "calendar.events" in url
+
+    # Guard against double-key prefixing bug
+    assert "client_id=client_id=" not in url
+    assert "redirect_uri=redirect_uri=" not in url
+
+    parsed = urllib.parse.urlparse(url)
+    q = urllib.parse.parse_qs(parsed.query)
+    assert q["client_id"] == [client_id]
+    assert q["redirect_uri"] == [redirect_uri]
+    assert q["response_type"] == ["code"]
 
 
 def test_encrypt_and_decrypt_google_token(monkeypatch):

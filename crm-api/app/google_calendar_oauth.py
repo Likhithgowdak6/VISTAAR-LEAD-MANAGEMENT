@@ -146,8 +146,8 @@ def build_google_authorization_url(
     secret: str | None = None,
 ) -> str:
     """Builds the Google OAuth 2.0 authorization consent URL."""
-    cid = client_id or getattr(settings, "google_client_id", "")
-    r_uri = redirect_uri or getattr(settings, "google_redirect_uri", "")
+    cid = (client_id or getattr(settings, "google_client_id", "") or "").strip()
+    r_uri = (redirect_uri or getattr(settings, "google_redirect_uri", "") or "").strip()
     assert_google_oauth_configured(client_id=cid, redirect_uri=r_uri, require_secret=False)
 
     state = sign_google_oauth_state(organization_id, user_id, secret=secret)
@@ -163,8 +163,7 @@ def build_google_authorization_url(
         "state": state,
         "include_granted_scopes": "true",
     }
-    query_string = "&".join(f"{k}={httpx.URL('', params={k: v}).query.decode('utf-8')}" for k, v in params.items())
-    return f"{GOOGLE_AUTH_URL}?{query_string}"
+    return str(httpx.URL(GOOGLE_AUTH_URL, params=params))
 
 
 async def exchange_google_code_for_tokens(
@@ -175,9 +174,9 @@ async def exchange_google_code_for_tokens(
     http_client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Exchanges an authorization code for access and refresh tokens."""
-    cid = client_id or getattr(settings, "google_client_id", "")
-    sec = client_secret or getattr(settings, "google_client_secret", "")
-    r_uri = redirect_uri or getattr(settings, "google_redirect_uri", "")
+    cid = (client_id or getattr(settings, "google_client_id", "") or "").strip()
+    sec = (client_secret or getattr(settings, "google_client_secret", "") or "").strip()
+    r_uri = (redirect_uri or getattr(settings, "google_redirect_uri", "") or "").strip()
     assert_google_oauth_configured(client_id=cid, client_secret=sec, redirect_uri=r_uri)
 
     data = {
