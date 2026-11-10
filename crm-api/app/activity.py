@@ -100,7 +100,7 @@ async def create_activity(
     summary: str,
     actor_id: Any = None,
     metadata: dict[str, Any] | None = None,
-    session: Any,
+    session: Any = None,
 ) -> dict[str, Any]:
     """
     `createActivity`. Returns the inserted document.
