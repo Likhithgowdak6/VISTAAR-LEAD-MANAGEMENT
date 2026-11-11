@@ -5,8 +5,11 @@ Mounted at /api/v1/integrations/google-calendar.
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
+from urllib.parse import urlencode
+
 from bson import ObjectId
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -64,6 +67,81 @@ class ConfirmEventPayload(BaseModel):
     contactId: str | None = None
 
 
+def _frontend_base() -> str:
+    """
+    The single origin to send a browser back to after the OAuth round trip.
+
+    **`FRONTEND_ORIGIN` IS A COMMA-SEPARATED LIST, NOT A URL.** `main.py` splits it for CORS, and
+    DEPLOY.md configures it as `https://crm.example.com,https://localhost` — the second entry
+    being the Android WebView's origin. Using the raw setting as a URL base produced
+
+        https://crm.example.com,https://localhost/calendar?google_calendar_connected=true
+
+    which is not a reachable address, so a user who had just connected Google Calendar landed
+    nowhere. That fired on the SUCCESS path, not an edge case.
+
+    The first entry wins: it is the real web origin in every configuration here, and the
+    WebView entries that follow it are app schemes a redirect cannot target anyway.
+    """
+    raw = str(getattr(settings, "frontend_origin", "") or "")
+
+    for entry in raw.split(","):
+        candidate = entry.strip().rstrip("/")
+
+        if candidate:
+            return candidate
+
+    return ""
+
+
+def _callback_page(
+    *,
+    heading: str,
+    detail: str,
+    params: dict[str, str],
+    status_code: int = 200,
+    refresh_seconds: int = 1,
+) -> HTMLResponse:
+    """
+    The interstitial page the OAuth callback returns, built safely.
+
+    ----------------------------------------------------------------------------------------
+    EVERYTHING HERE IS ESCAPED BECAUSE THE INPUTS ARE ATTACKER-CONTROLLED
+    ----------------------------------------------------------------------------------------
+    `/callback` is UNAUTHENTICATED — anyone can send a victim a link to it with whatever `error`
+    they like. The previous version interpolated that straight into the markup:
+
+        f"<p>{error}</p>"
+        f"<a href='{target_url}'>"
+
+    which is reflected XSS, and it is same-origin with the dashboard: the API is served from
+    `/api/v1/*` on the very host the app runs on, so injected script could read tokens and
+    issue authenticated requests with the refresh cookie.
+
+    Two different encodings are needed and using either one alone is still a hole:
+
+      - `urlencode` for the QUERY STRING, so a value cannot introduce its own `&key=` pairs.
+      - `html.escape(..., quote=True)` for everything rendered, including the URL inside the
+        `href` and `content` attributes — `quote=True` escapes both `"` and `'`, so neither
+        quoting style can be broken out of.
+    """
+    target_url = f"{_frontend_base()}/calendar?{urlencode(params)}"
+    safe_url = html.escape(target_url, quote=True)
+
+    return HTMLResponse(
+        content=(
+            "<html><head>"
+            f'<meta http-equiv="refresh" content="{refresh_seconds};url={safe_url}" />'
+            "</head><body>"
+            f"<h3>{html.escape(heading)}</h3>"
+            f"<p>{html.escape(detail)}</p>"
+            f'<a href="{safe_url}">Return to Calendar</a>'
+            "</body></html>"
+        ),
+        status_code=status_code,
+    )
+
+
 @router.get("/auth-url")
 async def get_google_auth_url(
     auth: AuthContext = Depends(_require_settings_manage),
@@ -92,22 +170,22 @@ async def google_oauth_callback(
     """Handles Google OAuth redirect callback."""
     if error:
         logger.warning("Google OAuth error in callback: %s", error)
-        frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/calendar?google_calendar_error={error}"
-        return HTMLResponse(
-            content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
-                    f"<body><h3>Google Authorization Cancelled</h3><p>{error}</p>"
-                    f"<a href='{target_url}'>Click here to return to Calendar</a></body></html>",
+
+        # Google's own codes are a short known set (`access_denied`, `admin_policy_enforced`),
+        # and the frontend reads this to choose its message - so the value is carried through
+        # rather than flattened. It is escaped on the way out, not trusted on the way in.
+        return _callback_page(
+            heading="Google Authorization Cancelled",
+            detail=error,
+            params={"google_calendar_error": error},
             status_code=400,
         )
 
     if not code or not state:
-        frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/calendar?google_calendar_error=missing_parameters"
-        return HTMLResponse(
-            content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
-                    f"<body><h3>Missing OAuth parameters</h3>"
-                    f"<a href='{target_url}'>Click here to return to Calendar</a></body></html>",
+        return _callback_page(
+            heading="Missing OAuth parameters",
+            detail="Google did not return an authorization code. Please try connecting again.",
+            params={"google_calendar_error": "missing_parameters"},
             status_code=400,
         )
 
@@ -154,22 +232,24 @@ async def google_oauth_callback(
                 )
 
         # Redirect user back to calendar with success flag
-        frontend_base = getattr(settings, "frontend_origin", "") or ""
-        target_url = f"{frontend_base}/calendar?google_calendar_connected=true"
-        return HTMLResponse(
-            content=f"<html><head><meta http-equiv='refresh' content='1;url={target_url}' /></head>"
-                    f"<body><h3>Google Calendar Connected!</h3><p>Redirecting back to Vistaar CRM...</p>"
-                    f"<a href='{target_url}'>Click here if not redirected</a></body></html>"
+        return _callback_page(
+            heading="Google Calendar Connected!",
+            detail="Redirecting back to Vistaar CRM...",
+            params={"google_calendar_connected": "true"},
         )
     except Exception as exc:
+        # THE EXCEPTION IS LOGGED, NOT RENDERED. It can carry token-exchange details and
+        # internal paths, and this page is shown in a browser the caller controls. The same
+        # rule the shared error handler already applies in app/errors.py: a generic message
+        # out, the detail in the journal where an operator can read it.
         logger.exception("Google OAuth callback exception: %s", exc)
-        frontend_base = getattr(settings, "frontend_origin", "") or ""
-        err_msg = str(getattr(exc, "message", exc))
-        target_url = f"{frontend_base}/calendar?google_calendar_error={err_msg}"
-        return HTMLResponse(
-            content=f"<html><head><meta http-equiv='refresh' content='2;url={target_url}' /></head>"
-                    f"<body><h3>Connection Error</h3><p>{exc}</p><a href='{target_url}'>Back to Calendar</a></body></html>",
+
+        return _callback_page(
+            heading="Connection Error",
+            detail="Google Calendar could not be connected. Please try again.",
+            params={"google_calendar_error": "connection_failed"},
             status_code=500,
+            refresh_seconds=2,
         )
 
 
