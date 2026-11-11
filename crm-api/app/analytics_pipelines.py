@@ -40,6 +40,7 @@ from app.classification_filters import (
     needs_attention_filter,
 )
 from app.date_range import local_day_bucket
+from app.owner_conversation import OWNER_ASSISTANT_KIND
 
 CONVERSATIONS = "conversations"
 MESSAGES = "messages"
@@ -153,6 +154,18 @@ def build_conversation_match(input: ConversationMatchInput) -> dict[str, Any]:
     match: dict[str, Any] = {
         "organizationId": input.scope.organization_id,
         "deletedAt": None,
+        # THE OWNER'S OWN ASSISTANT THREAD IS NOT A LEAD.
+        #
+        # Every card, stage breakdown and response-time figure counts whatever this match
+        # returns, and before this line it returned every conversation in the organisation.
+        # The owner thread would have been counted as a lead that never converts and always
+        # replies instantly - dragging conversion down and response time up, by exactly one
+        # conversation that grows a message every time a reminder fires.
+        #
+        # `$ne` rather than a positive test: no existing conversation carries `kind` at all,
+        # so this matches every customer thread exactly as before. A `{"kind": "customer"}`
+        # filter would instead have excluded the entire existing collection.
+        "kind": {"$ne": OWNER_ASSISTANT_KIND},
     }
 
     if input.scope.assigned_to:

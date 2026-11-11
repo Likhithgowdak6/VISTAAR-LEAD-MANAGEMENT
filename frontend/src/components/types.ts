@@ -87,6 +87,9 @@ export type ConversationSummary = Pick<
   Partial<
     Pick<
       Conversation,
+      // Partial, not required: the field is absent on every customer thread and is never
+      // backfilled, so a required `kind` would make the type a lie about existing data.
+      | 'kind'
       | 'lastMessageAt'
       | 'lastMessagePreview'
       | 'unreadCount'

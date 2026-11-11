@@ -17,6 +17,7 @@ import ConversationFilters, { ConversationClassChip } from './inbox/Conversation
 import InboxFilters from './InboxFilters';
 import MobileAppBar from './mobile/MobileAppBar';
 import LeadScoreBadge from './LeadScoreBadge';
+import OwnerAssistantBadge from './OwnerAssistantBadge';
 import LeadTemperatureBadge from './LeadTemperatureBadge';
 import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
@@ -477,12 +478,15 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                     <Avatar name={conversation.displayName} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <span
-                          className={`truncate text-sm font-semibold ${
-                            isSelected ? 'text-blue-900' : 'text-slate-800'
-                          }`}
-                        >
-                          {conversation.displayName}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className={`truncate text-sm font-semibold ${
+                              isSelected ? 'text-blue-900' : 'text-slate-800'
+                            }`}
+                          >
+                            {conversation.displayName}
+                          </span>
+                          <OwnerAssistantBadge kind={conversation.kind} />
                         </span>
                         <RelativeTime
                           value={conversation.lastMessageAt}

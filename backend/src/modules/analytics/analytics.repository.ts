@@ -34,6 +34,7 @@
 import { type PipelineStage, type Types } from 'mongoose';
 
 import { AUDIT_EVENTS } from '../../constants/audit-events.js';
+import { CONVERSATION_KINDS } from '../../constants/conversation-kinds.js';
 import { FOLLOWUP_STATUSES } from '../../constants/followup-statuses.js';
 import { LEAD_QUALIFICATION_STATUSES } from '../../constants/lead-qualification.js';
 import { MESSAGE_AUTHORS } from '../../constants/message-authors.js';
@@ -146,6 +147,25 @@ export const buildConversationMatch = ({
   const match: Record<string, unknown> = {
     organizationId: scope.organizationId,
     deletedAt: null,
+    /*
+     * THE OWNER'S OWN ASSISTANT THREAD IS NOT A LEAD.
+     *
+     * Every card, stage breakdown and response-time figure counts whatever this match returns,
+     * and before this line it returned every conversation in the organisation. The owner thread
+     * - where reminders, digests and call escalations are now recorded so the Inbox can show
+     * them - would be counted as a lead that never converts and always replies instantly,
+     * dragging conversion down and response time up by exactly one conversation that grows a
+     * message every time a reminder fires.
+     *
+     * `$ne` rather than a positive test: no existing conversation carries `kind` at all, so
+     * this matches every customer thread exactly as before. A `{ kind: 'customer' }` filter
+     * would instead have excluded the entire existing collection.
+     *
+     * Mirrored in crm-api/app/analytics_pipelines.py, which is compared against this function
+     * stage-for-stage by tests/test_analytics_pipelines.py. Changing one without the other
+     * fails that comparison, which is the intended tripwire.
+     */
+    kind: { $ne: CONVERSATION_KINDS.OWNER_ASSISTANT },
   };
 
   if (scope.assignedTo) {

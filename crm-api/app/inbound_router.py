@@ -60,6 +60,7 @@ from app.inbound_burst import InboundBurstCollector, InboundBurstTurn, create_in
 from app.lead_field_rules import build_lead_form_facts, looks_like_form as default_looks_like_form, parse_pasted_form
 from app.lead_score import recompute_lead_score as default_recompute_score
 from app.opt_out import is_opt_out_request as default_is_opt_out_request
+from app.owner_conversation import record_owner_message
 from app.owner_reply import handle_owner_self_chat_reply as default_handle_owner_reply
 from app.protected_pii import (
     compute_contact_provider_key,
@@ -111,6 +112,37 @@ async def touch_owner_whatsapp_activity(
         await coll.update_one({"_id": oid}, {"$set": {"lastOwnerWhatsAppActivityAt": ts}})
     except Exception as exc:
         logger.error("Owner-activity timestamp write failed safely: %s", exc)
+
+
+async def record_owner_inbound(
+    *,
+    organization_id: Any,
+    whatsapp_account_id: Any,
+    inbound_message: dict[str, Any],
+    owner_number: Any,
+) -> None:
+    """
+    Mirrors an owner's own message into their assistant thread.
+
+    CALLED ALONGSIDE THE EXISTING DISPATCH, NEVER INSTEAD OF IT. `handle_owner_self_chat_reply`
+    still runs and still interprets reminder commands and approval replies exactly as before —
+    this only adds the copy the Inbox reads back. Returning early or reordering these two would
+    change what the owner's "remind me at 5" actually does.
+
+    Deduped inside `record_owner_message` on `providerMessageId`, which is the guard that
+    matters here: Baileys replays recent events after a reconnect, so the same reply genuinely
+    does arrive more than once.
+    """
+    await record_owner_message(
+        organization_id=organization_id,
+        whatsapp_account_id=whatsapp_account_id,
+        owner_number=owner_number,
+        direction="inbound",
+        body=inbound_message.get("text"),
+        provider_message_id=inbound_message.get("messageId"),
+        status="received",
+        sender_type="contact",
+    )
 
 
 async def create_inbound_message(
@@ -447,8 +479,14 @@ class InboundRouter:
         find_conv_by_account_contact_fn: Callable[..., Coroutine[Any, Any, Any]] = default_find_conv_by_account_contact,
         mark_owner_took_over_fn: Callable[..., Coroutine[Any, Any, Any]] = default_mark_owner_took_over,
         publish_event_fn: Callable[..., Coroutine[Any, Any, Any]] = default_publish_event,
+        record_owner_inbound_fn: Callable[..., Coroutine[Any, Any, None]] = record_owner_inbound,
     ) -> None:
         self.ingest = ingest_inbound_message_fn
+        # Kept as the raw configured string, not the allowlist, because the owner CONTACT is
+        # keyed on those digits - see `owner_provider_contact_key`. Resolving it from the
+        # allowlist instead would give a different key and therefore a second thread.
+        self.owner_number = owner_numbers or getattr(settings, "whatsapp_owner_number", "")
+        self.record_owner_inbound_fn = record_owner_inbound_fn
         self.owner_allowlist = create_number_allowlist(owner_numbers or getattr(settings, "whatsapp_owner_number", ""))
         self.test_allowlist = create_number_allowlist(test_allowed_numbers or getattr(settings, "whatsapp_test_allowed_numbers", ""))
         self.echo_guard = echo_guard or get_echo_guard_service()
@@ -479,6 +517,12 @@ class InboundRouter:
             # Check owner's own phone writing in
             if self.owner_allowlist.active and self.owner_allowlist.permits_inbound_jid(*candidates):
                 await touch_owner_whatsapp_activity(organization_id)
+                await self.record_owner_inbound_fn(
+                    organization_id=organization_id,
+                    whatsapp_account_id=whatsapp_account_id,
+                    inbound_message=inbound_message,
+                    owner_number=self.owner_number,
+                )
                 await self.handle_owner_reply(
                     organization_id=organization_id,
                     whatsapp_account_id=whatsapp_account_id,
@@ -509,6 +553,12 @@ class InboundRouter:
 
         if inbound_message.get("isSelfChat"):
             await touch_owner_whatsapp_activity(organization_id)
+            await self.record_owner_inbound_fn(
+                organization_id=organization_id,
+                whatsapp_account_id=whatsapp_account_id,
+                inbound_message=inbound_message,
+                owner_number=self.owner_number,
+            )
             await self.handle_owner_reply(
                 organization_id=organization_id,
                 whatsapp_account_id=whatsapp_account_id,

@@ -16,6 +16,7 @@ from typing import Any, Callable
 from app import db
 from app.allowlist import create_number_allowlist
 from app.config import settings
+from app.owner_conversation import record_owner_message
 
 logger = logging.getLogger("crm-api.owner-notify")
 
@@ -70,13 +71,78 @@ class OwnerNotifyService:
             return {"providerMessageId": None, "blocked": "not_on_test_allowlist"}
 
         if self._send_fn:
-            res = await self._send_fn(account_id=account_id, to=owner_jid, text=text)
-            mid = res.get("providerMessageId") if isinstance(res, dict) else getattr(res, "providerMessageId", None)
+            # THE SEND IS UNCHANGED AND STILL COMES FIRST.
+            #
+            # The tempting refactor is to push this through `enqueue_outbound_message` so the
+            # delivery runner handles it and persistence comes free. It would also add the
+            # runner's poll interval and, for `authoredBy: ai`, a 3-15 second human-like
+            # jitter - to a path whose whole point is bypassing quiet hours and throttles
+            # because owner call escalation is time-critical. So the direct send stays, and
+            # the recording happens beside it.
+            sent_at = db.utc_now()
+            status = "sent"
+            mid = None
+
+            try:
+                res = await self._send_fn(account_id=account_id, to=owner_jid, text=text)
+                mid = (
+                    res.get("providerMessageId")
+                    if isinstance(res, dict)
+                    else getattr(res, "providerMessageId", None)
+                )
+            except Exception:
+                # Recorded as failed, then re-raised: the caller's own error handling is
+                # unchanged, but the owner's thread shows the attempt rather than a silent gap.
+                status = "failed"
+                await self._record(
+                    account_id=account_id,
+                    organization_id=organization_id,
+                    owner_number=owner_num,
+                    text=text,
+                    provider_message_id=None,
+                    status=status,
+                    sent_at=sent_at,
+                )
+                raise
+
+            await self._record(
+                account_id=account_id,
+                organization_id=organization_id,
+                owner_number=owner_num,
+                text=text,
+                provider_message_id=mid,
+                status=status,
+                sent_at=sent_at,
+            )
+
             return {"providerMessageId": mid}
 
         # Standalone / decoupled simulation
         logger.debug("Simulated owner notification to %s: %s", owner_jid, text[:100])
         return {"providerMessageId": "owner_notify_simulated"}
+
+    async def _record(
+        self,
+        *,
+        account_id: Any,
+        organization_id: Any,
+        owner_number: Any,
+        text: str,
+        provider_message_id: str | None,
+        status: str,
+        sent_at: Any,
+    ) -> None:
+        """Mirrors the sent message into the owner's Inbox thread. Never raises."""
+        await record_owner_message(
+            organization_id=organization_id,
+            whatsapp_account_id=account_id,
+            owner_number=owner_number,
+            direction="outbound",
+            body=text,
+            provider_message_id=provider_message_id,
+            status=status,
+            sent_at=sent_at,
+        )
 
 
 def create_owner_notify_service(**kwargs: Any) -> OwnerNotifyService:

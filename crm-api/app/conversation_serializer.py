@@ -146,6 +146,11 @@ def serialize_conversation(conversation: Any) -> dict[str, Any] | None:
         "contactId": serialize_id(value.get("contactId")),
         "leadId": value.get("leadId"),
         "displayName": value.get("displayName"),
+        # Absent on every customer thread, which is what lets the Inbox tell the owner's own
+        # assistant conversation apart without inventing a second list or a second endpoint.
+        # Serialised rather than inferred from `displayName`, because a customer could
+        # legitimately be called "Owner Assistant".
+        "kind": value.get("kind"),
         "assignedTo": serialize_id(value.get("assignedTo")),
         "assignedTeam": value.get("assignedTeam"),
         "lastHandledBy": serialize_id(value.get("lastHandledBy")),

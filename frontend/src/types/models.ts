@@ -173,6 +173,14 @@ export interface Conversation {
   contactId: string | null;
   leadId: string;
   displayName: string;
+  /**
+   * What the conversation IS, as distinct from its state.
+   *
+   * `null` on every customer thread — the field is not backfilled, so absence is the normal
+   * case and must never be treated as missing data. `'owner_assistant'` marks the studio
+   * owner's own thread with the AI, which is excluded from every analytic server-side.
+   */
+  kind: 'owner_assistant' | null;
   assignedTo: string | null;
   assignedTeam: string | null;
   lastHandledBy: string | null;
