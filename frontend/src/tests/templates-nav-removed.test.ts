@@ -36,8 +36,7 @@ describe('the top navigation', () => {
   it.each([
     'inbox',
     'analytics',
-    'accounts',
-    'team',
+    'team-and-accounts',
     'calendar',
     'stages-and-tags',
     'lead-sources',
@@ -47,6 +46,40 @@ describe('the top navigation', () => {
     // The point of removing one item is removing exactly ONE item. Matched on the view key
     // rather than the label, because the label sits on its own JSX line.
     expect(appShell).toContain(`setView('${view}')`);
+  });
+});
+
+/**
+ * Team and Accounts became one destination, the same way Stages and Tags did.
+ *
+ * THE DESTINATIONS WERE MERGED, NOT REMOVED, and that distinction is what these assert. Both
+ * `team` and `accounts` are still members of `AppView` and still route — to the merged page
+ * with the matching tab pre-selected — so an existing link, or any code that still calls
+ * `setView('accounts')`, lands where the user expects instead of falling through to the
+ * default view.
+ */
+describe('the Team & Accounts destination', () => {
+  it('is one nav entry, not two', () => {
+    expect(appShell).toContain("setView('team-and-accounts')");
+    expect(appShell).not.toContain("onClick={() => setView('accounts')}");
+    expect(appShell).not.toContain("onClick={() => setView('team')}");
+  });
+
+  it('still honours the old view keys as entry points', () => {
+    // Without these branches, a stale `accounts` view would match nothing and the shell would
+    // silently render the default screen.
+    expect(appShell).toContain("view === 'team'");
+    expect(appShell).toContain("view === 'accounts'");
+    expect(appShell).toContain('<TeamAndAccountsPage');
+  });
+
+  it('keeps both pages on disk, now rendered as tabs', () => {
+    for (const name of ['TeamPage', 'AccountsPage']) {
+      const page = readFileSync(join(process.cwd(), `src/pages/${name}.tsx`), 'utf8');
+
+      // `embedded` is what lets the merged page drop each page's own heading and padding.
+      expect(page).toContain('embedded');
+    }
   });
 });
 

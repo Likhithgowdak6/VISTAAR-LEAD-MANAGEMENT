@@ -23,7 +23,6 @@ import { onDeepLinkOpened } from '../lib/capacitor-deep-link';
 import { clearDeepLinkTarget, readDeepLinkTarget } from '../lib/deep-link';
 import { readMetaConnectReturn } from '../lib/meta-connect';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
-import AccountsPage from './AccountsPage';
 import AiKnowledgePage from './AiKnowledgePage';
 import CalendarPage from './CalendarPage';
 import LeadSourcesPage from './LeadSourcesPage';
@@ -32,7 +31,7 @@ import StagesAndTagsPage from './StagesAndTagsPage';
 import StagesPage from './StagesPage';
 import TagsPage from './TagsPage';
 import TasksPage from './TasksPage';
-import TeamPage from './TeamPage';
+import TeamAndAccountsPage from './TeamAndAccountsPage';
 import LeadsPage from './LeadsPage';
 import LeadDetailPage from './LeadDetailPage';
 import ThemeToggle from '../components/ThemeToggle';
@@ -44,6 +43,7 @@ type AppView =
   | 'calendar'
   | 'tasks'
   | 'analytics'
+  | 'team-and-accounts'
   | 'accounts'
   | 'team'
   | 'stages-and-tags'
@@ -593,8 +593,9 @@ const AppShell = () => {
     { view: 'calendar', label: 'Calendar' },
     ...(canManageTasks ? ([{ view: 'tasks', label: 'Tasks' }] as const) : []),
     { view: 'analytics', label: 'Analytics' },
-    ...(canReadAccounts ? ([{ view: 'accounts', label: 'Accounts' }] as const) : []),
-    ...(canReadUsers ? ([{ view: 'team', label: 'Team' }] as const) : []),
+    ...(canReadUsers || canReadAccounts
+      ? ([{ view: 'team-and-accounts', label: 'Team & Accounts' }] as const)
+      : []),
     ...(canManageStages || canManageTags ? ([{ view: 'stages-and-tags', label: 'Stages & Tags' }] as const) : []),
     ...(canManageLeadSources ? ([{ view: 'lead-sources', label: 'Lead sources' }] as const) : []),
     ...(canManageAiKnowledge ? ([{ view: 'ai-knowledge', label: 'Knowledge' }] as const) : []),
@@ -659,14 +660,14 @@ const AppShell = () => {
                   Tasks
                 </NavButton>
               ) : null}
-              {canReadAccounts ? (
-                <NavButton active={view === 'accounts'} onClick={() => setView('accounts')}>
-                  Accounts
-                </NavButton>
-              ) : null}
-              {canReadUsers ? (
-                <NavButton active={view === 'team'} onClick={() => setView('team')}>
-                  Team
+              {canReadUsers || canReadAccounts ? (
+                <NavButton
+                  active={
+                    view === 'team-and-accounts' || view === 'team' || view === 'accounts'
+                  }
+                  onClick={() => setView('team-and-accounts')}
+                >
+                  Team &amp; Accounts
                 </NavButton>
               ) : null}
               {canManageStages || canManageTags ? (
@@ -751,13 +752,13 @@ const AppShell = () => {
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks" isTab>
           <TasksPage onOpenTask={openTaskTarget} />
         </SectionScreen>
-      ) : view === 'accounts' && canReadAccounts ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="WhatsApp numbers">
-          <AccountsPage />
-        </SectionScreen>
-      ) : view === 'team' && canReadUsers ? (
-        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Team">
-          <TeamPage />
+      ) : (view === 'team-and-accounts' || view === 'team' || view === 'accounts') &&
+        (canReadUsers || canReadAccounts) ? (
+        // `team` and `accounts` are kept as entry points so existing links and anything that
+        // still calls setView('accounts') land on the right tab instead of falling through to
+        // the default view.
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Team & Accounts">
+          <TeamAndAccountsPage defaultTab={view === 'accounts' ? 'accounts' : 'team'} />
         </SectionScreen>
       ) : view === 'calendar' ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Calendar">

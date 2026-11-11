@@ -9,7 +9,12 @@ import UserRow from '../components/team/UserRow';
 import { type TeamMember } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
-const TeamPage = () => {
+interface TeamPageProps {
+  /** Rendered inside the Team & Accounts tabs, which supply their own heading and padding. */
+  embedded?: boolean;
+}
+
+const TeamPage = ({ embedded = false }: TeamPageProps) => {
   const { authedRequest, permissions, user } = useAuth();
   const [users, setUsers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,15 +39,17 @@ const TeamPage = () => {
     load();
   }, [load]);
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Team</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Admins manage numbers and people. Managers see every conversation. Staff only see the
-          conversations assigned to them.
-        </p>
-      </div>
+  const content = (
+    <div className="space-y-4">
+      {!embedded ? (
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Team</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Admins manage numbers and people. Managers see every conversation. Staff only see the
+            conversations assigned to them.
+          </p>
+        </div>
+      ) : null}
 
       {canManage ? <AddUserForm onCreated={load} /> : null}
 
@@ -73,6 +80,12 @@ const TeamPage = () => {
       </div>
     </div>
   );
+
+  if (embedded) {
+    return content;
+  }
+
+  return <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">{content}</div>;
 };
 
 export default TeamPage;

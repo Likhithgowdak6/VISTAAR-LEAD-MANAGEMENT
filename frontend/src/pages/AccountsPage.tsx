@@ -12,7 +12,12 @@ import { describeAccountRemoval } from '../lib/account-removal';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import { useRealtime } from '../realtime/RealtimeProvider';
 
-const AccountsPage = () => {
+interface AccountsPageProps {
+  /** Rendered inside the Team & Accounts tabs, which supply their own heading and padding. */
+  embedded?: boolean;
+}
+
+const AccountsPage = ({ embedded = false }: AccountsPageProps) => {
   const { authedRequest, permissions } = useAuth();
   const { subscribe } = useRealtime() as RealtimeValue;
   const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
@@ -55,15 +60,17 @@ const AccountsPage = () => {
   const handleRemoved = (removal: AccountRemoval) =>
     setRemovalNotice(describeAccountRemoval(removal));
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">WhatsApp numbers</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Connect and manage the numbers this workspace uses. Disposable numbers only — never a
-          personal or client number.
-        </p>
-      </div>
+  const content = (
+    <div className="space-y-4">
+      {!embedded ? (
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">WhatsApp numbers</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Connect and manage the numbers this workspace uses. Disposable numbers only — never a
+            personal or client number.
+          </p>
+        </div>
+      ) : null}
 
       {removalNotice ? (
         <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -122,6 +129,12 @@ const AccountsPage = () => {
       ) : null}
     </div>
   );
+
+  if (embedded) {
+    return content;
+  }
+
+  return <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">{content}</div>;
 };
 
 export default AccountsPage;
