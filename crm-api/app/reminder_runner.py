@@ -183,7 +183,7 @@ class ReminderRunner:
             return False
 
         self._stopping = False
-        self._task = asyncio.create_task(self._loop(), name="runner:reminder_sweep")
+        self._task = asyncio.create_task(self._loop(), name=f"runner:{self.name}")
         if hasattr(self.logger, "info"):
             self.logger.info("Reminder sweep runner started with interval %d ms.", self.interval_ms)
         return True

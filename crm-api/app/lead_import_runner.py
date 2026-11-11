@@ -103,7 +103,7 @@ class LeadImportRunner:
         if not self._enabled:
             return False
 
-        self._task = asyncio.create_task(self._loop(), name="runner:lead_import")
+        self._task = asyncio.create_task(self._loop(), name=f"runner:{self.name}")
         return True
 
     async def stop(self) -> None:

@@ -44,7 +44,24 @@ _logger = logging.getLogger("crm-api.runners")
 
 
 class IntervalRunner:
-    """One background sweep on a fixed interval."""
+    """
+    One background sweep on a fixed interval.
+
+    ------------------------------------------------------------------------------------------
+    `name` IS snake_case, ALWAYS, AND IT IS A LOG LABEL — NOT AN IDENTIFIER
+    ------------------------------------------------------------------------------------------
+    It appears in the worker's startup line, in every "tick failed safely" warning, and as the
+    asyncio task name a traceback prints. Nothing persists it and nothing looks it up, so it is
+    free to change — but it is what an operator greps for at 3am, and three spellings of the
+    same idea ("Payment follow-up", "googleCalendarSync", "auto_greet") meant no single grep
+    found them all.
+
+    **DO NOT CONFUSE IT WITH `job_key`.** The daily schedulers take both: `job_key`
+    (`morningRead`, `digest`, `bookingCountdown`) is written to `dailyjobruns` and is shared
+    with the Node service, so changing one of those re-fires a job that already ran today.
+    `name` is cosmetic. They are deliberately separate parameters for that reason, and the
+    daily runners are named after their key in snake_case so a log line still leads to the row.
+    """
 
     __slots__ = ("_name", "_tick", "_interval", "_task", "_running", "_stopping", "_ticks", "_failures")
 

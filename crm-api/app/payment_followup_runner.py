@@ -50,7 +50,7 @@ def create_payment_follow_up_runner(
         enabled=enabled,
         run_fn=lambda: svc.run(),
         logger=logger,
-        name="Payment follow-up",
+        name="payment_follow_up",
         job_key="paymentFollowUp",
     )
 

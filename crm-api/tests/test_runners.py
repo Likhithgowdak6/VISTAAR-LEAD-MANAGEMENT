@@ -237,11 +237,89 @@ class TestTheRegistry:
 
         assert [r.name for r in registry.runners] == ["only"]
 
-    def test_create_all_runners_registers_all_thirteen_runners(self):
+    def test_create_all_runners_registers_every_runner(self):
+        """
+        Pinned by NAME rather than by count.
+
+        A bare `== 14` says nothing about WHICH runner went missing, and it has to be edited
+        every time one is added — which is how it last broke: the Google Calendar work
+        registered a fourteenth runner and this test failed with `assert 14 == 13`, naming
+        neither the new one nor the thirteen that were already fine.
+
+        Comparing the set tells you exactly what changed, and a runner silently dropped from
+        the registry — which is how reminders stop firing with nothing in the logs — fails here
+        with its own name in the message.
+        """
         from app.runners import create_all_runners
 
         registry = create_all_runners()
-        assert len(registry.runners) == 13
+
+        assert {runner.name for runner in registry.runners} == {
+            "delivery",
+            "realtime_outbox",
+            "lead_import",
+            "nurture",
+            "promise_follow_up",
+            "reminder",
+            "morning_read",
+            "digest",
+            "booking_countdown",
+            "auto_greet",
+            "payment_follow_up",
+            "event_reminder",
+            "owner_call_escalation",
+            "google_calendar_sync",
+        }
+
+    def test_EVERY_RUNNER_NAME_IS_snake_case(self):
+        """
+        The convention, enforced rather than described.
+
+        It drifted three ways before this existed — `auto_greet`, `Payment follow-up` and
+        `googleCalendarSync` all in one registry — which meant no single `grep` over the
+        worker's logs found them all. A name is only ever a log label, so the cost of the
+        drift fell entirely on whoever was reading those logs during an incident.
+        """
+        import re
+
+        from app.runners import create_all_runners
+
+        for runner in create_all_runners().runners:
+            assert re.fullmatch(r"[a-z][a-z0-9_]*", runner.name), runner.name
+
+    def test_THE_DAILY_RUNNERS_DO_NOT_TAKE_THEIR_NAME_AS_THEIR_JOB_KEY(self):
+        """
+        `job_key` is persisted to `dailyjobruns` and shared with the Node service; `name` is
+        cosmetic. Renaming a runner must never move its claim key, or the job re-fires on a day
+        it already ran — which is Defect 11 all over again.
+
+        The two are spelled differently on purpose (`morning_read` vs `morningRead`), so this
+        asserts the camelCase keys survived the snake_case rename.
+        """
+        from app.daily_jobs_runner import (
+            create_booking_countdown_runner,
+            create_digest_runner,
+            create_morning_read_runner,
+        )
+
+        pairs = [
+            (create_morning_read_runner(), "morning_read", "morningRead"),
+            (create_digest_runner(), "digest", "digest"),
+            (create_booking_countdown_runner(), "booking_countdown", "bookingCountdown"),
+        ]
+
+        for scheduler, expected_name, expected_key in pairs:
+            assert scheduler.name == expected_name
+            assert getattr(scheduler, "job_key", None) == expected_key
+
+    def test_every_runner_name_is_unique(self):
+        # The registry is a tuple, so a duplicated name would not collide - it would just make
+        # two runners indistinguishable in every log line and metric that reports one.
+        from app.runners import create_all_runners
+
+        names = [runner.name for runner in create_all_runners().runners]
+
+        assert len(names) == len(set(names)), names
 
 
 

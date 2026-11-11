@@ -71,7 +71,7 @@ async def tick_google_calendar_sync() -> dict[str, int]:
 def create_google_calendar_runner() -> IntervalRunner:
     interval_seconds = getattr(settings, "google_calendar_sweep_interval_ms", 60_000) / 1000.0
     return IntervalRunner(
-        name="googleCalendarSync",
+        name="google_calendar_sync",
         tick=tick_google_calendar_sync,
         interval_seconds=interval_seconds,
     )

@@ -55,7 +55,7 @@ def create_morning_read_runner(
         time_zone=tz,
         enabled=daily_jobs_enabled(cfg),
         run_fn=lambda: svc.run_morning_read(),
-        name="Morning handover read",
+        name="morning_read",
         job_key="morningRead",
     )
 
@@ -76,7 +76,7 @@ def create_digest_runner(
         time_zone=tz,
         enabled=daily_jobs_enabled(cfg),
         run_fn=lambda: svc.send_digest(),
-        name="Owner digest",
+        name="digest",
         job_key="digest",
     )
 
@@ -97,7 +97,7 @@ def create_booking_countdown_runner(
         time_zone=tz,
         enabled=daily_jobs_enabled(cfg),
         run_fn=lambda: svc.run(),
-        name="Booking countdown",
+        name="booking_countdown",
         job_key="bookingCountdown",
     )
 
