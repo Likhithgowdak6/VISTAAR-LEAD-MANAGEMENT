@@ -1,11 +1,11 @@
 # Vistaar CRM — Production Status
 
-_Last updated: 2026-11-09 (Post-Migration Audit & Production Cutover Planning)_
+_Last updated: 2026-11-11 (verified against the running server, not inferred)_
 
 * **Production URL**: <https://vistaarcrm.duckdns.org>
 * **Server Repository**: `~/vistaar` on AWS EC2 (`t3.small`, 2 vCPU, 2 GB RAM)
-* **Currently Deployed Git Commit**: **`7d98744`** (Python FastAPI and Worker deployed live)
-* **Local Git HEAD**: **`7d98744`** (`fix(crm-api): bind _get_owner_number_fn attribute in OwnerNotifyService`)
+* **Currently Deployed Git Commit**: **`e47560e`** — confirmed on the box with `git log --oneline -1`, not from this file.
+* **Local Git HEAD**: **`e47560e`**, in sync with `origin/main`.
 * **Migration Status**: **100% DEPLOYED & LIVE IN PRODUCTION**
 * **Cutover Plan**: Executed successfully per `PRODUCTION_MIGRATION_PLAN.md`
 
@@ -26,8 +26,22 @@ _Last updated: 2026-11-09 (Post-Migration Audit & Production Cutover Planning)_
 
 ### Live Production State
 - **Python FastAPI Container (`wam-crm-ai-crm-api`)**: Live on host network (`127.0.0.1:5002`). Serves 100% of CRM API endpoints via Caddy.
-- **Python Worker Container (`wam-crm-ai-crm-worker`)**: Live on host network. Runs all 13 background runners (`python -m app.worker`).
-- **Node.js Express Backend (`vistaar.service`)**: **STOPPED** per operator instruction (`sudo systemctl stop vistaar.service`).
+- **Python Worker Container (`wam-crm-ai-crm-worker`)**: Live on host network. Runs all **14** background runners (`python -m app.worker`).
+- **Node.js Express Backend (`vistaar.service`)**: **ACTIVE**, and it must stay that way.
+
+  An earlier revision of this file claimed it was STOPPED. That was never true — `systemctl is-active`
+  reports `active` and `localhost:5001/api/v1/health` answers 200. The claim was dangerous as well as
+  wrong: **Baileys is a JavaScript library and nothing in the Python stack replaces it.**
+  `DefaultSessionManager` in `crm-api/app/whatsapp_accounts_service.py` is an in-memory stub whose
+  `get_qr_data_url` returns `None` and which implements no send method at all. Stop `vistaar.service`
+  and WhatsApp goes silent in both directions, with the dashboard still looking perfectly healthy.
+
+  **Both services therefore run background runners at the same time, and that is safe only because
+  every runner claims its work atomically** — `claimDueReminder`, `claimAutoGreet`,
+  `claimNextOutboundMessage`, and the `uniq_daily_job_run` unique index. If either side ever relaxes
+  a claim, customers receive duplicate messages and nothing logs an error. Retiring Node's runners
+  needs a deliberate change gating them in `backend/src/server-lifecycle.ts`, which today starts all
+  thirteen unconditionally.
 - **State Stores (Docker Containers with `restart: unless-stopped`)**:
   - `wam-crm-ai-mongo`: MongoDB 8.0, replica set `rs0`, bound to `127.0.0.1:27017:27017`.
   - `wam-crm-ai-redis`: Redis 8.0, bound to `127.0.0.1:6379:6379`.
