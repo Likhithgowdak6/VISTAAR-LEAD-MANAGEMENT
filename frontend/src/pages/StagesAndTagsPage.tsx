@@ -67,3 +67,4 @@ const StagesAndTagsPage = ({ defaultTab = 'stages' }: Props) => {
 };
 
 export default StagesAndTagsPage;
+
