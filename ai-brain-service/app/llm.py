@@ -337,3 +337,100 @@ def ping() -> str:
         max_tokens=800,
         temperature=0,
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Tool use
+# ---------------------------------------------------------------------------------------------
+#
+# THE ASSISTANT'S LOOP IS NOT RUN HERE. This returns one turn — either the model's final text or
+# the tools it wants called — and `crm-api` decides what to do next. It has to be that way
+# round: the tools read MongoDB, and this service has no database and no business holding one.
+#
+# So the loop body lives with the data and the permissions, and this function stays a pure
+# request/response like every other endpoint in this service.
+
+
+def complete_with_tools(
+    system: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    max_tokens: int = 2000,
+    temperature: float = 0.2,
+) -> dict[str, Any]:
+    """
+    One assistant turn, with tools offered.
+
+    Returns `{"stop_reason": str, "text": str, "tool_calls": [{"id", "name", "input"}]}`.
+
+    `messages` is the running conversation in Anthropic's own wire format, including prior
+    `tool_use` and `tool_result` blocks — the caller owns that list, because the caller is the
+    one that executed the tools and knows what came back.
+
+    ANTHROPIC ONLY, DELIBERATELY. `settings.llm_provider` also allows OpenAI-compatible hosts,
+    whose tool-calling wire format differs in both directions (`tool_calls` on the message,
+    `role: "tool"` for results). Supporting both would mean a translation layer on the hottest
+    path in the assistant, and production runs Anthropic. A clear refusal beats a half-built
+    second path that silently drops tool calls.
+    """
+    if not _is_anthropic():
+        raise RuntimeError(
+            f"Assistant tool use requires the anthropic provider; LLM_PROVIDER is "
+            f"{settings.llm_provider!r}. The assistant is unavailable until that is changed."
+        )
+
+    t0 = time.monotonic()
+    purpose, conversation_id = _ctx.get()
+
+    try:
+        resp = _get_client().messages.create(
+            model=settings.llm_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=messages,
+            tools=tools,
+        )
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+        if _is_rate_limit(exc):
+            log.error(
+                "llm RATE LIMITED purpose=%s conversation=%s model=%s latency_ms=%s - the "
+                "provider refused on quota, not on the request.",
+                purpose, conversation_id, settings.llm_model, latency_ms,
+            )
+        else:
+            log.error(
+                "llm tool call FAILED purpose=%s conversation=%s model=%s latency_ms=%s "
+                "error=%s",
+                purpose, conversation_id, settings.llm_model, latency_ms, type(exc).__name__,
+            )
+        raise
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    text_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+
+    for block in resp.content:
+        if block.type == "text":
+            text_parts.append(block.text)
+        elif block.type == "tool_use":
+            tool_calls.append({"id": block.id, "name": block.name, "input": block.input or {}})
+
+    log.info(
+        "llm tool call purpose=%s conversation=%s model=%s latency_ms=%s stop=%s tools=%s",
+        purpose, conversation_id, settings.llm_model, latency_ms,
+        resp.stop_reason, len(tool_calls),
+    )
+
+    return {
+        "stop_reason": resp.stop_reason or "",
+        "text": "".join(text_parts).strip(),
+        "tool_calls": tool_calls,
+        # Echoed back so the caller can append it to the running message list verbatim.
+        # Rebuilding it from `text` and `tool_calls` would lose block order, and Anthropic
+        # requires each `tool_result` to follow the `tool_use` it answers.
+        "assistant_content": [block.model_dump() for block in resp.content],
+    }

@@ -8,8 +8,11 @@ dependency state - up, down, wrong cluster - is stated in the test that cares ab
 
 import base64
 import os
+import httpx
 import pytest
 import mongomock.collection
+
+from app import db as db_module
 
 from app.config import settings
 
@@ -163,3 +166,65 @@ needs_lookup_pipeline = pytest.mark.skipif(
         "Node structurally in its own test; this route test runs against a real MongoDB."
     ),
 )
+
+
+class RealConnectionAttempted(RuntimeError):
+    """Raised when a test reaches for a real database or a real HTTP endpoint."""
+
+
+@pytest.fixture(autouse=True)
+def _no_real_connections(monkeypatch):
+    """
+    NOTHING IN THIS SUITE MAY OPEN A REAL CONNECTION.
+
+    Why this is not paranoia. `app/config.py` reads `env_file=(".env", "../.env",
+    "backend/.env", "../backend/.env")`, and `../backend/.env` exists and is loaded during
+    tests — so `settings.mongodb_uri` is a real connection string while the suite runs. Locally
+    that is `mongodb://localhost:27017/wam_crm_ai`, which is a developer's own database.
+
+    **On the production host it is the production database**, because `crm-api` runs with
+    `network_mode: host` and `localhost:27017` is production MongoDB there. So a single test
+    that forgets to monkeypatch `db.get_database` would, if the suite were ever run on that
+    box, read and write real customer data — silently, because a passing test that touched a
+    real database looks exactly like a passing test that did not.
+
+    Every one of the 79 test modules that uses the database already patches `get_database`, and
+    every use of `get_client` is already patched too. This fixture makes that a rule rather
+    than a habit: a test that forgets now fails immediately with an explanation, instead of
+    quietly succeeding against whatever `MONGODB_URI` happens to name.
+
+    A test that *does* patch either function overrides this fixture, because its own
+    `monkeypatch.setattr` runs after setup.
+    """
+    def _refuse_mongo(*_args, **_kwargs):
+        raise RealConnectionAttempted(
+            "A test tried to open a real MongoDB connection. Patch `app.db.get_database` (or "
+            "`get_client`) with a mongomock database in this test. See tests/conftest.py."
+        )
+
+    monkeypatch.setattr(db_module, "get_client", _refuse_mongo)
+    monkeypatch.setattr(db_module, "get_database", _refuse_mongo)
+
+    # `send` is the single funnel every httpx request passes through, so this catches `get`,
+    # `post` and anything built on them without needing to know which a caller used.
+    #
+    # ONLY A REAL NETWORK TRANSPORT IS REFUSED. Several suites legitimately build an
+    # `AsyncClient` over `httpx.MockTransport` or `ASGITransport` — in-memory transports that
+    # never open a socket, used to exercise the Meta Graph client and to drive this very app.
+    # A blanket refusal broke 14 of those tests while protecting nothing: the thing worth
+    # stopping is an escape to a real host, not the use of httpx.
+    _real_send = httpx.AsyncClient.send
+
+    async def _guarded_send(self, *args, **kwargs):
+        transport = getattr(self, "_transport", None)
+
+        if isinstance(transport, httpx.AsyncHTTPTransport):
+            raise RealConnectionAttempted(
+                "A test tried to make a real outbound HTTP request. Patch the client function "
+                "(e.g. `app.ai_brain.assistant_agent_turn`), or build the AsyncClient over "
+                "httpx.MockTransport / ASGITransport."
+            )
+
+        return await _real_send(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", _guarded_send, raising=True)

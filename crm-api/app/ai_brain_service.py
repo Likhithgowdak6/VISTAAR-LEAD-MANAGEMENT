@@ -42,6 +42,7 @@ from app.conversations_repository import (
 )
 from app.sales_rejection import clear_sales_rejection
 from app.lead_score import recompute_lead_score
+from app.message_direction import is_inbound
 from app.outbound_messages import enqueue_outbound_message
 from app.owner_approval_card import send_approval_card, send_escalation_alert
 from app.permissions import CONVERSATIONS_READ_ALL
@@ -654,7 +655,15 @@ async def classify_conversation_outcome(
 
     who_spoke_last = "unknown"
     if last_message:
-        who_spoke_last = "lead" if last_message.get("direction") == "inbound" else "us"
+        # `is_inbound`, not `== "inbound"`. These rows come from `inbound_router.py`, which
+        # stores `"in"` — so the literal comparison here was never true for a customer message
+        # and this always evaluated to "us", telling the brain the business had spoken last
+        # even immediately after the customer replied. `build_transcript` above gets it right
+        # by comparing against "in", which is why the two disagreed in the same function.
+        #
+        # The shape stays Node's (`ai-brain.service.ts:1097`): anything not inbound is "us",
+        # and only a missing message is "unknown".
+        who_spoke_last = "lead" if is_inbound(last_message) else "us"
 
     return await ai_brain.get_outcome(
         str(conv_id),

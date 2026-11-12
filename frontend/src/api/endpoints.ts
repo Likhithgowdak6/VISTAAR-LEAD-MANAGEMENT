@@ -1995,3 +1995,88 @@ export const confirmUncertainEvent = ({
     token,
     body: { classification, conversationId, contactId },
   });
+
+/* ---------------------------------------------------------------------------------------------
+ * The CRM assistant.
+ *
+ * Read-only throughout: these call the assistant's own endpoints, which answer questions using
+ * the same permission-checked tools the rest of the UI uses. The only thing any of them mutates
+ * is the caller's own assistant thread.
+ * ------------------------------------------------------------------------------------------- */
+
+export interface AssistantStep {
+  tool: string;
+  arguments?: Record<string, unknown>;
+  ok: boolean;
+  error?: string | null;
+  resultSummary?: string;
+}
+
+export interface AssistantAnswer {
+  threadId: string;
+  answer: string;
+  steps: AssistantStep[];
+  stoppedEarly: boolean;
+  usedHistory: boolean;
+}
+
+export interface AssistantThreadSummary {
+  id: string;
+  title: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  messageCount: number;
+}
+
+export interface AssistantTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AssistantThreadDetail extends AssistantThreadSummary {
+  turns: AssistantTurn[];
+}
+
+export interface AssistantCapabilities {
+  tools: { name: string; description: string }[];
+  maxSteps: number;
+  readOnly: boolean;
+}
+
+export const getAssistantCapabilities = ({
+  token,
+}: TokenParams = {}): Promise<ApiSuccessResponse<AssistantCapabilities>> =>
+  apiFetch('/assistant/tools', { token });
+
+export const listAssistantThreads = ({
+  token,
+}: TokenParams = {}): Promise<ApiSuccessResponse<AssistantThreadSummary[]>> =>
+  apiFetch('/assistant/threads', { token });
+
+export const getAssistantThread = ({
+  token,
+  threadId,
+}: TokenParams & { threadId: string }): Promise<ApiSuccessResponse<AssistantThreadDetail>> =>
+  apiFetch(`/assistant/threads/${threadId}`, { token });
+
+export const deleteAssistantThread = ({
+  token,
+  threadId,
+}: TokenParams & { threadId: string }): Promise<ApiSuccessResponse<{ deleted: boolean }>> =>
+  apiFetch(`/assistant/threads/${threadId}`, { method: 'DELETE', token });
+
+export const askAssistant = ({
+  token,
+  question,
+  threadId,
+  useHistory = true,
+}: TokenParams & {
+  question: string;
+  threadId?: string | null;
+  useHistory?: boolean;
+}): Promise<ApiSuccessResponse<AssistantAnswer>> =>
+  apiFetch('/assistant/ask', {
+    method: 'POST',
+    token,
+    body: { question, threadId: threadId ?? null, useHistory },
+  });

@@ -7,6 +7,7 @@ import { usePushRegistration } from '../hooks/usePushRegistration';
 import ChangePasswordGate from '../components/ChangePasswordGate';
 import { type AiResponseStatus, type EnquiryClass } from '../types/analytics';
 import AnalyticsPage from './AnalyticsPage';
+import AssistantPage from './AssistantPage';
 import ConversationList from '../components/ConversationList';
 import ConversationView from '../components/ConversationView';
 import EmptyState from '../components/EmptyState';
@@ -40,6 +41,7 @@ import OfflineBanner from '../components/mobile/OfflineBanner';
 type AppView =
   | 'leads'
   | 'inbox'
+  | 'assistant'
   | 'calendar'
   | 'tasks'
   | 'analytics'
@@ -590,6 +592,10 @@ const AppShell = () => {
   const navItems: MobileNavItem<AppView>[] = [
     { view: 'leads', label: 'Leads' },
     { view: 'inbox', label: 'Inbox' },
+    // No permission gate of its own: the assistant answers through the same permission-checked
+    // tools as the rest of the CRM, so anybody who can read a conversation can ask about the
+    // ones they can read. A separate gate here would be a second rule to keep in step.
+    { view: 'assistant', label: 'Assistant' },
     { view: 'calendar', label: 'Calendar' },
     ...(canManageTasks ? ([{ view: 'tasks', label: 'Tasks' }] as const) : []),
     { view: 'analytics', label: 'Analytics' },
@@ -651,6 +657,9 @@ const AppShell = () => {
               </NavButton>
               <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
                 Inbox
+              </NavButton>
+              <NavButton active={view === 'assistant'} onClick={() => setView('assistant')}>
+                Assistant
               </NavButton>
               <NavButton active={view === 'calendar'} onClick={() => setView('calendar')}>
                 Calendar
@@ -748,6 +757,10 @@ const AppShell = () => {
             <LeadsPage onOpenLead={setSelectedLeadId} />
           </SectionScreen>
         )
+      ) : view === 'assistant' ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Assistant" isTab>
+          <AssistantPage />
+        </SectionScreen>
       ) : view === 'tasks' && canManageTasks ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Tasks" isTab>
           <TasksPage onOpenTask={openTaskTarget} />

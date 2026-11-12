@@ -32,6 +32,7 @@ from app.routers import (
     ai_brain,
     ai_knowledge,
     analytics,
+    assistant,
     call_outcome,
     calls,
     contacts,
@@ -313,6 +314,15 @@ app.include_router(
     prefix=f"{API_PREFIX}/messages",
     tags=["media"],
 )
+
+# The CRM assistant. Read-only: it answers questions about the pipeline using the same
+# permission-checked tools the UI uses, and mutates nothing but the caller's own thread.
+#   GET    /assistant/tools              what it can do, derived from the tool registry
+#   GET    /assistant/threads            the caller's own conversations
+#   GET    /assistant/threads/{id}       one conversation's transcript
+#   DELETE /assistant/threads/{id}       delete one of the caller's own conversations
+#   POST   /assistant/ask                ask a question
+app.include_router(assistant.router, prefix=f"{API_PREFIX}/assistant", tags=["assistant"])
 
 # Phase 9. Core conversations routes:
 #   GET    /conversations                  listing with stage/tag/status/search/classification filters

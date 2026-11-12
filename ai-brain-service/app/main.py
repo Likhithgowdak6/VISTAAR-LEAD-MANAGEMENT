@@ -33,7 +33,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from app import assistant, commitment, followup, intent, knowledge, llm, outcome, proposals, rejection, summary, templates
+from app import assistant, assistant_agent, commitment, followup, intent, knowledge, llm, outcome, proposals, rejection, summary, templates
 from app.config import settings
 from app.graph import compiled, pending_interrupt, thread_config
 
@@ -500,6 +500,46 @@ def assistant_answer(body: AssistantAnswerIn) -> dict:
                 data=body.data,
             )
         }
+
+
+class AssistantAgentTurnIn(BaseModel):
+    """
+    One step of the multi-step assistant.
+
+    `messages` and `tools` both come from `crm-api`, which owns the conversation and the tool
+    registry. This service holds no assistant state between calls — see `assistant_agent` for
+    why the loop cannot live here.
+    """
+
+    messages: list[dict[str, Any]] = Field(
+        description="Anthropic-format running conversation, including prior tool_result blocks."
+    )
+    tools: list[dict[str, Any]] = Field(
+        description="Tool definitions. The caller is the only thing that can execute them."
+    )
+    conversation_id: str = ""
+    max_tokens: int = Field(default=2000, ge=256, le=8000)
+
+
+@app.post("/v1/assistant/agent-turn", dependencies=[Depends(require_service_key)])
+def assistant_agent_turn(body: AssistantAgentTurnIn) -> dict:
+    """
+    Returns either the tools to call next, or the final answer.
+
+    422 rather than 500 on an empty `messages` or a non-Anthropic provider: both are the
+    caller's problem to see clearly, not an unexplained failure in the middle of a question.
+    """
+    try:
+        with llm.llm_context("assistant_agent_turn", body.conversation_id or None):
+            return assistant_agent.run_turn(
+                messages=body.messages,
+                tools=body.tools,
+                max_tokens=body.max_tokens,
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 # --------------------------------------------------------------------------

@@ -351,6 +351,27 @@ async def answer_assistant_question(params: dict[str, Any]) -> dict[str, Any]:
     return await _post("/v1/assistant/answer", body)
 
 
+async def assistant_agent_turn(params: dict[str, Any]) -> dict[str, Any]:
+    """
+    One step of the multi-step assistant.
+    POST /v1/assistant/agent-turn.
+
+    The brain decides; `assistant_agent.run_assistant` executes and calls back here. The whole
+    conversation is sent each time because the brain holds no assistant state — which is the
+    point: it has no database and cannot be given one.
+    """
+    body = {
+        "messages": list(params.get("messages", [])),
+        "tools": list(params.get("tools", [])),
+        "conversation_id": str(params.get("conversationId", params.get("conversation_id", ""))),
+    }
+
+    if params.get("maxTokens") or params.get("max_tokens"):
+        body["max_tokens"] = int(params.get("maxTokens") or params.get("max_tokens"))
+
+    return await _post("/v1/assistant/agent-turn", body)
+
+
 async def generate_proposal(params: dict[str, Any]) -> dict[str, Any]:
     """
     `generateProposal`.
