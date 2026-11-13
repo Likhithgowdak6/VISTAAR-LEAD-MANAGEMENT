@@ -66,6 +66,43 @@ class Settings(BaseSettings):
     ai_enabled: bool = False
     ai_draft_rate_limit_per_hour: int = 60
     ai_draft_context_message_count: int = 20
+
+    # --- assistant throttling ------------------------------------------------------------
+    #
+    # DELIBERATELY LOWER THAN THE DRAFT LIMIT, because one assistant question is up to
+    # `assistant_agent.MAX_STEPS` (6) model calls while one draft is exactly one.
+    #
+    # NOTE THE DEFAULT ABOVE IS NOT THE DEPLOYED VALUE: `backend/.env` sets
+    # AI_DRAFT_RATE_LIMIT_PER_HOUR=30, so the real budget for a one-call feature is 30/hour.
+    # Setting the assistant to 30 as well would have allowed 180 model calls an hour — six
+    # times the draft budget, under a number that looks like the same budget. That is exactly
+    # the trap worth avoiding here.
+    #
+    # At 20/hour: ~40 model calls in typical use (most questions resolve in one tool call plus
+    # an answer) and 120 in the worst case. THIS IS A JUDGEMENT CALL, not a derived figure —
+    # strict model-call parity with drafts would mean 5 questions an hour, which is unusable
+    # for a conversational feature. Raise or lower it with the environment variable.
+    #
+    # The per-minute counter is what makes "rapid repeated requests" bounded: without it the
+    # whole hourly budget can be spent in fifteen seconds, which is both the worst cost case
+    # and the most likely way to trip Anthropic's own rate limits.
+    #
+    # All three are environment variables (ASSISTANT_RATE_LIMIT_PER_MINUTE and friends), so
+    # these numbers change without deploying new code.
+    assistant_rate_limit_per_minute: int = 5
+    assistant_rate_limit_per_hour: int = 20
+    assistant_org_rate_limit_per_hour: int = 150
+
+    # --- assistant cost reporting --------------------------------------------------------
+    #
+    # BOTH DEFAULT TO ZERO ON PURPOSE. Token counts come from the provider and are always
+    # real; cost does not, because published rates change, vary by plan, and are not ours to
+    # assume. Until these are set from an actual Anthropic invoice the usage page reports
+    # tokens and shows cost as unconfigured, rather than displaying a confident wrong number.
+    #
+    # Quoted per MILLION tokens, matching how provider pricing is published.
+    assistant_input_cost_per_mtok: float = 0.0
+    assistant_output_cost_per_mtok: float = 0.0
     ai_provider: str = "anthropic"
     ai_model: str = "claude-3-5-sonnet-20241022"
     ai_max_output_tokens: int = 1000

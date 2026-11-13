@@ -90,8 +90,11 @@ def run_turn(
     `messages` is the running Anthropic-format conversation owned by `crm-api` — user turns,
     prior assistant turns, and the `tool_result` blocks for every tool it has executed.
 
-    Returns `{"stop_reason", "text", "tool_calls", "assistant_content"}`. When `tool_calls` is
-    empty the turn is final and `text` is the answer.
+    Returns `{"stop_reason", "text", "tool_calls", "assistant_content", "usage"}`. When
+    `tool_calls` is empty the turn is final and `text` is the answer.
+
+    `usage` is the provider's own token count for THIS call. The caller sums it across the
+    loop, because only the caller knows how many turns one question took.
     """
     if not messages:
         raise ValueError("messages must not be empty")

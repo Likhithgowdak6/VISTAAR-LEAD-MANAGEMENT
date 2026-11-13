@@ -24,6 +24,7 @@ from app.permissions import (
     CONVERSATIONS_READ_ASSIGNED,
     MESSAGES_SEND,
 )
+from app import assistant_rate_limit
 from app.routers import assistant as assistant_router
 
 ORG_ID = str(ObjectId())
@@ -86,6 +87,8 @@ def stubbed():
     closed` from somewhere unrelated.
     """
     with patch.object(
+        assistant_router, "check_assistant_rate_limit", new_callable=AsyncMock
+    ) as limiter, patch.object(
         assistant_router, "run_assistant", new_callable=AsyncMock
     ) as run, patch.object(
         assistant_router, "retrieve_background", new_callable=AsyncMock
@@ -94,6 +97,12 @@ def stubbed():
     ) as create, patch.object(
         assistant_router.assistant_threads, "save_turn", new_callable=AsyncMock
     ) as save:
+        # ALLOWED, explicitly. The limiter now fails CLOSED, and `conftest.py` refuses real
+        # Redis connections — so without this every route test would get a 503 about an
+        # infrastructure outage that has nothing to do with what it is testing.
+        limiter.return_value = assistant_rate_limit.RateLimitDecision(
+            False, None, 0, unavailable=False
+        )
         create.return_value = _thread()
         retrieve.return_value = ""
         run.return_value = {
@@ -104,7 +113,10 @@ def stubbed():
             "messages": [],
         }
 
-        yield {"run": run, "retrieve": retrieve, "create": create, "save": save}
+        yield {
+            "run": run, "retrieve": retrieve, "create": create,
+            "save": save, "limiter": limiter,
+        }
 
 
 def _thread(thread_id=THREAD_ID, org_id=ORG_ID, user_id=USER_ID):
@@ -179,14 +191,17 @@ class TestThreads:
 
         assert response.status_code == 404
 
-    def test_ASKING_INTO_SOMEBODY_ELSES_THREAD_IS_REFUSED(self, client, as_admin):
+    def test_ASKING_INTO_SOMEBODY_ELSES_THREAD_IS_REFUSED(self, client, as_admin, stubbed):
         # And refused BEFORE the model is called - otherwise the answer is computed and only
         # then discarded, having already cost a model call and leaked into logs.
+        #
+        # `stubbed` is needed for the limiter: it fails closed now, so without it this would
+        # return 503 and the 404 it is actually testing would never be reached.
+        run = stubbed["run"]
+
         with patch.object(
             assistant_router.assistant_threads, "get_thread", new_callable=AsyncMock
-        ) as get, patch.object(
-            assistant_router, "run_assistant", new_callable=AsyncMock
-        ) as run:
+        ) as get:
             get.return_value = None
 
             response = client.post(
@@ -371,3 +386,54 @@ class TestNoSendingPermissionIsEverRequired:
 
         assert response.status_code == 200
         assert MESSAGES_SEND not in stubbed["run"].call_args.kwargs["context"].permissions
+
+
+class TestTheUsagePage:
+    """
+    A usage page is a view onto who-did-what inside an organisation. Gating it on
+    `settings.manage` — the permission the rest of the owner-level configuration uses — is what
+    stops a staff member reading their colleagues' activity out of a cost report.
+    """
+
+    def test_AN_ADMIN_CAN_READ_USAGE(self, client):
+        from app.permissions import SETTINGS_MANAGE
+
+        app.dependency_overrides[assistant_router._require_usage] = lambda: _auth(
+            [SETTINGS_MANAGE]
+        )
+
+        with patch.object(
+            assistant_router.assistant_usage, "summarize", new_callable=AsyncMock
+        ) as summarize:
+            summarize.return_value = {"totals": {"requests": 3}, "byUser": []}
+
+            response = client.get("/api/v1/assistant/usage")
+
+        assert response.status_code == 200
+        assert response.json()["data"]["totals"]["requests"] == 3
+
+    def test_A_STAFF_MEMBER_CANNOT_READ_USAGE(self, client):
+        # The default `_require_assistant` override in the `client` fixture does not apply to
+        # this route - it has its own dependency, and that is the point.
+        app.dependency_overrides.pop(assistant_router._require_usage, None)
+
+        response = client.get("/api/v1/assistant/usage")
+
+        assert response.status_code in (401, 403)
+
+    def test_THE_ORGANISATION_COMES_FROM_THE_SESSION(self, client):
+        # There is no parameter for choosing an organisation and there should never be one.
+        from app.permissions import SETTINGS_MANAGE
+
+        app.dependency_overrides[assistant_router._require_usage] = lambda: _auth(
+            [SETTINGS_MANAGE]
+        )
+
+        with patch.object(
+            assistant_router.assistant_usage, "summarize", new_callable=AsyncMock
+        ) as summarize:
+            summarize.return_value = {"totals": {}, "byUser": []}
+
+            client.get(f"/api/v1/assistant/usage?organizationId={OTHER_ORG_ID}")
+
+        assert str(summarize.call_args.kwargs["organization_id"]) == ORG_ID

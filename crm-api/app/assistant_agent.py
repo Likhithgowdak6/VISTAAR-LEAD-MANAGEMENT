@@ -47,6 +47,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app import ai_brain
+from app.assistant_usage import accumulate, empty_usage
 from app.assistant_tools import (
     TOOL_REGISTRY,
     ToolContext,
@@ -211,11 +212,16 @@ async def run_assistant(
     steps: list[AssistantStep] = []
     answer = ""
     stopped_early = False
+    usage = empty_usage()
 
     for step_number in range(MAX_STEPS):
         turn = await ai_brain.assistant_agent_turn(
             {"messages": messages, "tools": tools}
         )
+
+        # Counted before the branch below, so the final answering turn is included. Missing
+        # it would under-report every question by exactly one model call.
+        accumulate(usage, turn.get("usage"))
 
         tool_calls = turn.get("tool_calls") or []
         assistant_content = turn.get("assistant_content") or []
@@ -250,6 +256,7 @@ async def run_assistant(
         "steps": steps,
         "stoppedEarly": stopped_early,
         "stepCount": len(steps),
+        "usage": usage,
         # The message list after this turn, for the caller to persist as history.
         "messages": messages + ([{"role": "assistant", "content": answer}] if answer else []),
     }

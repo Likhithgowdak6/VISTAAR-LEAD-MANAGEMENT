@@ -30,9 +30,11 @@ import {
   type AssistantStep,
   type AssistantThreadSummary,
 } from '../api/endpoints';
+import { ApiError } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import AssistantComposer from '../components/assistant/AssistantComposer';
 import AssistantMessage from '../components/assistant/AssistantMessage';
+import AssistantRateLimit from '../components/assistant/AssistantRateLimit';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
 interface Turn {
@@ -60,6 +62,10 @@ const AssistantPage = () => {
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimit, setRateLimit] = useState<{
+    message: string;
+    retryAfterSeconds: number;
+  } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -120,6 +126,7 @@ const AssistantPage = () => {
 
       setBusy(true);
       setError(null);
+      setRateLimit(null);
       setQuestion('');
       setTurns((current) => [...current, { role: 'user', content: text }]);
 
@@ -143,11 +150,35 @@ const AssistantPage = () => {
 
         loadThreads();
       } catch (askError: unknown) {
-        setError(
-          askError instanceof Error ? askError.message : 'The assistant could not answer that.',
-        );
+        // A RATE LIMIT IS NOT AN ERROR AND MUST NOT LOOK LIKE ONE. "Something went wrong" in a
+        // red box reads as a broken feature and invites an immediate retry — which is exactly
+        // the behaviour the limit exists to stop. It gets its own amber state, the backend's
+        // own wording, and a countdown so the wait is a known quantity.
+        // 503 IS NOT 429 AND NOT A GENERIC ERROR. Nothing the user did caused it, nothing
+        // else in the CRM is broken, and the wait is seconds rather than an hour. It reuses
+        // the same calm amber treatment as the rate limit — both are "come back shortly",
+        // and a red box would say "this is broken" about a feature that is merely paused.
+        if (askError instanceof ApiError && askError.status === 503) {
+          const retryAfter = Number(
+            (askError.details as { retryAfterSeconds?: number } | null)?.retryAfterSeconds ?? 15,
+          );
+
+          setRateLimit({ message: askError.message, retryAfterSeconds: retryAfter });
+        } else if (askError instanceof ApiError && askError.status === 429) {
+          const retryAfter = Number(
+            (askError.details as { retryAfterSeconds?: number } | null)?.retryAfterSeconds ?? 60,
+          );
+
+          setRateLimit({ message: askError.message, retryAfterSeconds: retryAfter });
+        } else {
+          setError(
+            askError instanceof Error ? askError.message : 'The assistant could not answer that.',
+          );
+        }
+
         // The question goes back in the box. Losing what somebody typed to a network blip is
-        // how a feature stops being trusted.
+        // how a feature stops being trusted — and it matters more when they are being asked to
+        // wait before retrying.
         setQuestion(text);
         setTurns((current) => current.slice(0, -1));
       } finally {
@@ -204,6 +235,10 @@ const AssistantPage = () => {
     setThreadId(null);
     setTurns([]);
     setError(null);
+    // NOT cleared on purpose would be wrong here: the limit is on the person, not the thread,
+    // so a new conversation does not earn a fresh budget. It is cleared because the banner is
+    // about the last attempt, and the countdown below keeps the real constraint visible.
+    setRateLimit(null);
   };
 
   return (
@@ -283,7 +318,10 @@ const AssistantPage = () => {
           ) : null}
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-4">
+        {/* `max-w-3xl` on the transcript, while the section itself stays wide. The composer
+            and header span the pane; the conversation does not, because a chat whose turns
+            start at the far left and end at the far right stops reading as a conversation. */}
+        <div className="min-h-0 w-full max-w-3xl flex-1 space-y-6 overflow-y-auto pb-4">
           {turns.length === 0 && !busy ? (
             <div className="surface-card p-5">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -331,6 +369,13 @@ const AssistantPage = () => {
             </div>
           ) : null}
 
+          {rateLimit ? (
+            <AssistantRateLimit
+              message={rateLimit.message}
+              retryAfterSeconds={rateLimit.retryAfterSeconds}
+            />
+          ) : null}
+
           {error ? (
             <p
               role="alert"
@@ -343,12 +388,14 @@ const AssistantPage = () => {
           <div ref={bottomRef} />
         </div>
 
-        <AssistantComposer
-          value={question}
-          onChange={setQuestion}
-          onSubmit={() => ask(question)}
-          busy={busy}
-        />
+        <div className="w-full max-w-3xl">
+          <AssistantComposer
+            value={question}
+            onChange={setQuestion}
+            onSubmit={() => ask(question)}
+            busy={busy}
+          />
+        </div>
       </section>
     </div>
   );

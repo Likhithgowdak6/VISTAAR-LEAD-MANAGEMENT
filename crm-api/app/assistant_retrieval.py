@@ -53,7 +53,10 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, NamedTuple, Protocol
 
+from bson import ObjectId
+
 from app import db
+from app.analytics_scope import AnalyticsScope
 from app.assistant_tools import ToolContext, resolve_tool_scope
 from app.message_direction import is_inbound
 
@@ -117,6 +120,44 @@ def tokenize(text: Any) -> list[str]:
     return [t for t in _WORD.findall(str(text or "").lower()) if t not in STOP_WORDS]
 
 
+class MissingOrganizationScope(RuntimeError):
+    """The caller's scope carries no usable organisation. Retrieval must not proceed."""
+
+
+def _require_organization(scope: AnalyticsScope) -> ObjectId:
+    """
+    The organisation, or a refusal. Never a query that matches everything.
+
+    WHY THIS EXISTS NOW AND DID NOT BEFORE. `resolve_analytics_scope` passes
+    `organization_id` straight through without validating it, and MongoDB treats
+    `{"organizationId": None}` as *matches documents where the field is null or absent* — not
+    as "matches nothing".
+
+    While retrieval enumerated conversations first, a missing organisation produced an empty
+    conversation list and therefore an empty result: safe, but safe **by accident**. The admin
+    path has no second filter, so that accident is gone and the guard has to be explicit.
+
+    Raising rather than returning `[]` is deliberate. `retrieve_background` already catches
+    everything and degrades to no background, so production fails safe either way — but a
+    silent empty result would hide the bug, and a raised error names it in the logs and fails
+    a test.
+    """
+    organization_id = getattr(scope, "organization_id", None)
+
+    if isinstance(organization_id, ObjectId):
+        return organization_id
+
+    # A string id is the realistic malformed case: it comes from a token claim and reaches
+    # Mongo as a *string*, which never equals a stored ObjectId — so the query silently
+    # returns nothing rather than failing. Converted when valid, refused when not.
+    try:
+        return ObjectId(str(organization_id))
+    except Exception as error:
+        raise MissingOrganizationScope(
+            "Retrieval refused: the caller's scope carries no usable organisation id."
+        ) from error
+
+
 class Retriever(Protocol):
     """
     The seam a dense/embedding backend slots into.
@@ -148,12 +189,32 @@ class LexicalRetriever:
         if not terms:
             return []
 
-        visible = await self._visible_conversations(context)
+        scope = resolve_tool_scope(context)
+        organization_id = _require_organization(scope)
 
-        if not visible:
-            return []
+        if scope.assigned_to is None:
+            # THE ADMIN PATH. A caller with `read_all` may read every conversation in the
+            # organisation, so enumerating them first bought nothing except a cap: beyond
+            # `MAX_SCOPED_CONVERSATIONS` the remainder became unreachable, silently. Filtering
+            # messages on `organizationId` directly is the SAME boundary expressed in one
+            # fewer step, and `SCAN_LIMIT` still bounds the work.
+            #
+            # Two things the enumeration used to provide must be replaced, and both are handled
+            # after ranking by `_resolve_conversations`: display names, and the exclusion of
+            # messages belonging to deleted conversations.
+            rows = await self._organisation_messages(organization_id)
+            visible: dict[Any, str] = {}
+        else:
+            # THE RESTRICTED PATH, unchanged. A staff member's slice is *defined* by which
+            # conversations are assigned to them, so the list is the scope and there is no
+            # equivalent shortcut. `MAX_SCOPED_CONVERSATIONS` still applies here, where it caps
+            # one person's own assigned leads rather than a whole organisation.
+            visible = await self._visible_conversations(scope, organization_id)
 
-        rows = await self._candidate_messages(context, list(visible))
+            if not visible:
+                return []
+
+            rows = await self._candidate_messages(organization_id, list(visible))
 
         if not rows:
             return []
@@ -185,23 +246,45 @@ class LexicalRetriever:
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
 
-        return [
-            self._to_passage(row, score, visible)
-            for score, row in scored[: max(1, min(top_k, 20))]
+        wanted_count = max(1, min(top_k, 20))
+
+        if scope.assigned_to is not None:
+            # The restricted path already knows every conversation is live and named.
+            return [
+                self._to_passage(row, score, visible)
+                for score, row in scored[:wanted_count]
+            ]
+
+        # OVER-FETCH, THEN FILTER. The admin path has not yet excluded deleted conversations,
+        # so some top-scoring messages drop out here; taking only `wanted_count` candidates
+        # would then return fewer passages than asked for. Three times covers any realistic
+        # proportion of deleted threads without a second round trip.
+        candidates = scored[: wanted_count * 3]
+        names = await self._resolve_conversations(
+            organization_id, [row.get("conversationId") for _, row in candidates]
+        )
+
+        passages = [
+            self._to_passage(row, score, names)
+            for score, row in candidates
+            if row.get("conversationId") in names
         ]
 
-    async def _visible_conversations(self, context: ToolContext) -> dict[Any, str]:
-        """
-        The conversations this caller may read, as `{_id: displayName}`.
+        return passages[:wanted_count]
 
-        THE SCOPE GATE. Resolved through `resolve_tool_scope`, the same function the tools use,
-        so a staff member's retrieval cannot reach a colleague's thread. Restating the rule here
-        would be a third copy of something that must not drift.
+    async def _visible_conversations(
+        self, scope: AnalyticsScope, organization_id: ObjectId
+    ) -> dict[Any, str]:
         """
-        scope = resolve_tool_scope(context)
+        The conversations a RESTRICTED caller may read, as `{_id: displayName}`.
 
+        THE SCOPE GATE for anyone without `read_all`. The scope comes from `resolve_tool_scope`,
+        the same function the tools use, so a staff member's retrieval cannot reach a
+        colleague's thread. Restating the rule here would be a third copy of something that
+        must not drift.
+        """
         query: dict[str, Any] = {
-            "organizationId": scope.organization_id,
+            "organizationId": organization_id,
             "deletedAt": None,
         }
 
@@ -226,8 +309,57 @@ class LexicalRetriever:
 
         return {row["_id"]: row.get("displayName") or "Unknown" async for row in cursor}
 
+    async def _organisation_messages(
+        self, organization_id: ObjectId
+    ) -> list[dict[str, Any]]:
+        """
+        Every message in the organisation, most recent first, bounded by `SCAN_LIMIT`.
+
+        ONLY REACHED WITH `read_all`. The organisation filter is the entire boundary here,
+        which is why `_require_organization` runs before this is called: `{"organizationId":
+        None}` matches documents where the field is null or absent, and without the
+        conversation enumeration there is no second filter left to catch it.
+        """
+        cursor = (
+            db.get_database()[MESSAGES]
+            .find({"organizationId": organization_id})
+            .sort("sentAt", -1)
+            .limit(SCAN_LIMIT)
+        )
+
+        return [row async for row in cursor]
+
+    async def _resolve_conversations(
+        self, organization_id: ObjectId, conversation_ids: list[Any]
+    ) -> dict[Any, str]:
+        """
+        Display names for the ranked candidates, and the deleted-conversation filter.
+
+        Both jobs in one indexed query. A conversation that is deleted, or belongs to another
+        organisation, simply does not come back — and `search` drops any message whose
+        conversation is absent from this map. That is how the admin path keeps the
+        `deletedAt: None` exclusion the enumeration used to provide.
+        """
+        unique = [cid for cid in dict.fromkeys(conversation_ids) if cid is not None]
+
+        if not unique:
+            return {}
+
+        cursor = db.get_database()[CONVERSATIONS].find(
+            {
+                "_id": {"$in": unique},
+                # Belt and braces: the messages were already organisation-filtered, but a
+                # conversation id is a guessable 24-hex value and this costs one indexed field.
+                "organizationId": organization_id,
+                "deletedAt": None,
+            },
+            {"_id": 1, "displayName": 1},
+        )
+
+        return {row["_id"]: row.get("displayName") or "Unknown" async for row in cursor}
+
     async def _candidate_messages(
-        self, context: ToolContext, conversation_ids: list[Any]
+        self, organization_id: ObjectId, conversation_ids: list[Any]
     ) -> list[dict[str, Any]]:
         cursor = (
             db.get_database()[MESSAGES]
@@ -236,7 +368,7 @@ class LexicalRetriever:
                     # Both filters, not just the conversation list: a conversation id is a
                     # guessable 24-hex value, and defence against a stale or wrong id list
                     # costs one indexed field.
-                    "organizationId": context.organization_id,
+                    "organizationId": organization_id,
                     "conversationId": {"$in": conversation_ids},
                 }
             )

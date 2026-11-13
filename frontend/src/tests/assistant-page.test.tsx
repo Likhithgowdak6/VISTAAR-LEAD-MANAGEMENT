@@ -22,6 +22,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../api/client';
 import * as endpointsApi from '../api/endpoints';
 import { PERMISSIONS } from '../lib/permissions';
 import AssistantPage from '../pages/AssistantPage';
@@ -389,5 +390,230 @@ describe('AssistantPage', () => {
         ),
       );
     });
+  });
+});
+
+describe('AssistantPage rate limiting', () => {
+  const rateLimited = (message: string, retryAfterSeconds = 60) => {
+    const error = new ApiError({
+      status: 429,
+      code: 'ASSISTANT_RATE_LIMITED',
+      message,
+      details: { scope: 'minute', retryAfterSeconds },
+    });
+
+    endpoints.askAssistant.mockRejectedValue(error);
+  };
+
+  it('SHOWS THE LIMIT AS A STATUS, NOT AS AN ERROR', async () => {
+    // A red "something went wrong" box tells the user the feature is broken, and the
+    // reasonable response to that is to retry immediately - the exact behaviour the limit
+    // exists to stop.
+    asAdmin();
+    rateLimited('You are asking faster than the assistant can keep up.');
+
+    renderAuthed(<AssistantPage />);
+    await ask('one too many');
+
+    // Asserted on the TEXT, not on role=status alone: the "Looking through your CRM…"
+    // indicator is also a status, so a bare role query races the loading state and matches
+    // whichever rendered first.
+    expect(await screen.findByText(/asking faster/i)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it("uses the backend's wording rather than its own", async () => {
+    // Which counter tripped is decided server-side; a frontend string would eventually
+    // describe a limit that no longer exists.
+    asAdmin();
+    rateLimited('Your organisation has reached its hourly limit for assistant questions.');
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByText(/your organisation has reached/i)).toBeInTheDocument();
+  });
+
+  it('tells the user how long to wait', async () => {
+    asAdmin();
+    rateLimited('Slow down.', 120);
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByText(/ask again in about 2 minutes/i)).toBeInTheDocument();
+  });
+
+  it('THE QUESTION IS NOT LOST WHEN THE LIMIT IS HIT', async () => {
+    // It matters more here than for a network error: the user is being asked to wait and then
+    // retry, so losing what they typed makes the wait pointless.
+    asAdmin();
+    rateLimited('Slow down.');
+
+    renderAuthed(<AssistantPage />);
+    await ask('the question I still want answered');
+
+    await screen.findByText(/slow down/i);
+
+    expect(screen.getByLabelText('Ask the assistant')).toHaveValue(
+      'the question I still want answered',
+    );
+  });
+
+  it('does not leave an unanswered question in the transcript', async () => {
+    asAdmin();
+    rateLimited('Slow down.');
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    await screen.findByText(/slow down/i);
+
+    expect(screen.queryByTestId('assistant-question')).not.toBeInTheDocument();
+  });
+
+  it('the banner clears when the next question is sent', async () => {
+    asAdmin();
+    rateLimited('Slow down.');
+
+    renderAuthed(<AssistantPage />);
+    await ask('first');
+    await screen.findByText(/slow down/i);
+
+    endpoints.askAssistant.mockResolvedValue(answer());
+    await ask('second');
+
+    expect(await screen.findByText('Four leads are hot.')).toBeInTheDocument();
+    expect(screen.queryByText(/slow down/i)).not.toBeInTheDocument();
+  });
+
+  it('a non-429 failure still renders as an error', async () => {
+    // The two states must stay distinguishable in both directions.
+    asAdmin();
+    endpoints.askAssistant.mockRejectedValue(new Error('Network unreachable'));
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network unreachable');
+  });
+
+  it('a 500 is an error, not a rate limit', async () => {
+    asAdmin();
+    endpoints.askAssistant.mockRejectedValue(
+      new ApiError({ status: 500, code: 'INTERNAL', message: 'Server exploded', details: null }),
+    );
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
+  });
+});
+
+describe('AssistantPage temporary unavailability', () => {
+  const unavailable = (retryAfterSeconds = 15) => {
+    endpoints.askAssistant.mockRejectedValue(
+      new ApiError({
+        status: 503,
+        code: 'ASSISTANT_UNAVAILABLE',
+        message:
+          'The assistant is temporarily unavailable. Everything else in the CRM is working ' +
+          'normally — please try your question again in a few moments.',
+        details: { retryAfterSeconds },
+      }),
+    );
+  };
+
+  it('SHOWS A TEMPORARY-UNAVAILABLE MESSAGE, NOT AN ERROR', async () => {
+    // Nothing the user did caused this and nothing else is broken. A red "something went
+    // wrong" box says the feature is broken and invites an immediate retry.
+    asAdmin();
+    unavailable();
+
+    renderAuthed(<AssistantPage />);
+    await ask('a question during an outage');
+
+    expect(await screen.findByText(/temporarily unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('reassures the user the rest of the CRM is fine', async () => {
+    asAdmin();
+    unavailable();
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByText(/working normally/i)).toBeInTheDocument();
+  });
+
+  it('THE UNSENT QUESTION IS PRESERVED', async () => {
+    // They are being asked to wait and retry. Losing what they typed makes the wait pointless.
+    asAdmin();
+    unavailable();
+
+    renderAuthed(<AssistantPage />);
+    await ask('the question I still want answered');
+
+    await screen.findByText(/temporarily unavailable/i);
+
+    expect(screen.getByLabelText('Ask the assistant')).toHaveValue(
+      'the question I still want answered',
+    );
+  });
+
+  it('advises a short wait rather than an hour', async () => {
+    asAdmin();
+    unavailable(15);
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    expect(await screen.findByText(/ask again in about 15 seconds/i)).toBeInTheDocument();
+  });
+
+  it('does not leave an unanswered question in the transcript', async () => {
+    asAdmin();
+    unavailable();
+
+    renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    await screen.findByText(/temporarily unavailable/i);
+
+    expect(screen.queryByTestId('assistant-question')).not.toBeInTheDocument();
+  });
+
+  it('RECOVERS WITHOUT A RELOAD', async () => {
+    // Redis coming back must restore the assistant in place. Needing a refresh would make a
+    // transient outage look permanent.
+    asAdmin();
+    unavailable();
+
+    renderAuthed(<AssistantPage />);
+    await ask('during the outage');
+    await screen.findByText(/temporarily unavailable/i);
+
+    endpoints.askAssistant.mockResolvedValue(answer());
+    await ask('after it recovers');
+
+    expect(await screen.findByText('Four leads are hot.')).toBeInTheDocument();
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
+  });
+
+  it('a 503 body carries no infrastructure detail to render', async () => {
+    // Pinned on the component's side too: whatever the backend sends is what gets shown, so
+    // the frontend must not add its own technical wording.
+    asAdmin();
+    unavailable();
+
+    const { container } = renderAuthed(<AssistantPage />);
+    await ask('q');
+
+    await screen.findByText(/temporarily unavailable/i);
+
+    expect(container.textContent?.toLowerCase()).not.toContain('redis');
+    expect(container.textContent?.toLowerCase()).not.toContain('503');
   });
 });

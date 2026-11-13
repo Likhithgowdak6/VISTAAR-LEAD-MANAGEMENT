@@ -41,7 +41,9 @@ async def run_worker() -> None:
         logger.info("Verified MongoDB indexes for Google Calendar integration.")
         from app.assistant_threads import ensure_assistant_thread_indexes
         await ensure_assistant_thread_indexes()
-        logger.info("Verified MongoDB index for assistant threads.")
+        from app.assistant_usage import ensure_assistant_usage_indexes
+        await ensure_assistant_usage_indexes()
+        logger.info("Verified MongoDB indexes for assistant threads and usage.")
     except Exception as exc:
         logger.error(
             "FATAL: Failed to verify or create MongoDB unique index `uniq_daily_job_run`: %s. "

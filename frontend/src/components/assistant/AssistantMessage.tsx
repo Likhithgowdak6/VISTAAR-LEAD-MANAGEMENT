@@ -73,12 +73,19 @@ const renderTable = (lines: string[], blockIndex: number) => {
   const body = rest.filter((line) => !isTableDivider(line));
 
   return (
-    <div key={blockIndex} className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xs">
+    /* `w-auto` inside an `inline-block` wrapper, NOT `w-full`. A two-column table stretched
+       across a 1440px pane puts half a screen of whitespace between a lead's name and its
+       score, which is harder to read than the markdown it replaced. Sizing to content keeps
+       related values adjacent; the wrapper still scrolls when a wide table needs it. */
+    <div key={blockIndex} className="-mx-1 overflow-x-auto px-1">
+      <table className="w-auto min-w-[16rem] max-w-full border-collapse overflow-hidden rounded-lg text-left text-xs ring-1 ring-slate-200 dark:ring-slate-700">
         <thead>
-          <tr className="border-b border-slate-200 dark:border-slate-700">
+          <tr className="bg-slate-50 dark:bg-slate-800/60">
             {cells(header).map((cell, index) => (
-              <th key={index} className="px-2 py-1.5 font-semibold text-slate-700 dark:text-slate-200">
+              <th
+                key={index}
+                className="whitespace-nowrap px-3 py-2 font-semibold tracking-wide text-slate-600 uppercase dark:text-slate-300"
+              >
                 {inline(cell, `h${index}`)}
               </th>
             ))}
@@ -86,9 +93,15 @@ const renderTable = (lines: string[], blockIndex: number) => {
         </thead>
         <tbody>
           {body.map((line, rowIndex) => (
-            <tr key={rowIndex} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+            <tr
+              key={rowIndex}
+              className="border-t border-slate-100 dark:border-slate-800"
+            >
               {cells(line).map((cell, cellIndex) => (
-                <td key={cellIndex} className="px-2 py-1.5 align-top">
+                <td
+                  key={cellIndex}
+                  className="px-3 py-2 align-top text-slate-700 dark:text-slate-200"
+                >
                   {inline(cell, `r${rowIndex}c${cellIndex}`)}
                 </td>
               ))}
@@ -151,7 +164,7 @@ const AssistantMessage = ({
       <div className="flex justify-end">
         <div
           data-testid="assistant-question"
-          className="max-w-[85%] rounded-2xl rounded-br-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm dark:bg-slate-700"
+          className="max-w-[46ch] rounded-2xl rounded-br-md bg-slate-900 px-4 py-2.5 text-[0.9375rem] leading-relaxed font-medium text-white shadow-sm dark:bg-slate-700"
         >
           {content}
         </div>
@@ -172,7 +185,10 @@ const AssistantMessage = ({
       </div>
 
       <div className="min-w-0 flex-1 space-y-3">
-        <div className="space-y-3 text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+        {/* `max-w-[68ch]` is a reading measure, not an arbitrary width. Unconstrained, an
+            answer on a wide monitor runs to 200 characters a line and the eye loses its place
+            returning to the start. Tables sit outside the constraint via their own wrapper. */}
+        <div className="max-w-[68ch] space-y-3.5 text-[0.9375rem] leading-[1.7] text-slate-700 dark:text-slate-200">
           {renderBody(content)}
         </div>
 

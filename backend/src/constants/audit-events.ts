@@ -21,6 +21,17 @@ export const AUDIT_EVENTS = Object.freeze({
 
   CLIENT_PII_REVEALED: 'CLIENT_PII_REVEALED',
 
+  // Written by crm-api (Python), not by this service — the assistant lives there. They are
+  // declared here anyway because this file is the single source of truth for what `eventType`
+  // may contain: the Mongoose schema enum-validates against AUDIT_EVENT_VALUES, so an event
+  // missing here is an event this service would reject on write and would not recognise in a
+  // typed read. Python writes through Motor and bypasses that validation, which means leaving
+  // these out would not have failed — it would have produced rows no Node code could name.
+  ASSISTANT_QUESTION_ASKED: 'ASSISTANT_QUESTION_ASKED',
+  ASSISTANT_THREAD_VIEWED: 'ASSISTANT_THREAD_VIEWED',
+  ASSISTANT_THREAD_DELETED: 'ASSISTANT_THREAD_DELETED',
+  ASSISTANT_RATE_LIMITED: 'ASSISTANT_RATE_LIMITED',
+
   WHATSAPP_ACCOUNT_DELETED: 'WHATSAPP_ACCOUNT_DELETED',
   // A soft delete, but still audited: the ActivityLog rows that would otherwise record it live on
   // the conversation, which is exactly what has just been hidden from view.

@@ -583,3 +583,233 @@ is an unbounded bill.
 **No audit entries.** `audit.py` is used by the analytics, auth, contacts and users routers. The
 assistant reads lead data across an organisation and records nothing. Open question 5 in §7
 anticipated this; it is still open.
+
+---
+
+## 13. Stage 4 — production readiness
+
+### Rate limiting
+
+Three counters, all keyed on the session's user and organisation — **never on a thread**, which
+is the bypass a "New conversation" click would otherwise be.
+
+| Counter | Default | Env var |
+|---|---|---|
+| user / minute | 5 | `ASSISTANT_RATE_LIMIT_PER_MINUTE` |
+| user / hour | 20 | `ASSISTANT_RATE_LIMIT_PER_HOUR` |
+| org / hour | 150 | `ASSISTANT_ORG_RATE_LIMIT_PER_HOUR` |
+
+**How 20 was chosen, and what it is not.** `check_ai_draft_rate_limit` allows a configured 30 an
+hour — and `backend/.env` really does set `AI_DRAFT_RATE_LIMIT_PER_HOUR=30`, not the code
+default of 60. A draft is *one* model call; an assistant question is up to six. Matching 30
+would have allowed 180 model calls an hour under a number that looks like the same budget.
+
+20/hour is ~40 model calls in typical use (most questions resolve in one tool call plus an
+answer) and 120 worst case. **It is a judgement call, not a derived figure** — strict model-call
+parity with drafts would be 5 questions an hour, which is unusable for a conversational feature.
+
+All three counters increment even when one has tripped: returning early would let a client stuck
+behind the per-minute limit retry forever without ever exhausting the hour, and the organisation
+counter would never see the traffic.
+
+Fails open when Redis is unreachable, matching both existing limiters — but `degraded` is
+returned and logged, because while it is open the spend ceiling is gone.
+
+**10/10 mutations killed**, including a thread id smuggled into the key and an off-by-one that
+refused at the limit rather than above it.
+
+### Audit logging
+
+Four new event types, declared in **both** `backend/src/constants/audit-events.ts` and
+`crm-api/app/audit.py`. The Mongoose schema enum-validates `eventType`; Python writes through
+Motor and bypasses that, so omitting the Node side would not have failed — it would have
+produced rows no Node code could name.
+
+One row per question, carrying actor, organisation, session, thread, tool names, the record ids
+reached, step count, failures and outcome. **Not the question and not the answer**: the answer
+quotes customer WhatsApp messages verbatim, and copying those into a collection read by incident
+investigators is the opposite of what an audit log is for.
+
+**A gap found and closed:** Node's schema rejects metadata containing `password`, `accessToken`,
+`body` and similar. Python's `create_audit_log` enforced none of it — the guarantee held in one
+service and was a convention in the other. It now enforces both Node's pattern *and*
+`redaction.py`'s broader PII rule, because neither is a superset: Node catches `body`,
+`redaction` catches `phone` and `ciphertext`.
+
+Audit failures are logged, not raised — the opposite of `CLIENT_PII_REVEALED`, deliberately. The
+assistant is read-only and the data was already visible to the caller, so a logging outage must
+not become a feature outage. `SensitiveKeyError` is the exception and always re-raises.
+
+### Usage and cost
+
+Token counts come from Anthropic's own `usage` block, passed through `ai-brain-service`
+untouched. Nothing is estimated from string length.
+
+**Cost defaults to zero.** `ASSISTANT_INPUT_COST_PER_MTOK` and `ASSISTANT_OUTPUT_COST_PER_MTOK`
+are 0 until an owner enters rates from their own invoice, and the summary reports
+`costConfigured: false` so the UI can say "not set" rather than render a confident 0.00.
+Hardcoding a published price would be inventing a number that drifts silently.
+
+`GET /assistant/usage` is gated on `settings.manage`, not on the assistant's own permission — a
+usage page is a view onto who-did-what and staff must not read colleagues' activity from it.
+
+Verified live: 2,156 in / 76 out for a one-call question, 4,927 in / 159 out for a two-call one.
+
+### Retrieval benchmark — measured, not changed
+
+| conversations | messages | p50 ms | max ms |
+|---|---|---|---|
+| 50 | 1,000 | 20.1 | 44.9 |
+| 200 | 4,000 | 31.4 | 46.0 |
+| 500 | 10,000 | 37.2 | 52.0 |
+| 1,000 | 20,000 | 45.9 | 50.1 |
+| 2,000 | 40,000 | 48.7 | 77.1 |
+| 5,000 | 50,000 | 61.6 | 67.8 |
+
+**Latency is not the problem and will not become one.** 62 ms at 5,000 conversations, against a
+model call that takes 3–20 seconds — retrieval is well under 1% of the response time.
+
+**But the flat curve past 500 is the cap working, not the algorithm scaling.** At 5,000
+conversations only 500 are in scope: retrieval silently covers the most recent 10%. The limit is
+**coverage, not speed**, and no amount of indexing changes that while the cap stands.
+
+**Recommendation — not implemented, needs approval.** `_visible_conversations` exists to do two
+things: enforce scope and supply display names. For an admin (`read_all`) the enumeration is
+unnecessary — messages could be filtered on `organizationId` alone, with `SCAN_LIMIT` bounding
+the work and display names resolved for the top-k afterwards. That removes the coverage cap
+exactly where it bites, with no new dependency. Staff keep the enumeration, and a staff member
+with more than 500 assigned conversations is not a real case.
+
+**Dense retrieval is still not warranted on this evidence.** It would solve a latency problem
+that does not exist, at ~470 MB on a memory-constrained host, and would still need the same
+scope filter — so it is not a drop-in either.
+
+### Frontend
+
+Reviewed in a real browser against the local backend, and three things changed:
+
+- **A reading measure.** Answers ran the full 1440 px with no line-length cap. Prose is now
+  capped at 68ch and the transcript column at `max-w-3xl`; the header and composer still span
+  the pane.
+- **Tables size to content.** `w-full` put half a screen of whitespace between a lead's name and
+  its score — harder to read than the markdown it replaced. Now `w-auto` in a scrollable
+  wrapper, with a header band and denser cells.
+- **A distinct rate-limit state.** Amber, not red, with the backend's own wording and a live
+  countdown. A red "something went wrong" box says the feature is broken, and the reasonable
+  response to that is to retry immediately — exactly what the limit exists to stop.
+
+No glassmorphism, no new gradients, no new palette. `surface`, `chip` and the slate/amber scales
+already in `index.css`.
+
+---
+
+## 14. Stage 4.1 — retrieval coverage and fail-closed throttling
+
+### Retrieval now has two paths
+
+**Admin (`conversations.read_all`) — no conversation enumeration.** Messages are filtered on
+`organizationId` directly, bounded by `SCAN_LIMIT`. A caller who may read every conversation in
+the organisation gained nothing from enumerating them first except the cap, so the cap is gone
+for them.
+
+**Restricted (`read_assigned` only) — unchanged.** A staff member's slice is *defined* by which
+conversations are assigned to them, so the list **is** the scope and there is no equivalent
+shortcut. `MAX_SCOPED_CONVERSATIONS` still applies here, where it caps one person's own assigned
+leads rather than a whole studio. **Nothing was broadened to improve coverage.**
+
+### Two things the enumeration was doing that had to be rebuilt
+
+1. **It excluded deleted conversations.** The admin path now resolves ranked candidates back to
+   their conversations with `deletedAt: None`, which supplies display names in the same query.
+   Candidates are over-fetched 3× so deleted rows dropping out cannot shorten the answer.
+2. **It made a missing organisation safe by accident.** `{"organizationId": None}` matches
+   documents where the field is null or absent — it does *not* match nothing. An empty
+   conversation list used to produce an empty result; with no enumeration there is no second
+   filter left. `_require_organization` now raises `MissingOrganizationScope` on anything that
+   is not a usable id, and converts a string id rather than letting it silently match nothing.
+
+### Benchmark — before and after, same run
+
+Both contexts hold the same data and the same actor; only the permission differs, so `capped`
+exercises the old enumeration path and `admin` the new one. The needle is a phrase in the
+**oldest** conversation.
+
+| convs | msgs | capped p50 | admin p50 | capped reaches it? | admin reaches it? |
+|---|---|---|---|---|---|
+| 200 | 201 | 11.2 ms | 9.6 ms | yes | yes |
+| 500 | 501 | 17.5 ms | 12.8 ms | **NO** | **yes** |
+| 1,000 | 1,001 | 18.3 ms | 19.4 ms | **NO** | **yes** |
+| 1,400 | 1,401 | 17.8 ms | 24.7 ms | **NO** | **yes** |
+| 500 | 10,001 | 52.2 ms | 39.1 ms | NO | **NO** |
+| 2,000 | 40,001 | 46.8 ms | 62.5 ms | NO | **NO** |
+
+**COVERAGE IS IMPROVED, NOT UNLIMITED.** The last two rows are the honest part: past
+`SCAN_LIMIT` (1,500 messages) *neither* path reaches the oldest message, because the message
+budget binds before the conversation count does. The change removes the conversation cap for
+admins; it does not remove `SCAN_LIMIT`, and a studio with more than ~1,500 messages still has
+older history outside retrieval's reach.
+
+Latency is unchanged in practice — every figure is under 65 ms against a model call of 3–20
+seconds.
+
+### Rate limiting now fails CLOSED
+
+`login_rate_limit.py` and `check_ai_draft_rate_limit` both fail open, and for them that is
+right. This one does not, and the asymmetry is deliberate: behind this limiter are up to six
+paid Anthropic calls, so failing open does not degrade a feature — it removes the only ceiling
+on spend at exactly the moment nobody is watching.
+
+| Situation | Result | Status |
+|---|---|---|
+| Caller exceeded their own budget | `limited` | **429** |
+| Redis unreachable, timing out, or erroring | `unavailable` | **503** |
+| `REDIS_URL` not configured at all | `unavailable` | **503** |
+
+**429 and 503 are never conflated.** Reporting an outage as 429 would tell somebody they had
+exceeded a limit they never touched, and the retry advice differs — 15 seconds versus an hour.
+
+**The operational trade-off, stated plainly:** a Redis outage disables the assistant completely.
+That is intended, not a side effect. It is survivable because the assistant is read-only and
+additive — every other part of the CRM keeps working, and the data it reads is reachable through
+the ordinary UI. The 503 message says so, so a paused assistant does not read as a broken CRM.
+
+Recovery needs no restart: `cache.get_client` caches a redis-py client whose pool reconnects on
+its own. Tested.
+
+Treating *unconfigured* Redis as unavailable is a deliberate departure from
+`check_ai_draft_rate_limit`, which treats it as "no limiter, carry on" — correct for one model
+call, wrong for six. A deployment that can spend money on Anthropic but cannot reach a counter
+should not be spending it.
+
+**No second limiter and no in-memory fallback.** An in-process counter would not be shared
+between replicas, so it would under-count by exactly the number of replicas and give a false
+sense of a ceiling.
+
+### New tests
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_assistant_retrieval_coverage.py` | 29 | admin coverage past the cap, both filters pinned independently, malformed organisation ids, over-fetch |
+| `test_assistant_concurrency.py` | 19 | concurrent requests per user / per org, counter isolation, history boundary, tool permissions under concurrent runs |
+| `test_assistant_rate_limit.py` (extended) | 38 | fail-closed on unreachable / timeout / arbitrary error, recovery without restart, 429-vs-503, no infrastructure in the body or logs |
+| `assistant-page.test.tsx` (extended) | 37 | the 503 state, question preserved, recovery without reload |
+
+Retrieval mutation sweep: **10/10 killed** — after a first pass found 3 survivors. Two of them
+mattered: the admin message query's organisation filter and the candidate resolver's both
+survived deletion, because **each was covering for the other**. Removing either alone changed
+nothing observable; removing both would leak. Each is now pinned at its own level.
+
+### What remains unverified
+
+- **Multi-replica rate limiting.** The concurrency tests use an atomic in-process fake, which
+  matches Redis's `INCR` semantics for one process. Nothing here exercises two `crm-api`
+  replicas racing on the same key. Atomicity there is Redis's job, but it is untested.
+  (The first version of that fake had a read-then-write race and the tests were asserting on a
+  defect the real code cannot have; the fake was corrected.)
+- **Retrieval at genuine production volume.** The benchmark seeds synthetic text up to 50,000
+  messages on a local Mongo. Ranking *quality* at that size is not measured, only latency and
+  reachability.
+- **Real Redis failure in production conditions.** Fail-closed is tested against fakes raising
+  `ConnectionError`, `TimeoutError` and arbitrary exceptions. A partial Redis failure — slow but
+  not failing, or evicting keys under memory pressure — behaves as if the limit were lower, and
+  is not simulated.

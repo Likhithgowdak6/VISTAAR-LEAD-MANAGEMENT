@@ -425,10 +425,25 @@ def complete_with_tools(
         resp.stop_reason, len(tool_calls),
     )
 
+    # THE PROVIDER'S OWN COUNTS, passed through untouched. Estimating tokens from string
+    # length is off by a wide and model-dependent margin, and a usage page built on an
+    # estimate is worse than no usage page: it looks authoritative and is wrong.
+    #
+    # `getattr` rather than attribute access because the cache fields are absent on older
+    # response shapes, and a usage report must not be the thing that breaks a question.
+    usage = getattr(resp, "usage", None)
+
     return {
         "stop_reason": resp.stop_reason or "",
         "text": "".join(text_parts).strip(),
         "tool_calls": tool_calls,
+        "usage": {
+            "inputTokens": getattr(usage, "input_tokens", 0) or 0,
+            "outputTokens": getattr(usage, "output_tokens", 0) or 0,
+            "cacheReadTokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+            "cacheCreationTokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            "model": settings.llm_model,
+        },
         # Echoed back so the caller can append it to the running message list verbatim.
         # Rebuilding it from `text` and `tool_calls` would lose block order, and Anthropic
         # requires each `tool_result` to follow the `tool_use` it answers.

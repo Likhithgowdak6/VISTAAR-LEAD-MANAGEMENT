@@ -12,6 +12,7 @@ import httpx
 import pytest
 import mongomock.collection
 
+from app import cache as cache_module
 from app import db as db_module
 
 from app.config import settings
@@ -204,6 +205,22 @@ def _no_real_connections(monkeypatch):
 
     monkeypatch.setattr(db_module, "get_client", _refuse_mongo)
     monkeypatch.setattr(db_module, "get_database", _refuse_mongo)
+
+    # REDIS TOO, and this one was found the hard way. `settings.redis_url` is populated from
+    # `backend/.env` exactly like `mongodb_uri`, so the assistant rate limiter happily
+    # connected to a real Redis during the suite and INCREMENTED REAL COUNTERS — which then
+    # persisted between runs and eventually returned 429 to a test that had nothing to do with
+    # rate limiting. On the production host that is production Redis.
+    #
+    # A test that needs a limiter patches `cache.get_client` itself, exactly as it would for
+    # Mongo.
+    def _refuse_redis(*_args, **_kwargs):
+        raise RealConnectionAttempted(
+            "A test tried to open a real Redis connection. Patch `app.cache.get_client` with "
+            "a fake in this test. See tests/conftest.py."
+        )
+
+    monkeypatch.setattr(cache_module, "get_client", _refuse_redis)
 
     # `send` is the single funnel every httpx request passes through, so this catches `get`,
     # `post` and anything built on them without needing to know which a caller used.

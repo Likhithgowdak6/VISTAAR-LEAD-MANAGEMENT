@@ -16,15 +16,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app import assistant_threads
+from app import assistant_audit, assistant_threads, assistant_usage
 from app.assistant_agent import MAX_STEPS, run_assistant
+from app.assistant_rate_limit import (
+    UNAVAILABLE_MESSAGE,
+    check_assistant_rate_limit,
+    rate_limit_message,
+)
 from app.assistant_retrieval import retrieve_background
 from app.assistant_tools import ToolContext, tool_definitions
-from app.deps import AuthContext, require_any_permission
-from app.permissions import CONVERSATIONS_READ_ALL, CONVERSATIONS_READ_ASSIGNED
+from app.config import settings
+from app.deps import AuthContext, require_any_permission, require_permission
+from app.permissions import (
+    CONVERSATIONS_READ_ALL,
+    CONVERSATIONS_READ_ASSIGNED,
+    SETTINGS_MANAGE,
+)
+from app.request_context import get_request_id
 
 logger = logging.getLogger("crm-api.assistant")
 
@@ -99,7 +110,35 @@ async def list_tools(auth: AuthContext = Depends(_require_assistant)):
             ],
             "maxSteps": MAX_STEPS,
             "readOnly": True,
+            # Reported rather than hardcoded in the UI, for the same reason `readOnly` is: a
+            # frontend constant keeps claiming yesterday's number after the environment
+            # variable changes.
+            "limits": {
+                "perMinute": settings.assistant_rate_limit_per_minute,
+                "perHour": settings.assistant_rate_limit_per_hour,
+            },
         }
+    }
+
+
+#: The usage page is an administrator's view of who is spending what. `settings.manage` is the
+#: permission the rest of the owner-level configuration uses, and it is NOT held by staff — who
+#: would otherwise be able to see their colleagues' activity through a cost report.
+_require_usage = require_permission(SETTINGS_MANAGE)
+
+
+@router.get("/usage")
+async def usage_summary(days: int = 30, auth: AuthContext = Depends(_require_usage)):
+    """
+    Token and request totals for the caller's own organisation.
+
+    Scoped in the query from the session, like everything else here. There is no parameter for
+    choosing an organisation and there should never be one.
+    """
+    return {
+        "data": await assistant_usage.summarize(
+            organization_id=auth.organization_id, days=days
+        )
     }
 
 
@@ -113,7 +152,9 @@ async def list_threads(auth: AuthContext = Depends(_require_assistant)):
 
 
 @router.get("/threads/{thread_id}")
-async def get_thread(thread_id: str, auth: AuthContext = Depends(_require_assistant)):
+async def get_thread(
+    thread_id: str, request: Request, auth: AuthContext = Depends(_require_assistant)
+):
     thread = await assistant_threads.get_thread(
         thread_id=thread_id,
         organization_id=auth.organization_id,
@@ -125,6 +166,10 @@ async def get_thread(thread_id: str, auth: AuthContext = Depends(_require_assist
         # the id names a real thread, which is information about another person's activity.
         raise _not_found()
 
+    await assistant_audit.record_thread_viewed(
+        auth=auth, thread_id=thread["_id"], request_id=get_request_id(request)
+    )
+
     return {
         "data": {
             **(assistant_threads.serialize_thread(thread) or {}),
@@ -134,7 +179,9 @@ async def get_thread(thread_id: str, auth: AuthContext = Depends(_require_assist
 
 
 @router.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str, auth: AuthContext = Depends(_require_assistant)):
+async def delete_thread(
+    thread_id: str, request: Request, auth: AuthContext = Depends(_require_assistant)
+):
     """Deletes one of the caller's own assistant threads. Touches no CRM data."""
     thread = await assistant_threads.get_thread(
         thread_id=thread_id,
@@ -149,11 +196,18 @@ async def delete_thread(thread_id: str, auth: AuthContext = Depends(_require_ass
 
     await db.get_database()[assistant_threads.COLLECTION].delete_one({"_id": thread["_id"]})
 
+    # AFTER the delete, so a failed delete does not leave a row claiming it happened.
+    await assistant_audit.record_thread_deleted(
+        auth=auth, thread_id=thread["_id"], request_id=get_request_id(request)
+    )
+
     return {"data": {"deleted": True}}
 
 
 @router.post("/ask")
-async def ask(body: AskIn, auth: AuthContext = Depends(_require_assistant)):
+async def ask(
+    body: AskIn, request: Request, auth: AuthContext = Depends(_require_assistant)
+):
     """
     Ask a question. Runs the multi-step loop and persists the turn.
 
@@ -162,6 +216,67 @@ async def ask(body: AskIn, auth: AuthContext = Depends(_require_assistant)):
     """
     context = _context(auth)
     question = body.question.strip()
+
+    # BEFORE the thread is touched and long before the model is called. A limit checked after
+    # the work has started is an accounting exercise, not a limit — and the thread row would
+    # already exist, leaving an empty conversation in the sidebar for a question that was never
+    # answered.
+    decision = await check_assistant_rate_limit(
+        user_id=auth.user_id, organization_id=auth.organization_id
+    )
+
+    if decision.unavailable:
+        # 503, NOT 429. The caller has exceeded nothing — the limiter could not run, which is
+        # our problem and not theirs. Telling them they hit a quota they never touched would
+        # be a lie, and the right retry advice is different: seconds, not an hour.
+        #
+        # No audit row: nothing was refused on policy grounds and nothing was accessed. The
+        # ERROR log in the limiter is where this belongs.
+        logger.error(
+            "assistant unavailable: rate limiter could not run org=%s user=%s",
+            auth.organization_id, auth.user_id,
+        )
+
+        raise HTTPException(
+            status_code=503,
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+            detail={
+                "error": {
+                    "code": "ASSISTANT_UNAVAILABLE",
+                    "message": UNAVAILABLE_MESSAGE,
+                    "details": {"retryAfterSeconds": decision.retry_after_seconds},
+                }
+            },
+        )
+
+    if decision.limited:
+        logger.info(
+            "assistant rate limited org=%s user=%s scope=%s",
+            auth.organization_id, auth.user_id, decision.scope,
+        )
+
+        await assistant_audit.record_rate_limited(
+            auth=auth,
+            scope=decision.scope,
+            request_id=get_request_id(request),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+
+        raise HTTPException(
+            status_code=429,
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+            detail={
+                "error": {
+                    "code": "ASSISTANT_RATE_LIMITED",
+                    "message": rate_limit_message(decision.scope),
+                    "details": {
+                        "scope": decision.scope,
+                        "retryAfterSeconds": decision.retry_after_seconds,
+                    },
+                }
+            },
+        )
 
     if body.thread_id:
         thread = await assistant_threads.get_thread(
@@ -196,6 +311,25 @@ async def ask(body: AskIn, auth: AuthContext = Depends(_require_assistant)):
         organization_id=auth.organization_id,
         user_id=auth.user_id,
         messages=result["messages"],
+    )
+
+    await assistant_usage.record_usage(
+        organization_id=auth.organization_id,
+        user_id=auth.user_id,
+        thread_id=thread["_id"],
+        usage=result.get("usage") or {},
+        stopped_early=result["stoppedEarly"],
+    )
+
+    await assistant_audit.record_question(
+        auth=auth,
+        thread_id=thread["_id"],
+        steps=result["steps"],
+        stopped_early=result["stoppedEarly"],
+        used_history=bool(background),
+        request_id=get_request_id(request),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
 
     logger.info(
