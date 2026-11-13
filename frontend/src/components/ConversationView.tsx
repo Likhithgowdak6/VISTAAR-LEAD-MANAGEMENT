@@ -438,7 +438,7 @@ const ConversationView = ({
 
   return (
     <div
-      className={`flex min-w-0 flex-1 animate-fade-in ${isSwiping ? 'select-none pointer-events-none' : ''}`}
+      className={`flex min-w-0 flex-1 animate-fade-in lg:overflow-hidden lg:rounded-[1.5rem] lg:border lg:border-black/5 lg:bg-white lg:shadow-[0_6px_24px_-10px_rgba(0,0,0,0.12)] dark:lg:border-white/10 dark:lg:bg-slate-900 ${isSwiping ? 'select-none pointer-events-none' : ''}`}
       style={swipeStyle}
     >
       {/* Below xl the thread and the lead panel take turns rather than splitting the width; the

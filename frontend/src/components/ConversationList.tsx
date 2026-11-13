@@ -458,7 +458,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   type="button"
                   onClick={() => onSelect(conversation.id)}
                   aria-current={isSelected}
-                  className={`relative flex w-full flex-col gap-2 p-3.5 pl-4 pr-16 text-left transition-all duration-150 hover:translate-x-0.5 active:scale-[0.99] ${
+                  className={`relative flex w-full flex-col gap-1.5 px-4 py-3 text-left transition-colors duration-150 active:bg-slate-100 ${
                     isSelected
                       ? 'bg-blue-50/70 shadow-xs'
                       : 'bg-white hover:bg-slate-50/90'
@@ -503,7 +503,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5 pl-11">
+                  <div className="flex flex-wrap items-center gap-1.5 pl-11 pr-[4.5rem]">
                     <StageBadge
                       stage={conversation.stage}
                       label={findStageByKey(stages, conversation.stage)?.label}
@@ -529,8 +529,8 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                 </button>
 
                 {/* The AI's off switch for this one lead */}
-                <span className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-slate-50 border border-slate-200/80 px-1.5 py-0.5 shadow-xs">
-                  <span className="font-mono text-[0.5625rem] font-bold uppercase tracking-wider text-slate-500">
+                <span className="absolute bottom-3 right-4 flex items-center gap-1.5">
+                  <span className="text-[0.6875rem] font-semibold text-slate-500">
                     AI
                   </span>
                   <ToggleSwitch

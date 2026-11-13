@@ -86,7 +86,8 @@ export const DefinitionTip = ({ text, label }: { text: string; label: string }) 
  */
 export const StatValue = ({ text, className = '' }: { text: string; className?: string }) => (
   <span
-    className={`text-2xl font-bold tracking-tight tabular-nums ${
+    title={text}
+    className={`block min-w-0 max-w-full truncate text-2xl font-bold tracking-tight tabular-nums ${
       text === DASH ? 'text-slate-400' : 'text-slate-900'
     } ${className}`}
     data-unknown={text === DASH ? 'true' : 'false'}

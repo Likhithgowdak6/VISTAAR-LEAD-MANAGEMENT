@@ -50,34 +50,26 @@ const MobileBottomNav = ({
   return (
     <nav
       aria-label="Primary"
-      className="m-bottomnav lg:hidden fixed inset-x-2 bottom-2 z-40 flex items-center justify-around rounded-2xl border border-slate-200/80 bg-white/85 px-1 py-1 shadow-lg shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800/80 dark:bg-slate-900/85 dark:shadow-black/40"
-      style={{
-        paddingBottom: 'calc(0.25rem + env(safe-area-inset-bottom, 0px))',
-      }}
+      className="m-bottomnav lg:hidden fixed inset-x-4 bottom-3 z-40 flex items-center justify-around gap-0.5 p-1"
     >
       {/* 1. Leads */}
       <button
         type="button"
         onClick={() => handleNav(onLeads)}
         aria-current={active === 'leads'}
-        className={`group relative flex flex-1 flex-col items-center justify-center py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-200 active:scale-95 ${
+        className={`group relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center rounded-full py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-300 active:scale-90 ${
           active === 'leads'
-            ? 'text-blue-600 dark:text-blue-400 font-bold'
-            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            ? 'glass-pill text-blue-600 dark:text-blue-400'
+            : 'text-slate-800 dark:text-slate-200'
         }`}
       >
-        <span className={`relative flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-          active === 'leads' ? 'bg-blue-50 dark:bg-blue-950/60 shadow-xs' : ''
-        }`}>
+        <span className={`relative flex h-6 w-7 items-center justify-center`}>
           <Icon>
             <path d="M4 6.5h16M4 12h16M4 17.5h10" {...STROKE} />
             <circle cx="18.5" cy="17.5" r="2.5" {...STROKE} />
           </Icon>
         </span>
-        <span className="mt-0.5">Leads</span>
-        {active === 'leads' ? (
-          <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400" />
-        ) : null}
+        <span className="m-bottomnav-label">Leads</span>
       </button>
 
       {/* 2. Inbox */}
@@ -85,15 +77,13 @@ const MobileBottomNav = ({
         type="button"
         onClick={() => handleNav(onInbox)}
         aria-current={active === 'inbox'}
-        className={`group relative flex flex-1 flex-col items-center justify-center py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-200 active:scale-95 ${
+        className={`group relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center rounded-full py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-300 active:scale-90 ${
           active === 'inbox'
-            ? 'text-blue-600 dark:text-blue-400 font-bold'
-            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            ? 'glass-pill text-blue-600 dark:text-blue-400'
+            : 'text-slate-800 dark:text-slate-200'
         }`}
       >
-        <span className={`relative flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-          active === 'inbox' ? 'bg-blue-50 dark:bg-blue-950/60 shadow-xs' : ''
-        }`}>
+        <span className={`relative flex h-6 w-7 items-center justify-center`}>
           <Icon>
             <path d="M3 12h4.5l1.5 2.5h6L16.5 12H21" {...STROKE} />
             <path
@@ -102,10 +92,7 @@ const MobileBottomNav = ({
             />
           </Icon>
         </span>
-        <span className="mt-0.5">Inbox</span>
-        {active === 'inbox' ? (
-          <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400" />
-        ) : null}
+        <span className="m-bottomnav-label">Inbox</span>
       </button>
 
       {/* 3. Analytics / Dashboard */}
@@ -114,23 +101,18 @@ const MobileBottomNav = ({
           type="button"
           onClick={() => handleNav(onAnalytics)}
           aria-current={active === 'analytics'}
-          className={`group relative flex flex-1 flex-col items-center justify-center py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-200 active:scale-95 ${
+          className={`group relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center rounded-full py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-300 active:scale-90 ${
             active === 'analytics'
-              ? 'text-blue-600 dark:text-blue-400 font-bold'
-              : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'glass-pill text-blue-600 dark:text-blue-400'
+              : 'text-slate-800 dark:text-slate-200'
           }`}
         >
-          <span className={`relative flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-            active === 'analytics' ? 'bg-blue-50 dark:bg-blue-950/60 shadow-xs' : ''
-          }`}>
+          <span className={`relative flex h-6 w-7 items-center justify-center`}>
             <Icon>
               <path d="M18 20V10M12 20V4M6 20v-6" {...STROKE} />
             </Icon>
           </span>
-          <span className="mt-0.5">Dashboard</span>
-          {active === 'analytics' ? (
-            <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400" />
-          ) : null}
+          <span className="m-bottomnav-label">Dashboard</span>
         </button>
       ) : null}
 
@@ -140,24 +122,19 @@ const MobileBottomNav = ({
           type="button"
           onClick={() => handleNav(onTasks)}
           aria-current={active === 'tasks'}
-          className={`group relative flex flex-1 flex-col items-center justify-center py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-200 active:scale-95 ${
+          className={`group relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center rounded-full py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-300 active:scale-90 ${
             active === 'tasks'
-              ? 'text-blue-600 dark:text-blue-400 font-bold'
-              : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'glass-pill text-blue-600 dark:text-blue-400'
+              : 'text-slate-800 dark:text-slate-200'
           }`}
         >
-          <span className={`relative flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-            active === 'tasks' ? 'bg-blue-50 dark:bg-blue-950/60 shadow-xs' : ''
-          }`}>
+          <span className={`relative flex h-6 w-7 items-center justify-center`}>
             <Icon>
               <path d="m9 11 3 3L22 4" {...STROKE} />
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" {...STROKE} />
             </Icon>
           </span>
-          <span className="mt-0.5">Tasks</span>
-          {active === 'tasks' ? (
-            <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400" />
-          ) : null}
+          <span className="m-bottomnav-label">Tasks</span>
         </button>
       ) : null}
 
@@ -167,25 +144,20 @@ const MobileBottomNav = ({
         onClick={() => handleNav(onMore)}
         aria-current={active === 'more'}
         aria-haspopup="dialog"
-        className={`group relative flex flex-1 flex-col items-center justify-center py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-200 active:scale-95 ${
+        className={`group relative flex min-h-[52px] min-w-0 flex-1 flex-col items-center justify-center rounded-full py-1 text-[0.625rem] font-semibold tracking-tight transition-all duration-300 active:scale-90 ${
           active === 'more'
-            ? 'text-blue-600 dark:text-blue-400 font-bold'
-            : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            ? 'glass-pill text-blue-600 dark:text-blue-400'
+            : 'text-slate-800 dark:text-slate-200'
         }`}
       >
-        <span className={`relative flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-          active === 'more' ? 'bg-blue-50 dark:bg-blue-950/60 shadow-xs' : ''
-        }`}>
+        <span className={`relative flex h-6 w-7 items-center justify-center`}>
           <Icon>
             <circle cx="12" cy="12" r="1.5" fill="currentColor" />
             <circle cx="6" cy="12" r="1.5" fill="currentColor" />
             <circle cx="18" cy="12" r="1.5" fill="currentColor" />
           </Icon>
         </span>
-        <span className="mt-0.5">More</span>
-        {active === 'more' ? (
-          <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400" />
-        ) : null}
+        <span className="m-bottomnav-label">More</span>
       </button>
     </nav>
   );

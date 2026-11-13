@@ -176,7 +176,7 @@ const MobileSectionMenu = <TView extends string>({
               {/* The initials moved here with the rest of the account block when the masthead
                   trigger gave way to the bottom bar - this sheet is now the only place on a
                   phone that answers "who am I signed in as". */}
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 font-mono text-xs font-bold text-white shadow-sm shadow-blue-500/25">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 font-mono text-xs font-bold text-white shadow-sm shadow-blue-500/25">
                 {getInitials(userName)}
               </span>
               <div className="min-w-0 flex-1">
@@ -210,14 +210,12 @@ const MobileSectionMenu = <TView extends string>({
                     onClick={() => choose(item.view)}
                     aria-current={isActive}
                     className={`flex min-h-12 items-center gap-3.5 rounded-xl px-3.5 text-left text-sm font-medium transition-all duration-150 ${
-                      isActive ? 'm-sheet-item-active shadow-xs' : 'm-sheet-item'
+                      isActive ? 'm-sheet-item-active' : 'm-sheet-item'
                     }`}
                   >
                     <span
                       aria-hidden="true"
-                      className={`h-5 w-1 rounded-full transition-colors ${
-                        isActive ? 'bg-blue-600 dark:bg-blue-400' : 'bg-transparent'
-                      }`}
+                      className="hidden"
                     />
                     <span className="flex-1 truncate">{item.label}</span>
                   </button>

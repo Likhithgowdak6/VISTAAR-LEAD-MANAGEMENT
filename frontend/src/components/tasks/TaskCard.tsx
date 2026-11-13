@@ -72,7 +72,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
       data-testid="task-card"
       data-status={task.status}
       data-late={late}
-      className="flex items-start gap-3.5 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition-all duration-150 hover:shadow-md hover:-translate-y-0.5 hover:border-slate-300"
+      className="flex items-start gap-3 rounded-2xl border border-slate-200/80 bg-white px-4 py-3.5 shadow-xs transition-colors duration-150"
     >
       {/* Only pending work can be completed, so for closed rows this is a static marker rather
           than a dead button that looks tappable. */}
@@ -82,12 +82,12 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
           disabled={busy}
           onClick={() => onComplete(task)}
           aria-label={`Complete ${title}`}
-          className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-slate-300 transition-all hover:border-blue-600 hover:bg-blue-50/50 disabled:opacity-40"
+          className="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 border-slate-300 transition-all hover:border-blue-600 hover:bg-blue-50/50 disabled:opacity-40"
         />
       ) : (
         <span
           aria-hidden="true"
-          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${
             task.status === 'completed'
               ? 'border-emerald-500 bg-emerald-50 text-emerald-600'
               : 'border-slate-300 bg-slate-50 text-slate-400'
@@ -127,7 +127,7 @@ const TaskCard = ({ task, now, busy, onOpen, onComplete, onReschedule, onCancel 
           and the browser's own fix-up moves it out of the card entirely. Only for pending
           work - a completed task has nothing left to move or call off. */}
       {pending ? (
-        <div className="flex shrink-0 flex-col items-end gap-1 text-[11px] font-medium">
+        <div className="flex shrink-0 flex-col items-end gap-2 pt-0.5 text-[13px] font-medium">
           <button
             type="button"
             disabled={busy}

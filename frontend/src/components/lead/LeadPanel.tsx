@@ -76,7 +76,7 @@ const LeadPanel = ({
   return (
     <aside
       aria-label="Lead details"
-      className="flex h-full w-full shrink-0 flex-col overflow-y-auto overscroll-contain border-l border-slate-200 bg-white xl:w-80"
+      className="flex h-full w-full shrink-0 flex-col overflow-y-auto overscroll-contain bg-slate-50 xl:w-80 xl:border-l xl:border-slate-200 xl:bg-white"
     >
       {/* xl:hidden, because above xl the thread is still on screen with its own Hide details
           button and a second back control would be noise. Sticky so a long panel can be closed
@@ -89,17 +89,23 @@ const LeadPanel = ({
           with it. Every other full-screen surface gets this through `.m-appbar`; this header
           is hand-rolled because it is a white panel, not the ink masthead. */}
       {onClose ? (
-        <header className="sticky top-0 z-10 -mb-1 flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] xl:hidden">
+        <header className="m-appbar xl:hidden">
           <button
             type="button"
             onClick={onClose}
             aria-label="Back to messages"
-            className="-ml-1 flex min-h-11 min-w-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-slate-700 active:bg-slate-100"
+            className="m-appbar-action"
           >
-            <span aria-hidden="true" className="text-base leading-none">
-              ←
-            </span>
-            Messages
+            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-5 w-5" fill="none">
+              <path
+                d="M12.5 4.5 7 10l5.5 5.5"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span className="sr-only">Messages</span>
           </button>
           {/* The screen's heading, not decoration. When this panel is open on a phone it is the
               whole screen: the thread and the inbox are both behind `display: none`, so their
@@ -107,7 +113,7 @@ const LeadPanel = ({
               heading at all. Only rendered below xl - above it the thread's own h2 is still on
               screen and this header does not exist. */}
           {leadName ? (
-            <h1 className="min-w-0 truncate text-sm font-semibold text-slate-900">{leadName}</h1>
+            <h1 className="m-appbar-title">{leadName}</h1>
           ) : null}
         </header>
       ) : null}
@@ -222,7 +228,7 @@ const LeadPanel = ({
           {/* Outside the groups and last, so a destructive action is never one tap from a
               header someone opened looking for something else. */}
           {canDelete ? (
-            <div className="rounded-[var(--m-radius-card)] border border-danger/30 p-3">
+            <div>
               <DeleteChatSection
                 conversationId={conversation.id}
                 displayName={conversation.displayName}

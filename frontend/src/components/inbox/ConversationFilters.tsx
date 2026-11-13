@@ -192,14 +192,14 @@ const ConversationFilters = ({
     // Lives inside whatever the parent decided is visible - on a narrow screen that is the
     // collapsible Filters area, so these two selects cost nothing until they are asked for.
     <div className="space-y-2 border-b border-hairline px-4 py-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <select
           aria-label="Filter by enquiry type"
           value={enquiryClass ?? ''}
           onChange={(event) =>
             onEnquiryClassChange((event.target.value || null) as EnquiryClass | null)
           }
-          className="min-w-0 flex-1 rounded-lg border border-hairline bg-panel px-2 py-1 text-xs text-bone focus:border-key/50 focus:outline-none"
+          className="select-compact h-10 min-w-0 w-full truncate rounded-xl border border-hairline bg-panel pl-3 pr-7 text-sm text-bone focus:border-key/50 focus:outline-none sm:w-auto sm:flex-1"
         >
           <option value="">All enquiry types</option>
           {ENQUIRY_CLASS_OPTIONS.map((option) => (
@@ -215,7 +215,7 @@ const ConversationFilters = ({
           onChange={(event) =>
             onAiStatusChange((event.target.value || null) as AiResponseStatus | null)
           }
-          className="min-w-0 flex-1 rounded-lg border border-hairline bg-panel px-2 py-1 text-xs text-bone focus:border-key/50 focus:outline-none"
+          className="select-compact h-10 min-w-0 w-full truncate rounded-xl border border-hairline bg-panel pl-3 pr-7 text-sm text-bone focus:border-key/50 focus:outline-none sm:w-auto sm:flex-1"
         >
           <option value="">Any AI response</option>
           {AI_STATUS_OPTIONS.map((option) => (
@@ -231,7 +231,7 @@ const ConversationFilters = ({
           aria-pressed={needsAttention}
           title={NEEDS_ATTENTION_DEFINITION}
           onClick={() => onNeedsAttentionChange(!needsAttention)}
-          className={`shrink-0 rounded-full border px-3 py-1 font-mono text-[0.625rem] uppercase tracking-[0.08em] transition-colors ${
+          className={`col-span-2 h-9 justify-self-start shrink-0 rounded-full border px-3.5 text-[0.8125rem] font-semibold transition-colors ${
             needsAttention
               ? 'border-key/40 bg-key/10 text-key'
               : 'border-hairline text-bone-dim hover:border-key/40 hover:text-key'

@@ -48,8 +48,8 @@ const DeleteChatSection = ({ conversationId, displayName, onDeleted }: Props) =>
   };
 
   return (
-    <div className="rounded-lg border border-red-200 p-3">
-      <span className="text-xs font-semibold uppercase text-red-500">Danger zone</span>
+    <div className="rounded-[var(--m-radius-card)] border border-red-200 bg-white p-3.5 dark:border-red-900/50 dark:bg-slate-900">
+      <span className="text-xs font-semibold uppercase tracking-wide text-red-500">Danger zone</span>
       <p className="mt-1 text-xs text-slate-500">
         Hides this chat and stops the AI. It comes back if they message you again.
       </p>

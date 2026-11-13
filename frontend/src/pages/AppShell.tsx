@@ -91,19 +91,13 @@ const NavButton = ({ active, onClick, children }: NavButtonProps) => (
     type="button"
     onClick={onClick}
     aria-current={active}
-    className={`relative shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold tracking-wide transition-all duration-150 active:scale-95 sm:px-3 ${
+    className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-semibold tracking-[-0.01em] transition-all duration-200 active:scale-95 ${
       active
-        ? 'bg-blue-50 text-blue-700 shadow-xs'
-        : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
+        ? 'glass-pill text-slate-900 dark:text-white'
+        : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
     }`}
   >
     {children}
-    {active ? (
-      <span
-        aria-hidden="true"
-        className="absolute inset-x-2.5 -bottom-px h-0.5 rounded-full bg-blue-600 shadow-xs animate-scale-in"
-      />
-    ) : null}
   </button>
 );
 
@@ -611,7 +605,7 @@ const AppShell = () => {
   return (
     // `app-shell` swaps 100vh for 100dvh below lg only; see index.css on why the composer
     // ended up under the browser chrome without it.
-    <div className="app-shell flex h-screen flex-col bg-slate-100/60 dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
+    <div className="app-shell flex h-screen flex-col bg-transparent text-slate-900 dark:text-slate-100 antialiased">
       <OfflineBanner />
       {/* THE MASTHEAD IS DESKTOP-ONLY NOW.
           It needs ~790px for nine letterspaced labels plus the account controls. On a phone
@@ -626,22 +620,22 @@ const AppShell = () => {
           matched both and threw. `useIsMobileViewport` reports desktop wherever `matchMedia`
           is absent, so every existing test sees the markup it always saw. */}
       {!isMobileViewport ? (
-        <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-200/80 bg-white/80 px-4 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] backdrop-blur-md sm:px-6">
+        <header className="glass relative z-20 mx-3 mt-[calc(0.75rem+env(safe-area-inset-top))] mb-3 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[1.75rem] px-3 py-2 sm:mx-4">
           <div className="order-1 flex shrink-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/25">
-              <span className="font-mono text-sm font-black tracking-tight">V</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-[0.6rem] bg-blue-600 text-white shadow-sm shadow-blue-500/30">
+              <span className="text-[15px] font-bold tracking-tight">V</span>
             </div>
-            <span className="wordmark text-base font-bold tracking-tight text-slate-900">Vistaar</span>
+            <span className="wordmark text-[17px] font-semibold text-slate-900">Vistaar</span>
           </div>
           {organization?.name ? (
-            <span className="order-1 hidden shrink-0 items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 xl:inline-flex">
+            <span className="order-1 hidden shrink-0 items-center rounded-full bg-[#7676801f] px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-[#76768033] dark:text-slate-300 xl:inline-flex">
               {organization.name}
             </span>
           ) : null}
           <>
             <nav
               aria-label="Sections"
-              className="no-scrollbar order-3 -mx-1 flex w-full min-w-0 items-center gap-1 overflow-x-auto px-1 lg:order-2 lg:w-auto lg:flex-1"
+              className="no-scrollbar order-3 flex w-full min-w-0 items-center gap-0.5 overflow-x-auto rounded-full bg-[#7676801f] p-1 dark:bg-[#76768033] lg:order-2 lg:mx-auto lg:w-auto lg:flex-initial"
             >
               <NavButton active={view === 'analytics'} onClick={() => setView('analytics')}>
                 Analytics
@@ -698,27 +692,27 @@ const AppShell = () => {
               <ThemeToggle />
               <a
                 href="whatsapp-admin://open"
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-700 shadow-xs transition hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50"
+                className="rounded-full bg-[#7676801f] px-3 py-1.5 text-[13px] font-semibold text-blue-600 transition hover:bg-[#76768033] active:scale-95 dark:bg-[#76768033] dark:text-blue-400"
               >
                 W-Staff
               </a>
-              <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 font-mono text-[0.6875rem] font-bold text-white shadow-xs">
+              <div className="flex items-center gap-2 pl-1">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white shadow-xs">
                   {getInitials(user?.name)}
                 </span>
-                <span className="hidden text-xs font-semibold text-slate-700 md:inline">{user?.name}</span>
+                <span className="hidden text-[13px] font-medium text-slate-700 md:inline">{user?.name}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setChangingPassword(true)}
-                className="rounded-lg px-2 py-1 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                className="rounded-full px-3 py-1.5 text-[13px] font-medium text-blue-600 transition hover:bg-[#7676801f] active:scale-95 dark:text-blue-400"
               >
                 Password
               </button>
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="rounded-lg px-2 py-1 font-mono text-[0.6875rem] font-semibold uppercase tracking-wider text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+                className="rounded-full px-3 py-1.5 text-[13px] font-medium text-red-500 transition hover:bg-red-500/10 active:scale-95 dark:text-red-400"
               >
                 Sign out
               </button>
@@ -785,7 +779,7 @@ const AppShell = () => {
           <SettingsPage />
         </SectionScreen>
       ) : (
-        <div className="flex min-h-0 flex-1 overflow-hidden bg-slate-50 animate-fade-in">
+        <div className="flex min-h-0 flex-1 overflow-hidden bg-transparent animate-fade-in lg:gap-3 lg:px-4 lg:pb-4">
           {!isMobileViewport ? (
             <InboxSidebar
               activeFolder={inboxFolder}
@@ -811,7 +805,7 @@ const AppShell = () => {
               the list is hidden and the thread owns the bottom of the screen, where the
               composer - not the nav bar - sits. */}
           <div
-            className={`flex flex-col min-h-0 w-full lg:block lg:w-[22rem] lg:shrink-0 xl:w-[24rem] border-r border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900 ${
+            className={`flex flex-col min-h-0 w-full lg:block lg:w-[22rem] lg:shrink-0 xl:w-[24rem] bg-white dark:bg-slate-900 lg:overflow-hidden lg:rounded-[1.5rem] lg:border lg:border-black/5 lg:shadow-[0_6px_24px_-10px_rgba(0,0,0,0.12)] dark:lg:border-white/10 ${
               selectedId ? 'hidden' : 'block'
             } ${isMobileViewport && !selectedId ? 'm-nav-clearance' : ''}`}
           >
@@ -871,7 +865,7 @@ const AppShell = () => {
           ) : (
             /* Hidden on small: with no thread open the list already fills the screen, and an
                empty "select a conversation" panel below it would just be dead space. */
-            <div className="hidden flex-1 lg:flex flex-col items-center justify-center bg-slate-50/60 p-8 animate-fade-in">
+            <div className="hidden flex-1 lg:flex flex-col items-center justify-center rounded-[1.5rem] bg-white/50 p-8 animate-fade-in">
               <EmptyState
                 title="Select a conversation"
                 description="Choose a conversation from the list to view its thread."
