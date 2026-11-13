@@ -40,7 +40,7 @@ const KpiCard = ({
 }) => {
   const inner = (
     <>
-      <span className="font-mono text-[0.6875rem] uppercase tracking-[0.06em] text-muted">
+      <span className="block text-[0.8125rem] font-medium leading-snug text-muted">
         {label}
       </span>
       <StatValue text={value} className="mt-1 block" />
@@ -53,7 +53,7 @@ const KpiCard = ({
   return (
     <div
       data-metric={label}
-      className="grid grid-cols-[1fr_auto] items-start gap-2 rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3"
+      className="grid min-w-0 grid-cols-[1fr_auto] items-start gap-1 rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3.5"
     >
       {onDrill ? (
         <button
@@ -62,7 +62,7 @@ const KpiCard = ({
           className="min-h-11 text-left transition-colors hover:text-key"
         >
           {inner}
-          <span className="mt-1 block font-mono text-[0.625rem] uppercase tracking-[0.06em] text-muted">
+          <span className="mt-1 block text-[0.8125rem] font-medium text-key">
             Open in inbox →
           </span>
         </button>
@@ -147,7 +147,7 @@ const KpiGrid = ({ overview, onDrillDown }: Props) => {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
       {cards.map((card) => (
         <KpiCard key={card.label} {...card} />
       ))}

@@ -36,9 +36,9 @@ const DateRangeControl = ({
   onPresetChange,
   onCustomChange,
 }: Props) => (
-  <div className="rounded-[var(--m-radius-card)] border border-hairline bg-panel p-3">
-    <div className="flex flex-wrap items-center gap-2">
-      <MicroLabel className="mr-1">Range</MicroLabel>
+  <div className="rounded-[var(--m-radius-card)] border border-hairline bg-panel p-2.5 sm:p-3">
+    <MicroLabel className="mb-2 block">Range</MicroLabel>
+    <div className="no-scrollbar flex items-center gap-0 overflow-x-auto rounded-full bg-[#7676801f] p-1 dark:bg-[#76768033]">
 
       {PRESETS.map((entry) => (
         <button
@@ -46,10 +46,10 @@ const DateRangeControl = ({
           type="button"
           aria-pressed={preset === entry.key}
           onClick={() => onPresetChange(entry.key)}
-          className={`min-h-11 rounded-[var(--m-radius-card)] border px-3 font-mono text-[0.6875rem] uppercase tracking-[0.06em] transition-colors sm:min-h-0 sm:py-1.5 ${
+          className={`h-8 flex-1 shrink-0 whitespace-nowrap rounded-full px-1.5 text-[0.8125rem] font-semibold tracking-[-0.01em] transition-all min-[380px]:px-2 ${
             preset === entry.key
-              ? 'border-key/40 bg-key/10 text-key'
-              : 'border-hairline text-bone-dim hover:border-key/40 hover:text-key'
+              ? 'glass-pill text-bone'
+              : 'text-bone-dim hover:text-bone'
           }`}
         >
           {entry.label}
@@ -60,10 +60,10 @@ const DateRangeControl = ({
         type="button"
         aria-pressed={preset === 'custom'}
         onClick={() => onPresetChange('custom')}
-        className={`min-h-11 rounded-[var(--m-radius-card)] border px-3 font-mono text-[0.6875rem] uppercase tracking-[0.06em] transition-colors sm:min-h-0 sm:py-1.5 ${
+        className={`h-8 flex-1 shrink-0 whitespace-nowrap rounded-full px-1.5 text-[0.8125rem] font-semibold tracking-[-0.01em] transition-all min-[380px]:px-2 ${
           preset === 'custom'
-            ? 'border-key/40 bg-key/10 text-key'
-            : 'border-hairline text-bone-dim hover:border-key/40 hover:text-key'
+            ? 'glass-pill text-bone'
+            : 'text-bone-dim hover:text-bone'
         }`}
       >
         Custom

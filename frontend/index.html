@@ -13,18 +13,17 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0b0e13" />
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
 
     <!--
-      Bebas Neue: the masthead and eyebrows - condensed poster caps, the type a photography
-      studio prints its own name in. IBM Plex Sans for the interface, IBM Plex Mono for every
-      number in it. Preconnected because this app is opened dozens of times a day and a
-      re-flowing masthead on each load is the cheapest thing here to get wrong.
+      Apple devices render SF Pro through -apple-system. Everywhere else Inter is the closest
+      match, so it is loaded as the fallback.
     -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap"
       rel="stylesheet"
     />
 

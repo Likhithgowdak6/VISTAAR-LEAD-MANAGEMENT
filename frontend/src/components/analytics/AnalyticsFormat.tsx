@@ -82,7 +82,9 @@ export const formatCount = (value: number | null | undefined): string =>
  * truth nobody was counted.
  */
 export const formatRate = (rate: DefinedRate | null | undefined): string =>
-  rate && typeof rate.value === 'number' && Number.isFinite(rate.value) ? `${rate.value}%` : DASH;
+  rate && typeof rate.value === 'number' && Number.isFinite(rate.value)
+    ? `${Math.round(rate.value * 10) / 10}%`
+    : DASH;
 
 /** "12 / 48" - the working behind a rate, shown next to it so the percentage can be checked. */
 export const formatWorking = (rate: DefinedRate | null | undefined): string =>

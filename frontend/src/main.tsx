@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App';
+import SelectSheetHost from './components/mobile/SelectSheet';
 import { startCapacitorBackButton } from './lib/capacitor-back';
 import { startCapacitorDeepLinks } from './lib/capacitor-deep-link';
 
@@ -25,5 +26,8 @@ startCapacitorDeepLinks();
 createRoot(rootElement).render(
   <StrictMode>
     <App />
+    {/* Outside App on purpose: it decorates native selects app-wide on phones, and keeping it
+        out of the tree the tests render leaves every select test driving the real control. */}
+    <SelectSheetHost />
   </StrictMode>,
 );

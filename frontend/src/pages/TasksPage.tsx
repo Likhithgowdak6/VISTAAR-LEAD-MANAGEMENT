@@ -274,15 +274,15 @@ const TasksPage = ({ onOpenTask }: Props) => {
       </div>
 
       {/* Mine / Team. Only rendered when the permission allows it - see canSeeTeam. */}
-      <div className="flex gap-2">
+      <div className="flex w-full gap-0.5 rounded-full bg-[#7676801f] p-1 dark:bg-[#76768033] sm:w-auto sm:self-start">
         <button
           type="button"
           onClick={() => selectScope('mine')}
           aria-pressed={scope === 'mine'}
-          className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-all ${
+          className={`h-8 flex-1 rounded-full px-4 text-sm font-semibold transition-all sm:flex-none ${
             scope === 'mine'
-              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-              : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              ? 'glass-pill text-slate-900 dark:text-white'
+              : 'text-slate-600 dark:text-slate-300'
           }`}
         >
           Mine
@@ -292,10 +292,10 @@ const TasksPage = ({ onOpenTask }: Props) => {
             type="button"
             onClick={() => selectScope('team')}
             aria-pressed={scope === 'team'}
-            className={`min-h-9 rounded-full px-4 text-sm font-semibold transition-all ${
+            className={`h-8 flex-1 rounded-full px-4 text-sm font-semibold transition-all sm:flex-none ${
               scope === 'team'
-                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                ? 'glass-pill text-slate-900 dark:text-white'
+                : 'text-slate-600 dark:text-slate-300'
             }`}
           >
             Team
@@ -305,7 +305,7 @@ const TasksPage = ({ onOpenTask }: Props) => {
 
       {/* The counts ride on the chips rather than sitting in a separate stat row: a chip that
           says "Late 14" is both the number and the way to see those fourteen. */}
-      <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
+      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
         {CHIPS.map((chip) => (
           <button
             key={chip.value}
@@ -392,7 +392,7 @@ const TasksPage = ({ onOpenTask }: Props) => {
         type="button"
         onClick={() => setCreating(true)}
         aria-label="New task"
-        className="fixed bottom-20 right-5 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-2xl font-light text-white shadow-lg shadow-blue-500/30 transition-transform hover:scale-105 active:scale-95 sm:bottom-8"
+        className="fixed bottom-20 right-5 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-2xl font-light text-white shadow-lg shadow-blue-500/30 transition-transform hover:scale-105 active:scale-95 sm:bottom-8"
       >
         +
       </button>

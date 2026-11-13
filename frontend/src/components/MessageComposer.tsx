@@ -349,7 +349,7 @@ const MessageComposer = ({
                 type="button"
                 onClick={onOpenStarred}
                 disabled={sending}
-                className="rounded-lg border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 rounded-full bg-amber-500/15 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
               >
                 ★ Starred
               </button>
@@ -359,7 +359,7 @@ const MessageComposer = ({
                 type="button"
                 onClick={onOpenTemplates}
                 disabled={sending}
-                className="rounded-lg border border-blue-300 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 rounded-full bg-blue-500/12 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
               >
                 ✨ Message templates
               </button>
@@ -475,7 +475,7 @@ const MessageComposer = ({
               aria-label="Add attachment"
               aria-expanded={attachMenuOpen}
               aria-haspopup="menu"
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition-colors hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 disabled:opacity-50"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#7676801f] text-slate-600 transition-colors hover:text-blue-600 active:scale-95 disabled:opacity-50 dark:bg-[#76768033] dark:text-slate-300"
             >
               <span aria-hidden="true">＋</span>
             </button>
@@ -533,12 +533,12 @@ const MessageComposer = ({
           value={body}
           onChange={handleBodyChange}
           placeholder="Type a reply…"
-          className="max-h-32 flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+          className="max-h-32 min-h-11 flex-1 resize-none !rounded-[1.375rem] border border-slate-300/70 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
         />
         <button
           type="submit"
           disabled={sending || (body.trim() === '' && !attachment)}
-          className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 font-semibold text-white shadow-sm shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 dark:disabled:from-slate-800 dark:disabled:to-slate-800 dark:disabled:text-slate-500 disabled:shadow-none"
+          className="h-11 shrink-0 rounded-full bg-blue-600 px-5 font-semibold text-white transition-all hover:bg-blue-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
         >
           {sending ? (attachment ? 'Uploading…' : 'Sending…') : 'Send'}
         </button>

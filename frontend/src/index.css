@@ -3,183 +3,308 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * VISTAAR CRM — Modern Premium SaaS Design System
- * Clean white surfaces, soft light-slate backgrounds, royal electric blue primary accent,
- * vibrant status palettes, lush modern shadows, and GPU-accelerated motion system.
+ * VISTAAR CRM — iOS 26 / iPadOS 26 design system
+ *
+ * Follows Apple's iOS 26 language: system colours, grouped backgrounds, SF Pro typography,
+ * Liquid Glass chrome (translucent, blurred, specular edge), capsule controls and large,
+ * concentric corner radii.
+ *
+ * HOW THE PALETTE WORKS. Components are written against the plain Tailwind palette
+ * (`text-slate-500`, `bg-blue-600`, ...). Rather than touch 200 files, the palette itself is
+ * redefined here: the slate/gray scales ARE Apple's neutral greys and labels, blue IS systemBlue,
+ * green IS systemGreen, and so on. Dark mode keeps the existing mechanism (`dark:` variants plus
+ * the overrides further down) with Apple's dark-mode values.
  */
 
 @theme {
   /* ---- Typography -------------------------------------------------------- */
-  --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'IBM Plex Mono', ui-monospace, monospace;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
-  /* ---- Core SaaS Surfaces & Accents -------------------------------------- */
-  --color-ink: #0f172a;
-  --color-ink-2: #1e293b;
+  /* ---- Radii: larger and concentric, as in iOS 26 ------------------------- */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+
+  /* ---- Semantic surfaces ------------------------------------------------- */
+  --color-ink: #1d1d1f;
+  --color-ink-2: #3a3a3c;
   --color-panel: #ffffff;
-  --color-panel-2: #f8fafc;
-  --color-panel-3: #f1f5f9;
-  --color-hairline: #e2e8f0;
+  --color-panel-2: #f2f2f7;
+  --color-panel-3: #e5e5ea;
+  --color-hairline: rgba(60, 60, 67, 0.18);
 
-  /* Primary Accent: Electric Royal Blue */
-  --color-key: #2563eb;
-  --color-key-soft: #3b82f6;
-  --color-key-deep: #1d4ed8;
+  /* Primary accent: systemBlue */
+  --color-key: #007aff;
+  --color-key-soft: #409cff;
+  --color-key-deep: #0062cc;
 
-  /* Secondary / AI Accent: Modern Sky / Violet */
-  --color-fill: #0ea5e9;
-  --color-fill-soft: #38bdf8;
-  --color-fill-deep: #0284c7;
+  /* Secondary accent: systemCyan */
+  --color-fill: #32ade6;
+  --color-fill-soft: #64c4f0;
+  --color-fill-deep: #0e8fc4;
 
-  /* Text hierarchy */
-  --color-bone: #0f172a;
-  --color-bone-dim: #334155;
-  --color-muted: #475569;
+  /* Labels */
+  --color-bone: #1d1d1f;
+  --color-bone-dim: #3c3c43;
+  --color-muted: #6e6e73;
 
-  /* Semantic feedback */
-  --color-danger: #ef4444;
-  --color-warn: #f59e0b;
-  --color-good: #10b981;
+  /* Feedback: systemRed / systemOrange / systemGreen */
+  --color-danger: #ff3b30;
+  --color-warn: #ff9500;
+  --color-good: #34c759;
 
-  /* Natural modern Tailwind palette */
   --color-white: #ffffff;
   --color-black: #000000;
 
-  --color-slate-50: #f8fafc;
-  --color-slate-100: #f1f5f9;
-  --color-slate-200: #e2e8f0;
-  --color-slate-300: #cbd5e1;
-  --color-slate-400: #94a3b8;
-  --color-slate-500: #64748b;
-  --color-slate-600: #475569;
-  --color-slate-700: #334155;
-  --color-slate-800: #1e293b;
-  --color-slate-900: #0f172a;
+  /* Neutrals = Apple system greys and label colours (no blue tint, unlike Tailwind slate) */
+  --color-slate-50: #f2f2f7;
+  --color-slate-100: #ebebf0;
+  --color-slate-200: #e5e5ea;
+  --color-slate-300: #d1d1d6;
+  --color-slate-400: #8e8e93;
+  --color-slate-500: #6e6e73;
+  --color-slate-600: #48484a;
+  --color-slate-700: #3a3a3c;
+  --color-slate-800: #2c2c2e;
+  --color-slate-900: #1c1c1e;
+  --color-slate-950: #000000;
 
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #6b7280;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
+  --color-gray-50: #f2f2f7;
+  --color-gray-100: #ebebf0;
+  --color-gray-200: #e5e5ea;
+  --color-gray-300: #d1d1d6;
+  --color-gray-400: #8e8e93;
+  --color-gray-500: #6e6e73;
+  --color-gray-600: #48484a;
+  --color-gray-700: #3a3a3c;
+  --color-gray-800: #2c2c2e;
+  --color-gray-900: #1c1c1e;
+  --color-gray-950: #000000;
 
-  /* Electric Royal Blue scale */
-  --color-blue-50: #eff6ff;
-  --color-blue-100: #dbeafe;
-  --color-blue-200: #bfdbfe;
-  --color-blue-300: #93c5fd;
-  --color-blue-400: #60a5fa;
-  --color-blue-500: #3b82f6;
-  --color-blue-600: #2563eb;
-  --color-blue-700: #1d4ed8;
-  --color-blue-800: #1e40af;
-  --color-blue-900: #1e3a8a;
+  --color-zinc-50: #f2f2f7;
+  --color-zinc-100: #ebebf0;
+  --color-zinc-200: #e5e5ea;
+  --color-zinc-300: #d1d1d6;
+  --color-zinc-400: #8e8e93;
+  --color-zinc-500: #6e6e73;
+  --color-zinc-600: #48484a;
+  --color-zinc-700: #3a3a3c;
+  --color-zinc-800: #2c2c2e;
+  --color-zinc-900: #1c1c1e;
+  --color-zinc-950: #000000;
 
-  /* Emerald / Success scale */
-  --color-green-50: #f0fdf4;
-  --color-green-100: #dcfce7;
-  --color-green-200: #bbf7d0;
-  --color-green-300: #86efac;
-  --color-green-400: #4ade80;
-  --color-green-500: #22c55e;
-  --color-green-600: #16a34a;
-  --color-green-700: #15803d;
-  --color-green-800: #166534;
-  --color-green-900: #14532d;
+  /* systemBlue */
+  --color-blue-50: #ebf4ff;
+  --color-blue-100: #d6e9ff;
+  --color-blue-200: #add3ff;
+  --color-blue-300: #7ab8ff;
+  --color-blue-400: #409cff;
+  --color-blue-500: #0a84ff;
+  --color-blue-600: #007aff;
+  --color-blue-700: #0062cc;
+  --color-blue-800: #004c9e;
+  --color-blue-900: #003670;
+  --color-blue-950: #00224a;
 
-  --color-emerald-50: #ecfdf5;
-  --color-emerald-100: #d1fae5;
-  --color-emerald-200: #a7f3d0;
-  --color-emerald-300: #6ee7b7;
-  --color-emerald-400: #34d399;
-  --color-emerald-500: #10b981;
-  --color-emerald-600: #059669;
-  --color-emerald-700: #047857;
-  --color-emerald-800: #065f46;
-  --color-emerald-900: #064e3b;
+  /* systemIndigo */
+  --color-indigo-50: #efeffc;
+  --color-indigo-100: #e0dff9;
+  --color-indigo-200: #c1bff3;
+  --color-indigo-300: #9d9aea;
+  --color-indigo-400: #7a77e0;
+  --color-indigo-500: #5e5ce6;
+  --color-indigo-600: #5856d6;
+  --color-indigo-700: #4644ab;
+  --color-indigo-800: #353381;
+  --color-indigo-900: #232256;
 
-  /* Rose / Danger scale */
-  --color-rose-50: #fff1f2;
-  --color-rose-100: #ffe4e6;
-  --color-rose-200: #fecdd3;
-  --color-rose-300: #fda4af;
-  --color-rose-400: #fb7185;
-  --color-rose-500: #f43f5e;
-  --color-rose-600: #e11d48;
-  --color-rose-700: #be123c;
-  --color-rose-800: #9f1239;
-  --color-rose-900: #881337;
+  /* systemCyan */
+  --color-sky-50: #ebf7fd;
+  --color-sky-100: #d6effb;
+  --color-sky-200: #ade0f6;
+  --color-sky-300: #84d0f2;
+  --color-sky-400: #64d2ff;
+  --color-sky-500: #32ade6;
+  --color-sky-600: #0e8fc4;
+  --color-sky-700: #0b7199;
+  --color-sky-800: #08536f;
+  --color-sky-900: #053546;
 
-  /* Purple / AI role scale */
-  --color-purple-50: #faf5ff;
-  --color-purple-100: #f3e8ff;
-  --color-purple-200: #e9d5ff;
-  --color-purple-300: #d8b4fe;
-  --color-purple-400: #c084fc;
-  --color-purple-500: #a855f7;
-  --color-purple-600: #9333ea;
-  --color-purple-700: #7e22ce;
-  --color-purple-800: #6b21a8;
-  --color-purple-900: #581c87;
+  --color-cyan-50: #ebf7fd;
+  --color-cyan-100: #d6effb;
+  --color-cyan-200: #ade0f6;
+  --color-cyan-300: #84d0f2;
+  --color-cyan-400: #64d2ff;
+  --color-cyan-500: #32ade6;
+  --color-cyan-600: #0e8fc4;
+  --color-cyan-700: #0b7199;
+  --color-cyan-800: #08536f;
+  --color-cyan-900: #053546;
 
-  /* Amber / Attention scale */
-  --color-amber-50: #fffbeb;
-  --color-amber-100: #fef3c7;
-  --color-amber-200: #fde68a;
-  --color-amber-300: #fcd34d;
-  --color-amber-400: #fbbf24;
-  --color-amber-500: #f59e0b;
-  --color-amber-600: #d97706;
-  --color-amber-700: #b45309;
-  --color-amber-800: #92400e;
-  --color-amber-900: #78350f;
+  /* systemTeal / systemMint */
+  --color-teal-50: #e6f7fa;
+  --color-teal-100: #cceff5;
+  --color-teal-200: #99dfeb;
+  --color-teal-300: #66cfe0;
+  --color-teal-400: #40c8e0;
+  --color-teal-500: #30b0c7;
+  --color-teal-600: #248a9c;
+  --color-teal-700: #1b6875;
+  --color-teal-800: #12464f;
+  --color-teal-900: #092428;
 
-  --color-yellow-50: #fefce8;
-  --color-yellow-100: #fef9c3;
-  --color-yellow-200: #fef08a;
-  --color-yellow-300: #fde047;
-  --color-yellow-400: #facc15;
-  --color-yellow-500: #eab308;
-  --color-yellow-600: #ca8a04;
-  --color-yellow-700: #a16207;
+  /* systemGreen */
+  --color-green-50: #ebf9ef;
+  --color-green-100: #d6f4de;
+  --color-green-200: #ade8bd;
+  --color-green-300: #85dd9b;
+  --color-green-400: #30d158;
+  --color-green-500: #34c759;
+  --color-green-600: #248a3d;
+  --color-green-700: #1d7032;
+  --color-green-800: #165526;
+  --color-green-900: #0e391a;
 
-  --color-red-50: #fef2f2;
-  --color-red-100: #fee2e2;
-  --color-red-200: #fecaca;
-  --color-red-300: #fca5a5;
-  --color-red-400: #f87171;
-  --color-red-500: #ef4444;
-  --color-red-600: #dc2626;
-  --color-red-700: #b91c1c;
-  --color-red-800: #991b1b;
-  --color-red-900: #7f1d1d;
+  --color-emerald-50: #ebf9ef;
+  --color-emerald-100: #d6f4de;
+  --color-emerald-200: #ade8bd;
+  --color-emerald-300: #85dd9b;
+  --color-emerald-400: #30d158;
+  --color-emerald-500: #34c759;
+  --color-emerald-600: #248a3d;
+  --color-emerald-700: #1d7032;
+  --color-emerald-800: #165526;
+  --color-emerald-900: #0e391a;
+
+  /* systemPink */
+  --color-rose-50: #ffebef;
+  --color-rose-100: #ffd6df;
+  --color-rose-200: #ffadbf;
+  --color-rose-300: #ff859f;
+  --color-rose-400: #ff375f;
+  --color-rose-500: #ff2d55;
+  --color-rose-600: #d70f3a;
+  --color-rose-700: #a80c2e;
+  --color-rose-800: #7a0921;
+  --color-rose-900: #4d0515;
+
+  --color-pink-50: #ffebef;
+  --color-pink-100: #ffd6df;
+  --color-pink-200: #ffadbf;
+  --color-pink-300: #ff859f;
+  --color-pink-400: #ff375f;
+  --color-pink-500: #ff2d55;
+  --color-pink-600: #d70f3a;
+  --color-pink-700: #a80c2e;
+  --color-pink-800: #7a0921;
+  --color-pink-900: #4d0515;
+
+  /* systemPurple */
+  --color-purple-50: #f7eefc;
+  --color-purple-100: #efdcf8;
+  --color-purple-200: #dfbaf2;
+  --color-purple-300: #cf97eb;
+  --color-purple-400: #bf5af2;
+  --color-purple-500: #af52de;
+  --color-purple-600: #8e3fb5;
+  --color-purple-700: #6e318c;
+  --color-purple-800: #4f2364;
+  --color-purple-900: #30153c;
+
+  --color-violet-50: #f7eefc;
+  --color-violet-100: #efdcf8;
+  --color-violet-200: #dfbaf2;
+  --color-violet-300: #cf97eb;
+  --color-violet-400: #bf5af2;
+  --color-violet-500: #af52de;
+  --color-violet-600: #8e3fb5;
+  --color-violet-700: #6e318c;
+  --color-violet-800: #4f2364;
+  --color-violet-900: #30153c;
+
+  /* systemOrange */
+  --color-amber-50: #fff5e6;
+  --color-amber-100: #ffeacc;
+  --color-amber-200: #ffd599;
+  --color-amber-300: #ffbf66;
+  --color-amber-400: #ff9f0a;
+  --color-amber-500: #ff9500;
+  --color-amber-600: #c96f00;
+  --color-amber-700: #9c5600;
+  --color-amber-800: #703e00;
+  --color-amber-900: #452600;
+
+  --color-orange-50: #fff5e6;
+  --color-orange-100: #ffeacc;
+  --color-orange-200: #ffd599;
+  --color-orange-300: #ffbf66;
+  --color-orange-400: #ff9f0a;
+  --color-orange-500: #ff9500;
+  --color-orange-600: #c96f00;
+  --color-orange-700: #9c5600;
+  --color-orange-800: #703e00;
+  --color-orange-900: #452600;
+
+  /* systemYellow */
+  --color-yellow-50: #fffae6;
+  --color-yellow-100: #fff5cc;
+  --color-yellow-200: #ffeb99;
+  --color-yellow-300: #ffe066;
+  --color-yellow-400: #ffd60a;
+  --color-yellow-500: #ffcc00;
+  --color-yellow-600: #b38f00;
+  --color-yellow-700: #806600;
+
+  /* systemRed */
+  --color-red-50: #ffeceb;
+  --color-red-100: #ffd8d6;
+  --color-red-200: #ffb1ac;
+  --color-red-300: #ff8a83;
+  --color-red-400: #ff453a;
+  --color-red-500: #ff3b30;
+  --color-red-600: #d70015;
+  --color-red-700: #ad0011;
+  --color-red-800: #82000d;
+  --color-red-900: #570009;
+
+  /* ---- Liquid Glass ------------------------------------------------------ */
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-edge: rgba(0, 0, 0, 0.06);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 0 rgba(255, 255, 255, 0.25);
+  --glass-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.14), 0 2px 6px -2px rgba(0, 0, 0, 0.06);
+  --glass-blur: blur(28px) saturate(190%);
 }
 
 /* ---------------------------------------------------------------------------
- * Base Elements & Resets
+ * Base
  * ------------------------------------------------------------------------ */
 @layer base {
   html {
     color-scheme: light;
-    background-color: #f1f5f9;
+    background-color: #f2f2f7;
   }
 
   body {
-    background-color: #f1f5f9;
-    color: #0f172a;
+    background-color: #f2f2f7;
+    color: #1d1d1f;
     font-family: var(--font-sans);
+    font-size: 15px;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-weight: 450;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  /* Subtle background ambient mesh */
+  /* A soft, colourful wallpaper under the glass - Liquid Glass needs something to refract. */
   body::before {
     content: '';
     position: fixed;
@@ -187,8 +312,9 @@
     pointer-events: none;
     z-index: 0;
     background:
-      radial-gradient(50rem 30rem at 0% 0%, rgba(37, 99, 235, 0.035), transparent 70%),
-      radial-gradient(60rem 40rem at 100% 100%, rgba(99, 102, 241, 0.035), transparent 70%);
+      radial-gradient(60rem 40rem at 0% 0%, rgba(0, 122, 255, 0.07), transparent 65%),
+      radial-gradient(50rem 36rem at 100% 0%, rgba(175, 82, 222, 0.06), transparent 65%),
+      radial-gradient(60rem 40rem at 100% 100%, rgba(50, 173, 230, 0.06), transparent 65%);
   }
 
   #root {
@@ -197,9 +323,38 @@
     height: 100%;
   }
 
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.022em;
+  }
+
   input[type='checkbox'],
   input[type='radio'] {
-    accent-color: #2563eb;
+    accent-color: #007aff;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    border-radius: 0.75rem;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+  textarea:focus,
+  select:focus-visible {
+    outline: none;
+    border-color: #007aff;
+    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.18);
+  }
+
+  ::placeholder {
+    color: rgba(60, 60, 67, 0.3);
   }
 
   select {
@@ -209,29 +364,27 @@
   select option,
   select optgroup {
     background-color: #ffffff;
-    color: #0f172a;
+    color: #1d1d1f;
   }
 
   time,
   output {
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
   :focus-visible {
-    outline: 2px solid #2563eb;
+    outline: 2px solid #007aff;
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: 8px;
   }
 
   ::selection {
-    background: rgba(37, 99, 235, 0.15);
-    color: #1d4ed8;
+    background: rgba(0, 122, 255, 0.2);
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
@@ -239,356 +392,83 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: rgba(0, 0, 0, 0.18);
     border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: rgba(0, 0, 0, 0.3);
+    background-clip: padding-box;
   }
 }
 
 /* ---------------------------------------------------------------------------
- * Dark Mode Theme Overrides
+ * iOS controls applied across the app
  * ------------------------------------------------------------------------ */
-html.dark {
-  color-scheme: dark;
-  background-color: #0b0f19;
 
-  /* ---- Core SaaS Surfaces & Accents (Dark Mode) --------------------------- */
-  --color-ink: #f8fafc;
-  --color-ink-2: #e2e8f0;
-  --color-panel: #111827;
-  --color-panel-2: #1e293b;
-  --color-panel-3: #334155;
-  --color-hairline: #1e293b;
+/* Filled primary buttons are capsules in iOS 26. */
+button[class*='bg-blue-6']:not([role='switch']),
+button[class*='bg-red-6']:not([role='switch']),
+button[class*='bg-slate-900']:not([role='switch']),
+a[class*='bg-blue-6'],
+.btn-key {
+  border-radius: 999px;
+}
 
-  /* Text hierarchy */
-  --color-bone: #f8fafc;
-  --color-bone-dim: #94a3b8;
-  --color-muted: #64748b;
+/* Bordered secondary buttons become soft-filled capsules (iOS "gray" button style). */
+button[class*='border-slate-300'][class*='bg-white']:not([role='switch']) {
+  border-radius: 999px;
+  border-color: transparent;
+  background-color: rgba(120, 120, 128, 0.12);
+}
+
+button[class*='border-slate-300'][class*='bg-white']:not([role='switch']):hover:not(:disabled) {
+  background-color: rgba(120, 120, 128, 0.2);
+}
+
+/* Press feedback, the iOS way: a gentle scale rather than a colour flash. */
+button:not(:disabled):active {
+  transition: transform 0.12s ease;
+}
+
+/* Cards and panels: hairline-less, softly shadowed, large radius. */
+.rounded-xl.border.bg-white,
+.rounded-2xl.border.bg-white {
+  border-color: rgba(60, 60, 67, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px -6px rgba(0, 0, 0, 0.06);
 }
 
 /* ---------------------------------------------------------------------------
- * Light Mode Contrast & Readability Enhancements
- * ------------------------------------------------------------------------ */
-html:not(.dark) .text-slate-500:not([class*='hover:']) {
-  color: #475569;
-}
-
-html:not(.dark) .text-slate-400:not([class*='hover:']) {
-  color: #64748b;
-}
-
-/* ---------------------------------------------------------------------------
- * Dark Mode Standard Utilities Adaptations (Without corrupting color tokens)
- * ------------------------------------------------------------------------ */
-html.dark .bg-white:not(.keep-white) {
-  background-color: #111827;
-}
-
-/* Catch all translucent white overlays and convert them to dark surfaces in dark mode */
-html.dark [class*='bg-white\/'] {
-  background-color: rgba(17, 24, 39, 0.95) !important;
-}
-
-html.dark [class*='bg-slate-50\/'] {
-  background-color: rgba(11, 15, 25, 0.7) !important;
-}
-
-html.dark [class*='bg-slate-100\/'] {
-  background-color: rgba(15, 23, 42, 0.7) !important;
-}
-
-html.dark .text-white,
-html.dark [class*='text-white'] {
-  color: #ffffff !important;
-}
-
-html.dark .text-slate-900:not([class*='dark:text-']) {
-  color: #f8fafc;
-}
-
-html.dark .text-slate-800:not([class*='dark:text-']) {
-  color: #e2e8f0;
-}
-
-html.dark .text-slate-700:not([class*='dark:text-']) {
-  color: #cbd5e1;
-}
-
-html.dark .text-slate-600:not([class*='dark:text-']) {
-  color: #94a3b8;
-}
-
-html.dark .border-slate-200:not([class*='dark:border-']) {
-  border-color: #1e293b;
-}
-
-html.dark [class*='border-slate-200\/'] {
-  border-color: rgba(30, 41, 59, 0.8) !important;
-}
-
-html.dark .border-slate-300:not([class*='dark:border-']) {
-  border-color: #334155 !important;
-}
-
-html.dark .bg-slate-50:not([class*='dark:bg-']) {
-  background-color: #0b0f19;
-}
-
-html.dark .bg-slate-100:not([class*='dark:bg-']) {
-  background-color: #1e293b;
-}
-
-/* Disabled button gradients in dark mode */
-html.dark button:disabled[class*='disabled:from-slate-200'] {
-  background-image: none !important;
-  background-color: #1e293b !important;
-  color: #64748b !important;
-  border-color: #334155 !important;
-}
-
-/* Explicit Dark Mode Overrides (Guarantees true contrast for mobile components) */
-html.dark .bg-slate-900,
-html.dark [class*='bg-slate-900'] {
-  background-color: #0f172a !important;
-}
-
-html.dark .bg-slate-950,
-html.dark [class*='bg-slate-950'] {
-  background-color: #020617 !important;
-}
-
-html.dark .bg-slate-800,
-html.dark [class*='bg-slate-800'] {
-  background-color: #1e293b !important;
-}
-
-/* Dedicated Mobile App Bar styling */
-.m-appbar-brand {
-  font-size: 1.0625rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: #0f172a;
-}
-html.dark .m-appbar-brand {
-  color: #ffffff !important;
-}
-
-.m-appbar-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.625rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: rgba(37, 99, 235, 0.1);
-  color: #2563eb;
-}
-html.dark .m-appbar-pill {
-  background: rgba(59, 130, 246, 0.25) !important;
-  color: #93c5fd !important;
-}
-
-.m-appbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 2.125rem;
-  width: 2.125rem;
-  border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #475569;
-}
-html.dark .m-appbar-toggle {
-  border-color: #334155 !important;
-  background: #1e293b !important;
-  color: #f8fafc !important;
-}
-
-/* Dedicated Mobile Sheet styling */
-.m-sheet-panel {
-  background-color: #ffffff;
-  border-color: #e2e8f0;
-  color: #0f172a;
-}
-html.dark .m-sheet-panel {
-  background-color: #0f172a !important;
-  border-color: #1e293b !important;
-  color: #f8fafc !important;
-}
-
-.m-sheet-header {
-  background-color: rgba(255, 255, 255, 0.95);
-  border-bottom: 1px solid #e2e8f0;
-}
-html.dark .m-sheet-header {
-  background-color: rgba(15, 23, 42, 0.95) !important;
-  border-bottom-color: #1e293b !important;
-}
-
-.m-sheet-item {
-  color: #334155;
-  transition: all 150ms ease;
-}
-.m-sheet-item:hover,
-.m-sheet-item:active {
-  background-color: #f1f5f9;
-}
-.m-sheet-panel button.m-sheet-item,
-.m-sheet-panel a.m-sheet-item {
-  background-color: transparent !important;
-  border-color: transparent !important;
-}
-.m-sheet-panel button.m-sheet-item:hover,
-.m-sheet-panel button.m-sheet-item:active,
-.m-sheet-panel a.m-sheet-item:hover,
-.m-sheet-panel a.m-sheet-item:active {
-  background-color: #f1f5f9 !important;
-}
-
-html.dark .m-sheet-item {
-  color: #cbd5e1 !important;
-}
-html.dark .m-sheet-item:hover,
-html.dark .m-sheet-item:active {
-  background-color: #1e293b !important;
-  color: #ffffff !important;
-}
-html.dark .m-sheet-panel button.m-sheet-item,
-html.dark .m-sheet-panel a.m-sheet-item {
-  background-color: transparent !important;
-  border-color: transparent !important;
-  color: #cbd5e1 !important;
-}
-html.dark .m-sheet-panel button.m-sheet-item:hover,
-html.dark .m-sheet-panel button.m-sheet-item:active,
-html.dark .m-sheet-panel a.m-sheet-item:hover,
-html.dark .m-sheet-panel a.m-sheet-item:active {
-  background-color: #1e293b !important;
-  color: #ffffff !important;
-}
-
-.m-sheet-item-active {
-  background-color: #eff6ff;
-  color: #2563eb;
-  font-weight: 600;
-}
-html.dark .m-sheet-item-active {
-  background-color: rgba(37, 99, 235, 0.22) !important;
-  color: #60a5fa !important;
-  font-weight: 600;
-}
-
-html.dark body {
-  background-color: #0b0f19;
-  color: #f8fafc;
-}
-
-html.dark body::before {
-  background:
-    radial-gradient(50rem 30rem at 0% 0%, rgba(37, 99, 235, 0.12), transparent 70%),
-    radial-gradient(60rem 40rem at 100% 100%, rgba(99, 102, 241, 0.08), transparent 70%);
-}
-
-html.dark select {
-  background-color: #111827;
-  color: #f8fafc;
-  border-color: #334155;
-}
-
-html.dark select option,
-html.dark select optgroup {
-  background-color: #111827;
-  color: #f8fafc;
-}
-
-html.dark input:not([type='checkbox']):not([type='radio']),
-html.dark textarea {
-  color-scheme: dark;
-}
-
-html.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-}
-
-html.dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
-
-html.dark .wordmark {
-  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-html.dark .surface {
-  background: #111827;
-  border-color: #1e293b;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
-}
-
-html.dark .surface-card {
-  background: #111827;
-  border-color: #1e293b;
-  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.5);
-}
-
-html.dark .surface-card:hover {
-  border-color: #334155;
-  box-shadow: 0 10px 20px -3px rgba(0, 0, 0, 0.6);
-}
-
-html.dark .chip {
-  background: #1e293b;
-  border-color: #334155;
-  color: #cbd5e1;
-}
-
-html.dark .m-appbar {
-  background: rgba(11, 15, 25, 0.94);
-  border-bottom-color: rgba(30, 41, 59, 0.8);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
-}
-
-html.dark .m-appbar-title {
-  color: #f8fafc;
-}
-
-html.dark .m-appbar-action {
-  color: #94a3b8;
-}
-
-html.dark .m-appbar-action:active {
-  background: #1e293b;
-  color: #f8fafc;
-}
-
-html.dark .m-bottomnav {
-  background: rgba(17, 24, 39, 0.94);
-  border-top-color: #1e293b;
-}
-
-html.dark .m-bottomnav-item {
-  color: #94a3b8;
-}
-
-html.dark .m-bottomnav-item[aria-current='page'] {
-  color: #60a5fa;
-}
-
-html.dark [data-mobile-sheet] {
-  background: #111827;
-}
-
-/* ---------------------------------------------------------------------------
- * Component Utility Classes
+ * Liquid Glass utilities
  * ------------------------------------------------------------------------ */
 @layer components {
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
+  }
+
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
+  }
+
+  /* The selected segment of a glass segmented control / tab bar. */
+  .glass-pill {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+      0 2px 8px -2px rgba(0, 0, 0, 0.14),
+      0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  }
+
   .no-scrollbar {
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -598,113 +478,356 @@ html.dark [data-mobile-sheet] {
     display: none;
   }
 
+  /* iOS grouped-list section header */
   .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    letter-spacing: -0.005em;
     text-transform: uppercase;
-    color: #64748b;
+    color: #6e6e73;
   }
 
   .wordmark {
+    font-family: var(--font-display);
     font-size: 1.25rem;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: #1d1d1f;
   }
 
   .surface {
     background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 0.75rem;
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(60, 60, 67, 0.1);
+    border-radius: 1.125rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .surface-card {
     background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 1rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border: 1px solid rgba(60, 60, 67, 0.08);
+    border-radius: 1.375rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 20px -8px rgba(0, 0, 0, 0.08);
+    transition:
+      transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2),
+      box-shadow 0.25s ease;
   }
 
   .surface-card:hover {
-    box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.08), 0 4px 6px -4px rgba(37, 99, 235, 0.04);
-    border-color: #cbd5e1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 32px -10px rgba(0, 0, 0, 0.14);
   }
 
   .glow-key {
-    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2), 0 4px 14px -2px rgba(37, 99, 235, 0.35);
+    box-shadow: 0 4px 14px -4px rgba(0, 122, 255, 0.5);
   }
 
   .glow-key-soft {
-    box-shadow: 0 2px 10px -2px rgba(37, 99, 235, 0.2);
+    box-shadow: 0 2px 10px -3px rgba(0, 122, 255, 0.3);
   }
 
   .glow-fill {
-    box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.25), 0 4px 14px -2px rgba(14, 165, 233, 0.3);
+    box-shadow: 0 4px 14px -4px rgba(50, 173, 230, 0.45);
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
-    padding: 0.2rem 0.55rem;
+    padding: 0.2rem 0.6rem;
     border-radius: 999px;
-    border: 1px solid #e2e8f0;
-    background: #f8fafc;
-    color: #475569;
+    border: 0;
+    background: rgba(120, 120, 128, 0.12);
+    color: #3c3c43;
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition: background-color 0.15s ease;
   }
 
   .chip-key {
-    border-color: rgba(37, 99, 235, 0.25);
-    background: rgba(37, 99, 235, 0.08);
-    color: #1d4ed8;
+    background: rgba(0, 122, 255, 0.12);
+    color: #0062cc;
   }
 
   .chip-fill {
-    border-color: rgba(14, 165, 233, 0.25);
-    background: rgba(14, 165, 233, 0.08);
-    color: #0284c7;
+    background: rgba(50, 173, 230, 0.14);
+    color: #0b7199;
   }
 
   .btn-key {
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    background: #007aff;
     color: #ffffff;
     font-weight: 600;
     border: none;
-    border-radius: 0.625rem;
-    box-shadow: 0 2px 8px -1px rgba(37, 99, 235, 0.4);
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: none;
+    transition:
+      background-color 0.15s ease,
+      transform 0.15s ease;
   }
 
   .btn-key:hover:not(:disabled) {
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
-    box-shadow: 0 4px 14px -1px rgba(37, 99, 235, 0.5);
-    transform: translateY(-1px);
+    background: #0a84ff;
   }
 
   .btn-key:active:not(:disabled) {
-    transform: translateY(0);
-    box-shadow: 0 1px 4px -1px rgba(37, 99, 235, 0.4);
+    transform: scale(0.97);
   }
 
   .btn-key:disabled {
-    opacity: 0.5;
-    box-shadow: none;
+    opacity: 0.4;
   }
 }
 
 /* ---------------------------------------------------------------------------
- * Motion & Animations
+ * Dark mode — Apple's dark palette: true black base, elevated greys, brighter accents
+ * ------------------------------------------------------------------------ */
+html.dark {
+  color-scheme: dark;
+  background-color: #000000;
+
+  --color-ink: #f5f5f7;
+  --color-ink-2: #e5e5ea;
+  --color-panel: #1c1c1e;
+  --color-panel-2: #2c2c2e;
+  --color-panel-3: #3a3a3c;
+  --color-hairline: rgba(84, 84, 88, 0.6);
+
+  --color-key: #0a84ff;
+  --color-key-soft: #409cff;
+  --color-key-deep: #0a84ff;
+
+  --color-bone: #f5f5f7;
+  --color-bone-dim: #aeaeb2;
+  --color-muted: #8e8e93;
+
+  --color-danger: #ff453a;
+  --color-warn: #ff9f0a;
+  --color-good: #30d158;
+
+  --glass-bg: rgba(44, 44, 46, 0.55);
+  --glass-bg-strong: rgba(36, 36, 38, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.12), inset 0 -1px 0 0 rgba(255, 255, 255, 0.03);
+  --glass-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.6), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+}
+
+html.dark body {
+  background-color: #000000;
+  color: #f5f5f7;
+}
+
+html.dark body::before {
+  background:
+    radial-gradient(60rem 40rem at 0% 0%, rgba(10, 132, 255, 0.16), transparent 65%),
+    radial-gradient(50rem 36rem at 100% 0%, rgba(191, 90, 242, 0.1), transparent 65%),
+    radial-gradient(60rem 40rem at 100% 100%, rgba(100, 210, 255, 0.08), transparent 65%);
+}
+
+html.dark ::placeholder {
+  color: rgba(235, 235, 245, 0.3);
+}
+
+html.dark select,
+html.dark select option,
+html.dark select optgroup {
+  background-color: #1c1c1e;
+  color: #f5f5f7;
+}
+
+html.dark input:not([type='checkbox']):not([type='radio']),
+html.dark textarea {
+  color-scheme: dark;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: padding-box;
+}
+
+html.dark .glass-pill {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.14) inset,
+    0 2px 8px -2px rgba(0, 0, 0, 0.5);
+}
+
+/* Utilities written for light mode, mapped onto Apple's dark materials. */
+html.dark .bg-white:not(.keep-white) {
+  background-color: #1c1c1e;
+}
+
+html.dark [class*='bg-white\/'] {
+  background-color: rgba(28, 28, 30, 0.88) !important;
+}
+
+/* Apple's translucent "fill" colours: they read as a raised surface on the black page AND as a
+   subtle well inside a #1c1c1e card, which are the two jobs slate-50/100 do in these components. */
+html.dark [class*='bg-slate-50\/'] {
+  background-color: rgba(118, 118, 128, 0.14) !important;
+}
+
+html.dark [class*='bg-slate-100\/'] {
+  background-color: rgba(118, 118, 128, 0.2) !important;
+}
+
+/* Row separators and avatar rings were written for white backgrounds. */
+html.dark [class*='divide-slate-'] > :not(:last-child) {
+  border-color: rgba(84, 84, 88, 0.45);
+}
+
+html.dark .ring-white {
+  --tw-ring-color: #1c1c1e;
+}
+
+html.dark .text-white,
+html.dark [class*='text-white'] {
+  color: #ffffff !important;
+}
+
+html.dark .text-slate-900:not([class*='dark:text-']) {
+  color: #f5f5f7;
+}
+
+html.dark .text-slate-800:not([class*='dark:text-']) {
+  color: #e5e5ea;
+}
+
+html.dark .text-slate-700:not([class*='dark:text-']) {
+  color: #d1d1d6;
+}
+
+html.dark .text-slate-600:not([class*='dark:text-']) {
+  color: #aeaeb2;
+}
+
+html.dark .text-slate-500:not([class*='dark:text-']) {
+  color: #8e8e93;
+}
+
+html.dark .border-slate-100:not([class*='dark:border-']),
+html.dark .border-slate-200:not([class*='dark:border-']) {
+  border-color: rgba(84, 84, 88, 0.45);
+}
+
+html.dark [class*='border-slate-200\/'] {
+  border-color: rgba(84, 84, 88, 0.45) !important;
+}
+
+html.dark .border-slate-300:not([class*='dark:border-']) {
+  border-color: rgba(84, 84, 88, 0.65) !important;
+}
+
+html.dark .bg-slate-50:not([class*='dark:bg-']) {
+  background-color: rgba(118, 118, 128, 0.14);
+}
+
+html.dark .bg-slate-100:not([class*='dark:bg-']) {
+  background-color: rgba(118, 118, 128, 0.24);
+}
+
+html.dark .bg-blue-50:not([class*='dark:bg-']) {
+  background-color: rgba(10, 132, 255, 0.18);
+}
+
+html.dark .bg-red-50:not([class*='dark:bg-']) {
+  background-color: rgba(255, 69, 58, 0.16);
+}
+
+html.dark .bg-amber-50:not([class*='dark:bg-']) {
+  background-color: rgba(255, 159, 10, 0.16);
+}
+
+html.dark .bg-green-50:not([class*='dark:bg-']),
+html.dark .bg-emerald-50:not([class*='dark:bg-']) {
+  background-color: rgba(48, 209, 88, 0.16);
+}
+
+html.dark .text-blue-600:not([class*='dark:text-']),
+html.dark .text-blue-700:not([class*='dark:text-']) {
+  color: #409cff;
+}
+
+html.dark .text-red-600:not([class*='dark:text-']),
+html.dark .text-red-700:not([class*='dark:text-']) {
+  color: #ff6961;
+}
+
+html.dark .bg-blue-600:not([class*='dark:bg-']) {
+  background-color: #0a84ff;
+}
+
+html.dark button:disabled[class*='disabled:from-slate-200'] {
+  background-image: none !important;
+  background-color: #2c2c2e !important;
+  color: #8e8e93 !important;
+  border-color: transparent !important;
+}
+
+html.dark .bg-slate-900,
+html.dark [class*='bg-slate-900'] {
+  background-color: #1c1c1e !important;
+}
+
+html.dark .bg-slate-950,
+html.dark [class*='bg-slate-950'] {
+  background-color: #000000 !important;
+}
+
+/* Translucent slate-950 is used for wells inside cards; pure black there reads as a hole. */
+html.dark [class*='bg-slate-950\/'] {
+  background-color: rgba(118, 118, 128, 0.14) !important;
+}
+
+html.dark .bg-slate-800,
+html.dark [class*='bg-slate-800'] {
+  background-color: #2c2c2e !important;
+}
+
+html.dark button[class*='border-slate-300'][class*='bg-white']:not([role='switch']) {
+  background-color: rgba(120, 120, 128, 0.24);
+}
+
+html.dark .rounded-xl.border.bg-white,
+html.dark .rounded-2xl.border.bg-white {
+  border-color: rgba(84, 84, 88, 0.35);
+  box-shadow: none;
+}
+
+html.dark .wordmark {
+  color: #f5f5f7;
+}
+
+html.dark .eyebrow {
+  color: #8e8e93;
+}
+
+html.dark .surface,
+html.dark .surface-card {
+  background: #1c1c1e;
+  border-color: rgba(84, 84, 88, 0.35);
+  box-shadow: none;
+}
+
+html.dark .surface-card:hover {
+  background: #232325;
+}
+
+html.dark .chip {
+  background: rgba(120, 120, 128, 0.24);
+  color: #d1d1d6;
+}
+
+html.dark .chip-key {
+  background: rgba(10, 132, 255, 0.22);
+  color: #64b0ff;
+}
+
+html.dark .chip-fill {
+  background: rgba(100, 210, 255, 0.2);
+  color: #64d2ff;
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion — iOS-like springs
  * ------------------------------------------------------------------------ */
 @keyframes shimmer {
   0% {
@@ -727,11 +850,11 @@ html.dark [data-mobile-sheet] {
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px) scale(0.99);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -749,7 +872,7 @@ html.dark [data-mobile-sheet] {
 @keyframes slideInRight {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(16px);
   }
   to {
     opacity: 1;
@@ -760,7 +883,7 @@ html.dark [data-mobile-sheet] {
 @keyframes scaleIn {
   from {
     opacity: 0;
-    transform: scale(0.97);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
@@ -769,16 +892,18 @@ html.dark [data-mobile-sheet] {
 }
 
 @keyframes pulseKey {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0);
+    box-shadow: 0 0 0 6px rgba(0, 122, 255, 0);
   }
 }
 
 @keyframes glowPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }
@@ -789,27 +914,27 @@ html.dark [data-mobile-sheet] {
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fadeIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .animate-slide-up {
-  animation: slideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slideUp 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
 }
 
 .animate-slide-down {
-  animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slideDown 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .animate-slide-in-right {
-  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slideInRight 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: scaleIn 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
 .animate-rise {
-  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slideUp 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
 }
 
 .animate-pulse-key {
@@ -820,35 +945,38 @@ html.dark [data-mobile-sheet] {
   animation: glowPulse 2s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ---------------------------------------------------------------------------
- * Mobile Specific Rules
+ * Mobile
  * ------------------------------------------------------------------------ */
 :root {
   --m-tap: 44px;
   --m-tap-lg: 48px;
   --m-appbar-h: 52px;
-  --m-bottomnav-h: 56px;
+  --m-bottomnav-h: 64px;
   --m-safe-top: env(safe-area-inset-top, 0px);
   --m-safe-bottom: env(safe-area-inset-bottom, 0px);
   --m-gap-tight: 0.5rem;
   --m-gap: 0.75rem;
   --m-gap-loose: 1.25rem;
-  --m-radius-card: 0.875rem;
-  --m-radius-sheet: 1.25rem;
-  --m-shadow-chrome: 0 1px 0 0 #e2e8f0;
-  --m-shadow-sheet: 0 -10px 25px -5px rgba(0, 0, 0, 0.1);
+  --m-radius-card: 1.125rem;
+  --m-radius-sheet: 2rem;
+  --m-shadow-chrome: none;
+  --m-shadow-sheet: 0 -12px 40px -8px rgba(0, 0, 0, 0.2);
 }
 
 @media (max-width: 1023.98px) {
   .wordmark {
     font-size: 1.125rem;
-    letter-spacing: 0.04em;
-  }
-
-  @media (max-width: 359.98px) {
-    .wordmark {
-      font-size: 1rem;
-    }
   }
 
   .app-shell {
@@ -868,18 +996,34 @@ html.dark [data-mobile-sheet] {
   [role='switch']::after {
     content: '';
     position: absolute;
-    inset: -14px -8px;
+    inset: -12px -8px;
   }
 
-  select,
+  /* 16px stops iOS Safari zooming into a field you type in. */
+  textarea,
   input:not([type='checkbox']):not([type='radio']) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* Selects never take typing - on a phone they open the option sheet (SelectSheet.tsx) - so
+     they do not need the 16px zoom guard, and at 16px their labels truncated ("All enquiry t…").
+     15px matches the rest of the form text. */
+  select {
+    min-height: 44px;
+    font-size: 0.9375rem;
+  }
+
+  /* Side-by-side filter dropdowns share half a phone each. */
+  select.select-compact {
     min-height: 40px;
+    font-size: 0.875rem;
   }
 
   input[type='checkbox'],
   input[type='radio'] {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
   }
 
   label:has(> input[type='checkbox']),
@@ -887,7 +1031,10 @@ html.dark [data-mobile-sheet] {
     min-height: var(--m-tap);
   }
 
-  button:not([role='switch']):not(.m-bottomnav-item):not(.m-appbar-action) {
+  /* A tap-height floor for plain text buttons. Buttons that set their own height (`h-5`,
+     `min-h-9`, ...) are left alone: forcing 40px onto them is what stretched round checkboxes
+     into ovals and stacked "Reschedule / Cancel" into an 80px column. */
+  button:not([role='switch']):not(.m-bottomnav-item):not(.m-appbar-action):not([class*='h-']) {
     min-height: 40px;
   }
 
@@ -895,9 +1042,97 @@ html.dark [data-mobile-sheet] {
   body {
     overflow-x: hidden;
   }
+
+  /* ---- Phone type scale ------------------------------------------------------------------
+     The components were sized for a desktop (12px secondary text, 10px badges). On a phone at
+     arm's length that is below what iOS ever uses (11pt is its floor), so the small steps are
+     lifted here once rather than in 200 files. */
+  :root {
+    --text-xs: 0.8125rem; /* 13px - iOS footnote */
+    --text-xs--line-height: 1.35;
+    --text-sm: 0.9375rem; /* 15px - iOS subheadline */
+    --text-sm--line-height: 1.4;
+  }
+
+  [class*='text-[0.5rem]'],
+  [class*='text-[0.5625rem]'],
+  [class*='text-[9px]'],
+  [class*='text-[10px]'] {
+    font-size: 0.6875rem; /* 11px */
+  }
+
+  [class*='text-[0.625rem]'],
+  [class*='text-[11px]'] {
+    font-size: 0.75rem; /* 12px */
+  }
+
+  [class*='text-[0.6875rem]'],
+  [class*='text-[0.7rem]'],
+  [class*='text-[0.75rem]'],
+  [class*='text-[12px]'] {
+    font-size: 0.8125rem; /* 13px */
+  }
+
+  /* Dialogs: edge-to-edge sheets get comfortable side padding, never a cramped 12px. */
+  [data-mobile-sheet] {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
 }
 
-/* Mobile Primitives */
+/* ---------------------------------------------------------------------------
+ * Dropdowns: one iOS look for every <select> - the up/down chevron of an iOS menu button,
+ * text that ellipsizes instead of running under it, and padding the arrow can never cover.
+ * ------------------------------------------------------------------------ */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6l3-3 3 3M3 10l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 0.625rem 0.875rem;
+  padding-right: 2.125rem !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+select:not([multiple]):not([size]):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typography clean-up for the iOS look (all sizes)
+ * ------------------------------------------------------------------------ */
+
+/* Monospace labels read as "developer tool". iOS uses SF Pro with tabular figures for numbers,
+   so mono becomes the system font with aligned digits. */
+.font-mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* Wide-tracked capitals on controls are not an iOS idiom. Controls keep their own words;
+   small section labels keep their capitals but lose the letterpress spacing. */
+button.uppercase,
+button .uppercase,
+a.uppercase,
+label.uppercase,
+label .uppercase,
+.chip.uppercase {
+  text-transform: none;
+  letter-spacing: -0.005em;
+}
+
+.uppercase[class*='tracking-'] {
+  letter-spacing: 0.02em;
+}
+
+/* Navigation bar: transparent glass with a centred-feeling title. */
 .m-appbar {
   position: sticky;
   top: 0;
@@ -908,27 +1143,41 @@ html.dark [data-mobile-sheet] {
   min-height: 56px;
   padding: 0 1rem;
   padding-top: var(--m-safe-top);
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  background: rgba(242, 242, 247, 0.72);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  backdrop-filter: blur(24px) saturate(190%);
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.16);
 }
 
+html.dark .m-appbar {
+  background: rgba(0, 0, 0, 0.7);
+  border-bottom-color: rgba(84, 84, 88, 0.5);
+}
+
+/* Glass circle buttons in the nav bar, as in iOS 26. */
 .m-appbar-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: var(--m-tap);
-  min-height: var(--m-tap);
-  margin-inline: -0.25rem;
-  border-radius: 0.625rem;
-  color: #475569;
+  min-width: 40px;
+  min-height: 40px;
+  margin-inline: -0.125rem;
+  border-radius: 999px;
+  color: #007aff;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), 0 2px 8px -3px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease;
 }
 
 .m-appbar-action:active {
-  background: #f1f5f9;
-  color: #0f172a;
+  transform: scale(0.92);
+}
+
+html.dark .m-appbar-action {
+  color: #0a84ff;
 }
 
 .m-appbar-title {
@@ -937,22 +1186,146 @@ html.dark [data-mobile-sheet] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 0.9375rem;
-  color: #0f172a;
+  font-size: 1.0625rem;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
 }
 
+html.dark .m-appbar-title {
+  color: #f5f5f7;
+}
+
+/* Root tabs: an iOS large title. */
+.m-appbar-root {
+  min-height: 64px;
+  padding-top: calc(var(--m-safe-top) + 0.375rem);
+  padding-bottom: 0.375rem;
+}
+
+.m-appbar-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #8e8e93;
+  letter-spacing: 0.01em;
+}
+
+.m-appbar-brand {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 1.75rem; /* 28px - iOS large title */
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: #1d1d1f;
+}
+
+html.dark .m-appbar-brand {
+  color: #ffffff !important;
+}
+
+.m-appbar-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  color: #6e6e73;
+}
+
+html.dark .m-appbar-subtitle {
+  color: #8e8e93;
+}
+
+/* One glass capsule holding every bar button, as in iOS 26. */
+.m-appbar-group {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), 0 4px 14px -6px rgba(0, 0, 0, 0.18);
+}
+
+/* Inside the capsule the buttons are bare circles; the capsule is the glass. */
+.m-appbar-group .m-appbar-action,
+.m-appbar-group .m-appbar-toggle {
+  margin: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Outranks the dark-mode `bg-white` / `bg-slate-800` remaps the toggle's own classes trigger. */
+html.dark .m-appbar-group .m-appbar-action,
+html.dark .m-appbar-group .m-appbar-toggle {
+  background: transparent !important;
+}
+
+.m-appbar-group .m-appbar-action:active,
+.m-appbar-group .m-appbar-toggle:active {
+  background: rgba(120, 120, 128, 0.2) !important;
+}
+
+/* Perfect circles: fixed square box, no padding, and exempt from the 40px min-height floor
+   (which on its own made a 36px-wide button 40px tall - an oval). */
+.m-appbar-action,
+.m-appbar-toggle {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  min-width: 2.5rem !important;
+  min-height: 2.5rem !important;
+  padding: 0 !important;
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  border-radius: 999px !important;
+}
+
+.m-appbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1d1d1f;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), 0 2px 8px -3px rgba(0, 0, 0, 0.15);
+}
+
+.m-appbar-toggle svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+html.dark .m-appbar-toggle {
+  color: #f5f5f7 !important;
+}
+
+/* Tab bar: a floating Liquid Glass capsule. */
 .m-bottomnav {
   position: fixed;
-  inset-inline: 0;
-  bottom: 0;
   z-index: 40;
   display: flex;
   align-items: stretch;
-  border-top: 1px solid #e2e8f0;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(14px);
-  padding-bottom: var(--m-safe-bottom);
+  background: var(--glass-bg) !important;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: var(--glass-highlight), var(--glass-shadow) !important;
+  border-radius: 999px !important;
+  margin-bottom: var(--m-safe-bottom);
 }
 
 .m-bottomnav-item {
@@ -963,35 +1336,44 @@ html.dark [data-mobile-sheet] {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: var(--m-bottomnav-h);
   padding: 0.25rem 0.125rem;
   font-size: 0.625rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #64748b;
+  color: #3c3c43;
 }
 
-.m-bottomnav-item[aria-current='true'] {
-  color: #2563eb;
+html.dark .m-bottomnav-item {
+  color: #d1d1d6;
 }
 
-.m-bottomnav-item:active {
-  background: #f1f5f9;
+.m-bottomnav-item[aria-current='true'],
+.m-bottomnav-item[aria-current='page'] {
+  color: #007aff;
 }
 
-.m-bottomnav-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 24px;
-  height: 2px;
-  border-radius: 0 0 2px 2px;
-  background: transparent;
+html.dark .m-bottomnav-item[aria-current='true'],
+html.dark .m-bottomnav-item[aria-current='page'] {
+  color: #0a84ff;
 }
 
-.m-bottomnav-item[aria-current='true']::before {
-  background: #2563eb;
+/* Tab labels shrink to fit their pill instead of spilling past it. */
+.m-bottomnav-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline: 0.25rem;
+  margin-top: 1px;
+  font-size: 0.625rem !important;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+@media (min-width: 380px) {
+  .m-bottomnav-label {
+    font-size: 0.6875rem !important;
+  }
 }
 
 @media (max-width: 1023.98px) {
@@ -1009,7 +1391,79 @@ html.dark [data-mobile-sheet] {
 }
 
 .m-nav-clearance {
-  padding-bottom: calc(var(--m-bottomnav-h) + var(--m-safe-bottom) + var(--m-gap));
+  padding-bottom: calc(var(--m-bottomnav-h) + var(--m-safe-bottom) + var(--m-gap) + 0.5rem);
+}
+
+/* Sheets: large-radius cards with a grabber, as in iOS. */
+.m-sheet-panel {
+  background-color: rgba(242, 242, 247, 0.92);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #1d1d1f;
+}
+
+html.dark .m-sheet-panel {
+  background-color: rgba(28, 28, 30, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f5f5f7 !important;
+}
+
+.m-sheet-header {
+  background-color: transparent;
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.16);
+}
+
+html.dark .m-sheet-header {
+  border-bottom-color: rgba(84, 84, 88, 0.5) !important;
+}
+
+.m-sheet-item {
+  color: #1d1d1f;
+  border-radius: 0.875rem;
+  transition: background-color 0.15s ease;
+}
+
+.m-sheet-panel button.m-sheet-item,
+.m-sheet-panel a.m-sheet-item {
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+.m-sheet-item:hover,
+.m-sheet-item:active,
+.m-sheet-panel button.m-sheet-item:hover,
+.m-sheet-panel button.m-sheet-item:active,
+.m-sheet-panel a.m-sheet-item:hover,
+.m-sheet-panel a.m-sheet-item:active {
+  background-color: rgba(120, 120, 128, 0.12) !important;
+}
+
+html.dark .m-sheet-item,
+html.dark .m-sheet-panel button.m-sheet-item,
+html.dark .m-sheet-panel a.m-sheet-item {
+  color: #f5f5f7 !important;
+}
+
+html.dark .m-sheet-item:hover,
+html.dark .m-sheet-item:active,
+html.dark .m-sheet-panel button.m-sheet-item:hover,
+html.dark .m-sheet-panel button.m-sheet-item:active,
+html.dark .m-sheet-panel a.m-sheet-item:hover,
+html.dark .m-sheet-panel a.m-sheet-item:active {
+  background-color: rgba(120, 120, 128, 0.24) !important;
+  color: #ffffff !important;
+}
+
+.m-sheet-item-active {
+  background-color: rgba(0, 122, 255, 0.12);
+  color: #007aff;
+  font-weight: 600;
+}
+
+html.dark .m-sheet-item-active {
+  background-color: rgba(10, 132, 255, 0.22) !important;
+  color: #409cff !important;
 }
 
 @media (max-width: 1023.98px) {
@@ -1021,13 +1475,40 @@ html.dark [data-mobile-sheet] {
     overscroll-behavior: contain;
     border-radius: var(--m-radius-sheet) var(--m-radius-sheet) 0 0;
     padding-bottom: calc(var(--m-gap-loose) + var(--m-safe-bottom));
-    background: #ffffff;
+    background: #f2f2f7;
     box-shadow: var(--m-shadow-sheet);
+  }
+
+  /* Grabber */
+  [data-mobile-sheet]::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 6px auto 2px;
+    border-radius: 999px;
+    background: rgba(60, 60, 67, 0.3);
+  }
+
+  html.dark [data-mobile-sheet] {
+    background: #1c1c1e;
+  }
+
+  html.dark [data-mobile-sheet]::before {
+    background: rgba(235, 235, 245, 0.3);
   }
 
   [data-mobile-sheet-backdrop] {
     align-items: flex-end !important;
     padding: 0 !important;
     z-index: 50 !important;
+  }
+
+  /* While a sheet is up the tab bar steps aside, as on iOS. Without this it floated over the
+     sheet's own Cancel / Save row - a sheet rendered inside a transformed (animated) pane is
+     trapped in that pane's stacking context, so no z-index on the sheet can lift it above. */
+  body:has([data-mobile-sheet-backdrop]) .m-bottomnav,
+  body:has([data-mobile-sheet]) .m-bottomnav {
+    display: none;
   }
 }

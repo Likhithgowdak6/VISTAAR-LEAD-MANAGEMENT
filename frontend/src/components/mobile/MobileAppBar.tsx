@@ -24,7 +24,7 @@ interface Props {
  * and clean navigation with tactile back control on child views.
  */
 const MobileAppBar = ({ onBack, backLabel, title, subtitle, actions, asHeading }: Props) => (
-  <header className="m-appbar">
+  <header className={`m-appbar ${onBack ? '' : 'm-appbar-root'}`}>
     {onBack ? (
       <button
         type="button"
@@ -39,50 +39,36 @@ const MobileAppBar = ({ onBack, backLabel, title, subtitle, actions, asHeading }
           <path
             d="M12.5 15.5 7 10l5.5-5.5"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         </svg>
       </button>
-    ) : (
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-xs shadow-blue-500/30">
-        <span className="font-mono text-sm font-black tracking-tight">V</span>
-      </div>
-    )}
+    ) : null}
 
     <div className="min-w-0 flex-1">
       {onBack ? (
         <>
           {asHeading ? (
-            <h1 className="m-appbar-title font-bold">{title}</h1>
+            <h1 className="m-appbar-title">{title}</h1>
           ) : (
-            <p className="m-appbar-title font-bold">{title}</p>
+            <p className="m-appbar-title">{title}</p>
           )}
-          <p className="truncate text-[0.6875rem] leading-tight text-slate-500 dark:text-slate-400">
-            {subtitle ?? 'Vistaar CRM'}
-          </p>
+          <p className="m-appbar-subtitle">{subtitle ?? 'Vistaar CRM'}</p>
         </>
       ) : (
         <>
-          <div className="flex items-center gap-2">
-            <span className="m-appbar-brand truncate">
-              Vistaar CRM
-            </span>
-            <span className="m-appbar-pill shrink-0">
-              {title}
-            </span>
-          </div>
-          {subtitle ? (
-            <p className="truncate text-[0.6875rem] leading-tight text-slate-500 dark:text-slate-400">
-              {subtitle}
-            </p>
-          ) : null}
+          {/* iOS large title: the section is the headline; the brand is the small print. */}
+          <p className="m-appbar-eyebrow">Vistaar CRM</p>
+          <p className="m-appbar-brand">{title}</p>
+          {subtitle ? <p className="m-appbar-subtitle">{subtitle}</p> : null}
         </>
       )}
     </div>
 
-    <div className="flex shrink-0 items-center gap-1.5">
+    {/* iOS 26 groups bar buttons into one Liquid Glass capsule rather than loose circles. */}
+    <div className="m-appbar-group">
       {actions}
       <ThemeToggle className="m-appbar-toggle" />
     </div>

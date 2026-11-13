@@ -41,13 +41,13 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
 
   const bubbleClasses = isOutbound
     ? isAi
-      ? 'border border-blue-200/90 dark:border-blue-900/60 bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white dark:from-slate-900 dark:via-blue-950/40 dark:to-slate-900 text-slate-800 dark:text-slate-100 shadow-sm rounded-2xl rounded-tr-xs'
-      : 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm shadow-blue-500/20 rounded-2xl rounded-tr-xs'
-    : 'border border-slate-200/90 dark:border-slate-800/90 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-sm rounded-2xl rounded-tl-xs';
+      ? 'border border-blue-200/80 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/50 text-slate-900 dark:text-slate-100 rounded-[1.25rem] rounded-br-md'
+      : 'bg-blue-600 text-white rounded-[1.25rem] rounded-br-md'
+    : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-[0_1px_1px_rgba(0,0,0,0.06)] rounded-[1.25rem] rounded-bl-md';
 
   return (
     <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[80%] px-3.5 py-2.5 text-sm transition-all duration-150 animate-slide-up ${bubbleClasses}`}>
+      <div className={`max-w-[82%] px-3.5 py-2 text-sm leading-snug transition-all duration-150 animate-slide-up ${bubbleClasses}`}>
         {isAi ? (
           <div className="mb-1 flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 dark:bg-blue-500 text-[8px] text-white">
@@ -84,7 +84,7 @@ const MessageBubble = ({ message, onToggleStar, starred = false, starBusy = fals
               aria-pressed={starred}
               aria-label={starred ? 'Remove from starred messages' : 'Save to starred messages'}
               title={starred ? 'Remove from starred messages' : 'Save to starred messages'}
-              className={`mr-auto rounded px-1 text-xs leading-none transition-colors disabled:opacity-50 ${
+              className={`mr-auto -my-1 h-6 rounded px-1 text-xs leading-none transition-colors disabled:opacity-50 ${
                 starred
                   ? isOutbound && !isAi
                     ? 'text-yellow-300'
