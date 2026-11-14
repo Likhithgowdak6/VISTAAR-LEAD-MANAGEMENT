@@ -160,6 +160,7 @@ def serialize_organization(doc: dict[str, Any] | None) -> dict[str, Any] | None:
         "name": doc.get("name"),
         "slug": doc.get("slug"),
         "status": doc.get("status"),
+        **({"onboardingRequired": not bool((doc.get("businessProfile") or {}).get("industry"))} if doc.get("saasManaged") else {}),
         "createdAt": serialize_date(doc.get("createdAt")),
         "updatedAt": serialize_date(doc.get("updatedAt")),
     }
@@ -250,7 +251,7 @@ async def _create_session(
 
 
 class LoginBody(BaseModel):
-    organizationSlug: str = DEFAULT_ORGANIZATION_SLUG
+    organizationSlug: str | None = None
     email: str
     password: str = Field(min_length=1)
 
@@ -258,7 +259,7 @@ class LoginBody(BaseModel):
     @classmethod
     def _slug(cls, value: Any) -> Any:
         if value is None:
-            return DEFAULT_ORGANIZATION_SLUG
+            return None
 
         normalised = str(value).strip().lower()
 
@@ -305,7 +306,16 @@ async def login(body: LoginBody, request: Request, response: Response):
             {"retryAfterSeconds": limit["retryAfterSeconds"]},
         )
 
-    organization = await database[ORGANIZATIONS].find_one({"slug": body.organizationSlug})
+    if body.organizationSlug is None:
+        candidates = await database[USERS].find({"email": body.email}).limit(21).to_list(21)
+        matches = [item for item in candidates if verify_password_or_decoy(body.password, item.get("passwordHash"))]
+        if len(matches) != 1:
+            if not candidates:
+                verify_password_or_decoy(body.password, None)
+            raise _invalid_credentials()
+        organization = await database[ORGANIZATIONS].find_one({"_id": matches[0]["organizationId"]})
+    else:
+        organization = await database[ORGANIZATIONS].find_one({"slug": body.organizationSlug})
 
     if not organization:
         # Match the cost of a real verification so an unknown slug is not distinguishable by

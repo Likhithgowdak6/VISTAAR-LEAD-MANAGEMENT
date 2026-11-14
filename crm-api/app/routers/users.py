@@ -245,6 +245,9 @@ class CreateUser(BaseModel):
 
         normalised = value.strip().lower()
 
+        if normalised == "ai-assistant@internal.local":
+            raise ValueError("This email address is reserved.")
+
         if not EMAIL_PATTERN.match(normalised):
             raise ValueError("Invalid email")
 
@@ -467,6 +470,8 @@ async def create_user(
     }
 
     async def body(session: Any) -> dict[str, Any]:
+        from app.saas import admit_resource
+        await admit_resource(auth.organization_id, "users", session)
         result = await db.get_database()[COLLECTION].insert_one(document, session=session)
         document["_id"] = result.inserted_id
 
@@ -481,7 +486,8 @@ async def create_user(
 
         return document
 
-    created = await run_in_transaction(body)
+    from app.saas import atomic
+    created = await atomic(body)
 
     return {"data": serialize_user(created)}
 
@@ -524,6 +530,9 @@ async def update_user(
         update["accountAccess"] = []
 
     async def body(session: Any) -> dict[str, Any] | None:
+        if update.get("status") == USER_STATUS_ACTIVE:
+            from app.saas import admit_resource
+            await admit_resource(auth.organization_id, "users", session, exclude_id=target_id)
         updated = await db.get_database()[COLLECTION].find_one_and_update(
             {"_id": target_id, "organizationId": auth.organization_id},
             {"$set": update},
@@ -567,6 +576,9 @@ async def _set_status(
     _assert_manageable(auth, await _find_user(target_id, auth.organization_id))
 
     async def body(session: Any) -> dict[str, Any] | None:
+        if status == USER_STATUS_ACTIVE:
+            from app.saas import admit_resource
+            await admit_resource(auth.organization_id, "users", session, exclude_id=target_id)
         updated = await db.get_database()[COLLECTION].find_one_and_update(
             {"_id": target_id, "organizationId": auth.organization_id},
             {"$set": {"status": status, "updatedBy": auth.user_id, "updatedAt": db.utc_now()}},

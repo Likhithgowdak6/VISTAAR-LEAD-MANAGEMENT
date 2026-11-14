@@ -27,6 +27,8 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.saas import admit_resource, atomic
+
 from app.deps import AuthContext, require_permission
 from app.permissions import ACCOUNTS_MANAGE, ACCOUNTS_READ, MESSAGES_SEND
 from app.whatsapp_accounts_service import (
@@ -191,13 +193,17 @@ async def create_account(
     auth: AuthContext = Depends(_require_accounts_manage),
 ) -> dict[str, Any]:
     try:
-        account = await create_account_for_actor(
+        async def create(session):
+            await admit_resource(auth.organization_id, "whatsappAccounts", session)
+            return await create_account_for_actor(
             organization_id=auth.organization_id,
             actor=auth.user,
             name=body.name,
             brand_key=body.brandKey,
             description=body.description,
-        )
+            session=session,
+            )
+        account = await atomic(create)
         return {"data": account}
     except Exception as exc:
         raise map_account_error(exc) from exc

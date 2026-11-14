@@ -325,6 +325,7 @@ async def create_account_for_actor(
     find_brand_key: Callable[..., Coroutine[Any, Any, dict[str, Any] | None]] = default_find_account_by_brand_key,
     create_account: Callable[..., Coroutine[Any, Any, dict[str, Any]]] = default_create_account_record,
     session_manager: SessionManagerProtocol | None = None,
+    session: Any = None,
 ) -> dict[str, Any]:
     """Creates a new WhatsApp account for the organization."""
     existing = await find_brand_key(organization_id=organization_id, brand_key=brand_key)
@@ -340,7 +341,7 @@ async def create_account_for_actor(
             "description": description,
             "ownerUserId": actor_id,
             "createdBy": actor_id,
-        }
+        }, **({"session": session} if session is not None else {})
     )
     return with_runtime(account, session_manager)
 

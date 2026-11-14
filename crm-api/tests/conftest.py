@@ -87,6 +87,9 @@ def _test_settings(tmp_path, monkeypatch):
     if "CONTACT_LOOKUP_HMAC_KEY" not in os.environ:
         monkeypatch.setenv("CONTACT_LOOKUP_HMAC_KEY", base64.b64encode(b"test-secret-at-least-16-bytes!").decode("ascii"))
 
+    # Tests must never inherit a developer's real WhatsApp testing recipients.
+    monkeypatch.setattr(settings, "whatsapp_test_allowed_numbers", "")
+
     original = (
         settings.jwt_access_secret,
         settings.node_env,

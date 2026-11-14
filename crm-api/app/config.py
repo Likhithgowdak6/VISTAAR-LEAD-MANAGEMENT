@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     # URI without it would appear to work here - health only reads - and fail much later when
     # the first migrated module needs a transaction. `app/db.py` asserts the topology rather
     # than trusting the string.
+    whatsapp_gateway_url: str = "http://127.0.0.1:5001"
+    whatsapp_gateway_service_key: str = ""
+    google_auth_client_id: str = ""
+    saas_signup_enabled: bool = True
+    saas_signup_invite_code: str = ""
+    whatsapp_test_allowed_numbers: str = ""
+
     mongodb_uri: str = ""
 
     redis_url: str = ""
