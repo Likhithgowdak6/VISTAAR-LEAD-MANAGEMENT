@@ -99,7 +99,7 @@ def _transcript_text(transcript) -> str:
 # brief, which biased the classifier towards reading every non-photography enquiry - websites,
 # SEO, social media - as something other than a customer.
 DEFAULT_BUSINESS_BRIEF = (
-    "Vistaar Verse, a multi-service creative, digital and events agency in Bangalore, India. "
+    "A multi-service creative, digital and events business. Use the supplied workspace context for its identity. "
     "It is hired for:\n"
     + prompts.SERVICES
     + "\n"

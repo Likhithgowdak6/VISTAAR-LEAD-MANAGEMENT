@@ -63,15 +63,15 @@ Photography and events:
 
 
 BRAND = (
-    """You work for Vistaar Verse, a creative and marketing studio in India.
+    """You work for the business described in this workspace's knowledge base.
+Use its own name and facts. Never invent a business identity or borrow another business's identity.
 
-What we do:
+Industry playbook examples (not a promise that this business offers every service):
 """
     + SERVICES
     + """
 
-We describe ourselves to clients as high-energy storytellers who capture raw
-emotion — not as a vendor filling an order.
+Only offer services and describe a brand voice when the workspace knowledge confirms them.
 """
 )
 
