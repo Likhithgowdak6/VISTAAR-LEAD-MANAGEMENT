@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, NamedTuple
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from fastapi import HTTPException
@@ -55,6 +56,8 @@ from pydantic import BaseModel, Field
 
 from app import db
 from app.analytics_scope import AnalyticsScope, resolve_analytics_scope
+from app.classification_filters import needs_attention_filter
+from app.config import settings
 from app.contacts_repository import find_contact_by_id
 from app.conversation_access import (
     ConversationAccessDenied,
@@ -65,8 +68,20 @@ from app.conversations_repository import (
     find_messages_by_conversation_cursor,
     list_conversations,
 )
+from app.date_range import (
+    CUSTOM,
+    LAST_7_DAYS,
+    LAST_30_DAYS,
+    LAST_90_DAYS,
+    TODAY,
+    _local_midnight,
+    _start_of_local_day_after,
+    _zone,
+    resolve_date_range,
+)
 from app.followup_tasks import find_pending_tasks_by_user
 from app.lead_intelligence import explain_lead
+from app.owner_conversation import OWNER_ASSISTANT_KIND
 from app.permissions import (
     CONVERSATIONS_READ_ALL,
     CONVERSATIONS_READ_ASSIGNED,
@@ -75,6 +90,12 @@ from app.permissions import (
 
 CONVERSATIONS = "conversations"
 MESSAGES = "messages"
+LEADSOURCES = "leadsources"
+METACONNECTIONS = "metaconnections"
+WHATSAPPACCOUNTS = "whatsappaccounts"
+FOLLOWUPTASKS = "followuptasks"
+USERS = "users"
+STAGES = "stages"
 
 #: Hard ceiling on any single tool result. An agent that asks for "all leads" must not be able
 #: to pull ten thousand documents into a model context — it would be slow, expensive, and the
@@ -166,7 +187,70 @@ class SearchLeadsInput(BaseModel):
     status: str | None = Field(default=None, max_length=30)
     needs_attention: bool | None = None
     assigned_to: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$")
+    lead_source_id: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$")
     limit: int = Field(default=10, ge=1, le=MAX_LIMIT)
+
+
+class PipelineMetricsInput(BaseModel):
+    date_preset: str | None = Field(
+        default=None,
+        description="Preset window: 'today', 'yesterday', 'this_week', 'this_month', 'last_7_days', 'last_30_days', 'last_90_days', 'all_time'",
+    )
+    from_date: str | None = Field(default=None, description="Start date in YYYY-MM-DD")
+    to_date: str | None = Field(default=None, description="End date in YYYY-MM-DD")
+    stage: str | None = Field(default=None, max_length=60)
+    status: str | None = Field(default=None, max_length=30)
+    lead_source_id: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$")
+    assigned_to: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$")
+    needs_attention: bool | None = None
+    group_by: str | None = Field(
+        default=None,
+        description="Dimension to group by: 'stage', 'source', 'assignee', 'status'",
+    )
+    compare_previous: bool = Field(
+        default=False,
+        description="Compare against immediately preceding window of equal duration",
+    )
+
+
+class MetaIntegrationStatusInput(BaseModel):
+    pass
+
+
+class ListMetaLeadFormsInput(BaseModel):
+    status: str | None = Field(default=None, description="Filter by status: 'active' or 'paused'")
+    page_id: str | None = Field(default=None, description="Filter by Facebook Page ID")
+
+
+class FormLeadMetricsInput(BaseModel):
+    form_id: str | None = Field(default=None, description="Facebook Form ID")
+    lead_source_id: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$", description="Lead source ID in CRM")
+    form_name: str | None = Field(default=None, description="Form name substring search")
+    date_preset: str | None = Field(
+        default=None,
+        description="Preset window: 'today', 'yesterday', 'this_month', 'last_30_days', 'all_time'",
+    )
+    from_date: str | None = Field(default=None, description="Start date YYYY-MM-DD")
+    to_date: str | None = Field(default=None, description="End date YYYY-MM-DD")
+    include_recent_leads: bool = Field(default=False, description="Whether to include recent leads from this form")
+    recent_leads_limit: int = Field(default=5, ge=1, le=20)
+
+
+class WhatsAppIntegrationStatusInput(BaseModel):
+    pass
+
+
+class ConversationStatisticsInput(BaseModel):
+    limit: int = Field(default=10, ge=1, le=MAX_LIMIT)
+
+
+class ReminderMetricsInput(BaseModel):
+    assigned_to_user_id: str | None = Field(default=None, pattern=r"^[a-fA-F\d]{24}$")
+    limit: int = Field(default=10, ge=1, le=MAX_LIMIT)
+
+
+class TeamOverviewInput(BaseModel):
+    include_inactive: bool = Field(default=False)
 
 
 class LeadDetailInput(BaseModel):
@@ -298,6 +382,7 @@ async def search_leads(context: ToolContext, payload: SearchLeadsInput) -> dict[
         status=payload.status,
         needs_attention=payload.needs_attention,
         search=payload.search,
+        lead_source_id=payload.lead_source_id,
         limit=_clamp(payload.limit),
     )
 
@@ -500,6 +585,743 @@ async def get_lead_intelligence(
     }
 
 
+def _resolve_analytics_window(
+    preset: str | None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    time_zone: str = "Asia/Kolkata",
+    now: datetime | None = None,
+) -> tuple[datetime | None, datetime | None, str]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    if from_date and to_date:
+        res = resolve_date_range(
+            preset=CUSTOM,
+            from_date=from_date,
+            to_date=to_date,
+            time_zone=time_zone,
+            now=now,
+        )
+        return res.from_, res.to, "custom"
+
+    if not preset or preset.lower().strip() in ("all", "all_time", "total", "lifetime"):
+        return None, None, "all_time"
+
+    p = preset.lower().strip()
+    if p in ("today",):
+        res = resolve_date_range(preset=TODAY, time_zone=time_zone, now=now)
+        return res.from_, res.to, "today"
+
+    if p in ("yesterday",):
+        local = now.astimezone(_zone(time_zone))
+        y_noon = local.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        y_start = _local_midnight(y_noon.year, y_noon.month, y_noon.day, time_zone)
+        t_start = _start_of_local_day_after(y_noon, time_zone, 1)
+        return y_start, t_start, "yesterday"
+
+    if p in ("this_week", "week"):
+        local = now.astimezone(_zone(time_zone))
+        days_back = local.weekday()
+        mon_noon = local.replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=days_back)
+        mon_start = _local_midnight(mon_noon.year, mon_noon.month, mon_noon.day, time_zone)
+        tomorrow = _start_of_local_day_after(now, time_zone, 1)
+        return mon_start, tomorrow, "this_week"
+
+    if p in ("this_month", "month"):
+        local = now.astimezone(_zone(time_zone))
+        m_start = _local_midnight(local.year, local.month, 1, time_zone)
+        tomorrow = _start_of_local_day_after(now, time_zone, 1)
+        return m_start, tomorrow, "this_month"
+
+    if p in ("last_7_days", "7_days", "last7days"):
+        res = resolve_date_range(preset=LAST_7_DAYS, time_zone=time_zone, now=now)
+        return res.from_, res.to, "last_7_days"
+
+    if p in ("last_30_days", "30_days", "last30days"):
+        res = resolve_date_range(preset=LAST_30_DAYS, time_zone=time_zone, now=now)
+        return res.from_, res.to, "last_30_days"
+
+    if p in ("last_90_days", "90_days", "last90days"):
+        res = resolve_date_range(preset=LAST_90_DAYS, time_zone=time_zone, now=now)
+        return res.from_, res.to, "last_90_days"
+
+    return None, None, "all_time"
+
+
+async def get_pipeline_metrics(
+    context: ToolContext, payload: PipelineMetricsInput
+) -> dict[str, Any]:
+    """
+    Aggregated lead metrics, pipeline counts, stage distributions, and date comparisons.
+    """
+    scope = resolve_tool_scope(context, payload.assigned_to)
+    tz = getattr(settings, "whatsapp_business_timezone", "Asia/Kolkata")
+    now = datetime.now(timezone.utc)
+    from_inst, to_inst, resolved_preset = _resolve_analytics_window(
+        payload.date_preset, payload.from_date, payload.to_date, time_zone=tz, now=now
+    )
+
+    base_match: dict[str, Any] = {
+        "organizationId": scope.organization_id,
+        "deletedAt": None,
+        "kind": {"$ne": OWNER_ASSISTANT_KIND},
+    }
+    if scope.assigned_to is not None:
+        base_match["assignedTo"] = scope.assigned_to
+    if from_inst and to_inst:
+        base_match["createdAt"] = {"$gte": from_inst, "$lt": to_inst}
+    if payload.stage:
+        base_match["stage"] = payload.stage
+    if payload.status:
+        base_match["status"] = payload.status
+    if payload.lead_source_id:
+        base_match["leadSourceId"] = ObjectId(payload.lead_source_id)
+    if payload.needs_attention:
+        base_match["$and"] = [needs_attention_filter(now)]
+
+    facet_pipeline: dict[str, list[dict[str, Any]]] = {
+        "total": [{"$count": "value"}],
+        "won": [{"$match": {"stage": "won"}}, {"$count": "value"}],
+        "lost": [{"$match": {"stage": "lost"}}, {"$count": "value"}],
+        "unassigned": [{"$match": {"assignedTo": None}}, {"$count": "value"}],
+        "needsAttention": [{"$match": needs_attention_filter(now)}, {"$count": "value"}],
+    }
+
+    if payload.group_by == "stage":
+        facet_pipeline["grouped"] = [
+            {"$group": {"_id": "$stage", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+        ]
+    elif payload.group_by == "source":
+        facet_pipeline["grouped"] = [
+            {"$group": {"_id": "$leadSourceId", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+        ]
+    elif payload.group_by == "assignee":
+        facet_pipeline["grouped"] = [
+            {"$group": {"_id": "$assignedTo", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+        ]
+    elif payload.group_by == "status":
+        facet_pipeline["grouped"] = [
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+        ]
+
+    agg_result = await db.get_database()[CONVERSATIONS].aggregate([
+        {"$match": base_match},
+        {"$facet": facet_pipeline},
+    ]).to_list(1)
+
+    facet_data = agg_result[0] if agg_result else {}
+
+    def _get_val(k: str) -> int:
+        arr = facet_data.get(k)
+        if arr and isinstance(arr, list) and isinstance(arr[0], dict):
+            return int(arr[0].get("value", 0))
+        return 0
+
+    total = _get_val("total")
+    won = _get_val("won")
+    lost = _get_val("lost")
+    unassigned = _get_val("unassigned")
+    needs_attention = _get_val("needsAttention")
+
+    breakdown_list = None
+    if payload.group_by and "grouped" in facet_data:
+        raw_grouped = facet_data["grouped"]
+        breakdown_list = []
+
+        if payload.group_by == "source":
+            source_docs = await db.get_database()[LEADSOURCES].find(
+                {"organizationId": scope.organization_id},
+                {"name": 1},
+            ).to_list(100)
+            source_map = {str(d["_id"]): d.get("name") for d in source_docs}
+
+            for item in raw_grouped:
+                src_id = item.get("_id")
+                name = source_map.get(str(src_id)) if src_id else "Direct / Organic WhatsApp"
+                breakdown_list.append({
+                    "sourceId": str(src_id) if src_id else None,
+                    "sourceName": name,
+                    "count": item.get("count", 0),
+                })
+
+        elif payload.group_by == "assignee":
+            user_docs = await db.get_database()[USERS].find(
+                {"organizationId": scope.organization_id},
+                {"name": 1},
+            ).to_list(100)
+            user_map = {str(u["_id"]): u.get("name") for u in user_docs}
+
+            for item in raw_grouped:
+                u_id = item.get("_id")
+                name = user_map.get(str(u_id)) if u_id else "Unassigned"
+                breakdown_list.append({
+                    "userId": str(u_id) if u_id else None,
+                    "userName": name,
+                    "count": item.get("count", 0),
+                })
+
+        elif payload.group_by == "stage":
+            stage_docs = await db.get_database()[STAGES].find(
+                {"organizationId": scope.organization_id},
+                {"key": 1, "label": 1},
+            ).to_list(100)
+            stage_map = {d.get("key"): d.get("label") for d in stage_docs if d.get("key")}
+
+            for item in raw_grouped:
+                stg = item.get("_id") or "unspecified"
+                entry: dict[str, Any] = {
+                    "stage": stg,
+                    "count": item.get("count", 0),
+                }
+                if stg in stage_map:
+                    entry["stageLabel"] = stage_map[stg]
+                breakdown_list.append(entry)
+
+        elif payload.group_by == "status":
+            for item in raw_grouped:
+                st = item.get("_id") or "unspecified"
+                breakdown_list.append({
+                    "status": st,
+                    "count": item.get("count", 0),
+                })
+
+    previous_period = None
+    if payload.compare_previous and from_inst and to_inst:
+        duration = to_inst - from_inst
+        prev_to = from_inst
+        prev_from = from_inst - duration
+        prev_match = {
+            **base_match,
+            "createdAt": {"$gte": prev_from, "$lt": prev_to},
+        }
+        prev_total = await db.get_database()[CONVERSATIONS].count_documents(prev_match)
+        diff = total - prev_total
+        pct = round((diff / prev_total) * 100, 1) if prev_total > 0 else None
+        previous_period = {
+            "totalLeads": prev_total,
+            "from": prev_from.isoformat(),
+            "to": prev_to.isoformat(),
+            "difference": diff,
+            "percentChange": pct,
+        }
+
+    conv_rate = f"{round((won / total) * 100, 1)}%" if total > 0 else "0.0%"
+
+    result: dict[str, Any] = {
+        "totalLeads": total,
+        "dateRange": {
+            "preset": resolved_preset,
+            "from": from_inst.isoformat() if from_inst else None,
+            "to": to_inst.isoformat() if to_inst else None,
+            "timeZone": tz,
+        } if resolved_preset != "all_time" else {"preset": "all_time"},
+        "summary": {
+            "wonCount": won,
+            "lostCount": lost,
+            "unassignedCount": unassigned,
+            "needsAttentionCount": needs_attention,
+            "conversionRate": conv_rate,
+        },
+        "scopedToActor": scope.assigned_to is not None,
+    }
+
+    if breakdown_list is not None:
+        result["breakdown"] = breakdown_list
+        result["groupBy"] = payload.group_by
+
+    if previous_period is not None:
+        result["previousPeriod"] = previous_period
+
+    return result
+
+
+async def get_meta_integration_status(
+    context: ToolContext, payload: MetaIntegrationStatusInput
+) -> dict[str, Any]:
+    """Inspects Facebook/Meta connection health, connected pages, active lead forms, and errors."""
+    conn = await db.get_database()[METACONNECTIONS].find_one(
+        {"organizationId": context.organization_id},
+        {"encryptedUserAccessToken": 0},
+    )
+    sources = await db.get_database()[LEADSOURCES].find(
+        {"organizationId": context.organization_id, "kind": "meta_lead_ad"},
+        {"encryptedMetaAccessToken": 0},
+    ).to_list(100)
+
+    is_connected = bool(conn and conn.get("status") == "active")
+    pages_map: dict[str, str] = {}
+    total_imported = 0
+    active_sources = 0
+    paused_sources = 0
+    issues: list[str] = []
+
+    if conn and conn.get("lastError"):
+        issues.append(f"Meta Account Error: {conn['lastError']}")
+
+    for s in sources:
+        if s.get("status") == "active":
+            active_sources += 1
+        else:
+            paused_sources += 1
+        total_imported += s.get("totalImported", 0)
+        meta = s.get("meta") or {}
+        pid = meta.get("pageId")
+        pname = meta.get("pageName") or "Unnamed Page"
+        if pid:
+            pages_map[str(pid)] = pname
+        if s.get("lastError"):
+            issues.append(f"Form '{s.get('name')}': {s['lastError']}")
+        if meta.get("webhookError"):
+            issues.append(f"Webhook '{s.get('name')}': {meta['webhookError']}")
+
+    health_status = "healthy"
+    if not is_connected:
+        health_status = "disconnected"
+    elif issues:
+        health_status = "degraded"
+
+    last_chk = conn.get("lastCheckedAt") if conn else None
+
+    return {
+        "connected": is_connected,
+        "account": {
+            "metaUserName": conn.get("metaUserName") if conn else None,
+            "metaUserId": conn.get("metaUserId") if conn else None,
+            "status": conn.get("status") if conn else "not_configured",
+            "grantedScopes": conn.get("grantedScopes", []) if conn else [],
+            "lastCheckedAt": last_chk.isoformat() if isinstance(last_chk, datetime) else last_chk,
+        } if conn else None,
+        "pages": [{"pageId": pid, "pageName": pname} for pid, pname in pages_map.items()],
+        "pageCount": len(pages_map),
+        "totalFormSources": len(sources),
+        "activeSources": active_sources,
+        "pausedSources": paused_sources,
+        "totalImportedLeads": total_imported,
+        "healthStatus": health_status,
+        "issues": issues,
+        "statusSource": "stored_configuration",
+        "liveGraphApiChecked": False,
+        "note": "Status reflects stored Meta OAuth connection records and webhook subscriptions. Live Graph API verification is not performed during assistant tool execution.",
+    }
+
+
+async def list_meta_lead_forms(
+    context: ToolContext, payload: ListMetaLeadFormsInput
+) -> dict[str, Any]:
+    """Lists connected Meta/Facebook lead forms with configuration, sync state, and health."""
+    query: dict[str, Any] = {
+        "organizationId": context.organization_id,
+        "kind": "meta_lead_ad",
+    }
+    if payload.status:
+        query["status"] = payload.status
+    if payload.page_id:
+        query["meta.pageId"] = str(payload.page_id)
+
+    sources = await db.get_database()[LEADSOURCES].find(
+        query,
+        {"encryptedMetaAccessToken": 0},
+    ).sort("name", 1).to_list(100)
+
+    forms = []
+    for s in sources:
+        meta = s.get("meta") or {}
+        last_synced = s.get("lastSyncedAt")
+        form_name = meta.get("formName") or s.get("name")
+        page_name = meta.get("pageName")
+        display_name = f"{form_name} (Page: {page_name})" if page_name else form_name
+        forms.append({
+            "leadSourceId": str(s["_id"]),
+            "formId": meta.get("formId"),
+            "formName": form_name,
+            "displayName": display_name,
+            "sourceName": s.get("name"),
+            "pageId": meta.get("pageId"),
+            "pageName": page_name,
+            "status": s.get("status", "active"),
+            "totalImported": s.get("totalImported", 0),
+            "lastSyncedAt": last_synced.isoformat() if isinstance(last_synced, datetime) else last_synced,
+            "lastSyncStatus": s.get("lastSyncStatus"),
+            "lastError": s.get("lastError"),
+            "webhookSubscribed": bool(meta.get("webhookSubscribedAt")),
+            "webhookError": meta.get("webhookError"),
+            "usesFacebookLogin": bool(s.get("metaConnectionId")),
+        })
+
+    return {
+        "forms": forms,
+        "count": len(forms),
+        "statusSource": "stored_configuration",
+    }
+
+
+async def get_form_lead_metrics(
+    context: ToolContext, payload: FormLeadMetricsInput
+) -> dict[str, Any]:
+    """Performance metrics, lead volumes, conversion rates, and recent leads per Meta form."""
+    query: dict[str, Any] = {
+        "organizationId": context.organization_id,
+        "kind": "meta_lead_ad",
+    }
+    if payload.lead_source_id:
+        query["_id"] = ObjectId(payload.lead_source_id)
+    if payload.form_id:
+        query["meta.formId"] = str(payload.form_id)
+
+    sources = await db.get_database()[LEADSOURCES].find(
+        query,
+        {"encryptedMetaAccessToken": 0},
+    ).to_list(100)
+
+    if payload.form_name and payload.form_name.strip():
+        term = payload.form_name.strip().lower()
+        sources = [
+            s for s in sources
+            if term in (s.get("name") or "").lower()
+            or term in ((s.get("meta") or {}).get("formName") or "").lower()
+        ]
+
+    tz = getattr(settings, "whatsapp_business_timezone", "Asia/Kolkata")
+    from_inst, to_inst, resolved_preset = _resolve_analytics_window(
+        payload.date_preset, payload.from_date, payload.to_date, time_zone=tz
+    )
+
+    form_metrics = []
+    total_leads_across_forms = 0
+    all_recent_leads = []
+
+    for s in sources:
+        source_id = s["_id"]
+        meta = s.get("meta") or {}
+        form_name = meta.get("formName") or s.get("name")
+        page_name = meta.get("pageName")
+        display_name = f"{form_name} (Page: {page_name})" if page_name else form_name
+
+        conv_query: dict[str, Any] = {
+            "organizationId": context.organization_id,
+            "deletedAt": None,
+            "kind": {"$ne": OWNER_ASSISTANT_KIND},
+            "leadSourceId": source_id,
+        }
+        if from_inst and to_inst:
+            conv_query["createdAt"] = {"$gte": from_inst, "$lt": to_inst}
+
+        agg = await db.get_database()[CONVERSATIONS].aggregate([
+            {"$match": conv_query},
+            {
+                "$facet": {
+                    "total": [{"$count": "val"}],
+                    "won": [{"$match": {"stage": "won"}}, {"$count": "val"}],
+                    "latest": [{"$sort": {"createdAt": -1}}, {"$limit": 1}],
+                }
+            },
+        ]).to_list(1)
+
+        total_leads = 0
+        won_leads = 0
+        latest_lead_at = None
+
+        if agg:
+            facet = agg[0]
+            if facet.get("total"):
+                total_leads = facet["total"][0].get("val", 0)
+            if facet.get("won"):
+                won_leads = facet["won"][0].get("val", 0)
+            if facet.get("latest") and len(facet["latest"]) > 0:
+                latest_lead_at = facet["latest"][0].get("createdAt")
+
+        total_leads_across_forms += total_leads
+        conv_rate = f"{round((won_leads / total_leads) * 100, 1)}%" if total_leads > 0 else "0.0%"
+
+        last_sync = s.get("lastSyncedAt")
+
+        form_metrics.append({
+            "leadSourceId": str(source_id),
+            "formId": meta.get("formId"),
+            "formName": form_name,
+            "displayName": display_name,
+            "pageName": page_name,
+            "status": s.get("status", "active"),
+            "leadCount": total_leads,
+            "wonCount": won_leads,
+            "conversionRate": conv_rate,
+            "totalImported": s.get("totalImported", 0),
+            "lastSyncedAt": last_sync.isoformat() if isinstance(last_sync, datetime) else last_sync,
+            "lastLeadAt": latest_lead_at.isoformat() if isinstance(latest_lead_at, datetime) else None,
+        })
+
+        if payload.include_recent_leads:
+            limit = min(payload.recent_leads_limit, 20)
+            recent_rows = await db.get_database()[CONVERSATIONS].find(
+                conv_query
+            ).sort("createdAt", -1).limit(limit).to_list(limit)
+            for r in recent_rows:
+                summary = serialize_lead_summary(r)
+                summary["formName"] = form_name
+                all_recent_leads.append(summary)
+
+    form_metrics.sort(key=lambda m: (m["leadCount"], m["totalImported"]), reverse=True)
+    top_form = form_metrics[0] if form_metrics else None
+
+    result: dict[str, Any] = {
+        "forms": form_metrics,
+        "count": len(form_metrics),
+        "totalLeadsAcrossForms": total_leads_across_forms,
+        "topPerformingForm": {
+            "formName": top_form["formName"],
+            "leadCount": top_form["leadCount"],
+            "leadSourceId": top_form["leadSourceId"],
+            "conversionRate": top_form["conversionRate"],
+        } if top_form else None,
+        "dateRange": {
+            "preset": resolved_preset,
+            "from": from_inst.isoformat() if from_inst else None,
+            "to": to_inst.isoformat() if to_inst else None,
+            "timeZone": tz,
+        } if resolved_preset != "all_time" else {"preset": "all_time"},
+    }
+
+    if payload.include_recent_leads:
+        all_recent_leads.sort(key=lambda x: str(x.get("createdAt") or ""), reverse=True)
+        result["recentLeads"] = all_recent_leads[:payload.recent_leads_limit]
+
+    return result
+
+
+async def get_whatsapp_integration_status(
+    context: ToolContext, payload: WhatsAppIntegrationStatusInput
+) -> dict[str, Any]:
+    """Inspects WhatsApp business accounts, connection status, and operational health."""
+    accounts = await db.get_database()[WHATSAPPACCOUNTS].find(
+        {"organizationId": context.organization_id}
+    ).to_list(100)
+
+    account_summaries = []
+    active_count = 0
+
+    for acc in accounts:
+        st = acc.get("status")
+        if st == "active":
+            active_count += 1
+        last_conn = acc.get("lastConnectedAt")
+        last_disc = acc.get("lastDisconnectedAt")
+        account_summaries.append({
+            "accountId": str(acc["_id"]),
+            "name": acc.get("name") or "Main WhatsApp",
+            "brandKey": acc.get("brandKey"),
+            "status": st,
+            "lastConnectedAt": last_conn.isoformat() if isinstance(last_conn, datetime) else last_conn,
+            "lastDisconnectedAt": last_disc.isoformat() if isinstance(last_disc, datetime) else last_disc,
+            "disconnectReason": acc.get("disconnectReason"),
+        })
+
+    return {
+        "connected": active_count > 0,
+        "activeAccountCount": active_count,
+        "totalAccounts": len(accounts),
+        "accounts": account_summaries,
+        "statusSource": "database_record",
+        "statusReliability": "recorded_in_db",
+        "liveSocketChecked": False,
+        "note": "Status reflects the last recorded state in the CRM database. Live Baileys socket state is maintained by the background messaging service.",
+    }
+
+
+async def get_conversation_statistics(
+    context: ToolContext, payload: ConversationStatisticsInput
+) -> dict[str, Any]:
+    """Identifies unanswered inbound leads, response SLAs, and customers awaiting replies."""
+    scope = resolve_tool_scope(context)
+    now = datetime.now(timezone.utc)
+    day_ago = now - timedelta(hours=24)
+
+    base_query: dict[str, Any] = {
+        "organizationId": scope.organization_id,
+        "deletedAt": None,
+        "kind": {"$ne": OWNER_ASSISTANT_KIND},
+    }
+    if scope.assigned_to is not None:
+        base_query["assignedTo"] = scope.assigned_to
+
+    unanswered_query = {
+        **base_query,
+        "optedOutAt": None,
+        "salesRejectedAt": None,
+        "lastInboundAt": {"$ne": None},
+        "$expr": {
+            "$or": [
+                {"$eq": ["$lastOutboundAt", None]},
+                {"$gt": ["$lastInboundAt", "$lastOutboundAt"]},
+            ]
+        },
+    }
+
+    total_count = await db.get_database()[CONVERSATIONS].count_documents(base_query)
+    unanswered_count = await db.get_database()[CONVERSATIONS].count_documents(unanswered_query)
+
+    active_24h_query = {**base_query, "lastMessageAt": {"$gte": day_ago}}
+    active_24h_count = await db.get_database()[CONVERSATIONS].count_documents(active_24h_query)
+
+    limit = _clamp(payload.limit)
+    waiting_leads_cursor = db.get_database()[CONVERSATIONS].find(
+        unanswered_query
+    ).sort("lastInboundAt", 1).limit(limit)
+
+    waiting_leads = []
+    async for lead in waiting_leads_cursor:
+        last_in = lead.get("lastInboundAt")
+        hours_waiting = 0.0
+        if isinstance(last_in, datetime):
+            hours_waiting = round(
+                (now - (last_in if last_in.tzinfo else last_in.replace(tzinfo=timezone.utc))).total_seconds() / 3600,
+                1,
+            )
+
+        waiting_leads.append({
+            "conversationId": str(lead["_id"]),
+            "displayName": lead.get("displayName") or "Unknown Contact",
+            "stage": lead.get("stage"),
+            "intentBand": _intent_band(lead.get("leadScore")),
+            "lastInboundAt": last_in.isoformat() if isinstance(last_in, datetime) else None,
+            "hoursWaiting": hours_waiting,
+        })
+
+    return {
+        "totalConversations": total_count,
+        "unansweredInboundCount": unanswered_count,
+        "activeInLast24HoursCount": active_24h_count,
+        "leadsWaitingForReply": waiting_leads,
+        "scopedToActor": scope.assigned_to is not None,
+    }
+
+
+async def get_reminder_metrics(
+    context: ToolContext, payload: ReminderMetricsInput
+) -> dict[str, Any]:
+    """Organization-wide or assigned reminder metrics, overdue tasks, and follow-up coverage."""
+    now = datetime.now(timezone.utc)
+    tz = getattr(settings, "whatsapp_business_timezone", "Asia/Kolkata")
+    local_now = now.astimezone(_zone(tz))
+    today_start = _local_midnight(local_now.year, local_now.month, local_now.day, tz)
+    today_end = _start_of_local_day_after(local_now, tz, 1)
+
+    scope = resolve_tool_scope(context, payload.assigned_to_user_id)
+    match_query: dict[str, Any] = {
+        "organizationId": scope.organization_id,
+        "status": "pending",
+    }
+    if scope.assigned_to is not None:
+        match_query["assignedTo"] = scope.assigned_to
+
+    tasks = await db.get_database()[FOLLOWUPTASKS].find(match_query).to_list(500)
+
+    total_pending = len(tasks)
+    overdue_tasks = []
+    due_today_count = 0
+    overdue_count = 0
+    upcoming_count = 0
+
+    for t in tasks:
+        due = t.get("dueAt")
+        if isinstance(due, datetime):
+            due_utc = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
+            if due_utc < now:
+                overdue_count += 1
+                hours_overdue = round((now - due_utc).total_seconds() / 3600, 1)
+                overdue_tasks.append({
+                    "taskId": str(t["_id"]),
+                    "title": t.get("title") or t.get("note") or "Untitled Reminder",
+                    "dueAt": due.isoformat(),
+                    "hoursOverdue": hours_overdue,
+                    "conversationId": str(t["conversationId"]) if t.get("conversationId") else None,
+                })
+            if today_start <= due_utc < today_end:
+                due_today_count += 1
+            elif due_utc >= today_end:
+                upcoming_count += 1
+
+    overdue_tasks.sort(key=lambda x: x["hoursOverdue"], reverse=True)
+
+    return {
+        "totalPending": total_pending,
+        "overdueCount": overdue_count,
+        "dueTodayCount": due_today_count,
+        "upcomingCount": upcoming_count,
+        "overdueReminders": overdue_tasks[:_clamp(payload.limit)],
+        "scopedToActor": scope.assigned_to is not None,
+    }
+
+
+async def get_team_overview(
+    context: ToolContext, payload: TeamOverviewInput
+) -> dict[str, Any]:
+    """Team members, workload distribution, assigned leads, and conversion performance."""
+    user_query: dict[str, Any] = {"organizationId": context.organization_id}
+    if not payload.include_inactive:
+        user_query["status"] = {"$ne": "disabled"}
+
+    users = await db.get_database()[USERS].find(
+        user_query,
+        {"passwordHash": 0},
+    ).sort("name", 1).to_list(100)
+
+    conv_agg = await db.get_database()[CONVERSATIONS].aggregate([
+        {
+            "$match": {
+                "organizationId": context.organization_id,
+                "deletedAt": None,
+                "kind": {"$ne": OWNER_ASSISTANT_KIND},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$assignedTo",
+                "totalLeads": {"$sum": 1},
+                "wonLeads": {"$sum": {"$cond": [{"$eq": ["$stage", "won"]}, 1, 0]}},
+            }
+        },
+    ]).to_list(100)
+
+    lead_stats_by_user = {
+        str(r["_id"]): r for r in conv_agg if r.get("_id") is not None
+    }
+    unassigned_stat = next((r for r in conv_agg if r.get("_id") is None), {"totalLeads": 0, "wonLeads": 0})
+
+    team_members = []
+    for u in users:
+        uid = str(u["_id"])
+        stat = lead_stats_by_user.get(uid, {"totalLeads": 0, "wonLeads": 0})
+        total = stat.get("totalLeads", 0)
+        won = stat.get("wonLeads", 0)
+        conv_rate = f"{round((won / total) * 100, 1)}%" if total > 0 else "0.0%"
+
+        team_members.append({
+            "userId": uid,
+            "name": u.get("name") or "Unknown",
+            "email": u.get("email"),
+            "role": u.get("role"),
+            "status": u.get("status", "active"),
+            "assignedLeads": total,
+            "wonLeads": won,
+            "conversionRate": conv_rate,
+        })
+
+    team_members.sort(key=lambda m: m["assignedLeads"], reverse=True)
+
+    return {
+        "teamMembers": team_members,
+        "count": len(team_members),
+        "unassignedLeads": unassigned_stat.get("totalLeads", 0),
+    }
+
+
 async def _load_visible(context: ToolContext, conversation_id: str) -> dict[str, Any]:
     """
     The visibility gate, mapped onto tool-shaped errors.
@@ -551,6 +1373,7 @@ class ToolSpec(NamedTuple):
 
 
 _READ = CONVERSATIONS_READ_ASSIGNED
+_READ_ALL = CONVERSATIONS_READ_ALL
 
 TOOL_REGISTRY: dict[str, ToolSpec] = {
     spec.name: spec
@@ -558,7 +1381,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         ToolSpec(
             name="search_leads",
             description=(
-                "Find leads by name, stage, status or whether they need attention. "
+                "Find leads by name, stage, status, lead source, or whether they need attention. "
                 "Returns a summary including the stored lead score and intent band."
             ),
             permission=_READ,
@@ -621,6 +1444,93 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
             permission=_READ,
             input_model=ContactDetailInput,
             handler=get_contact_detail,
+        ),
+        ToolSpec(
+            name="get_pipeline_metrics",
+            description=(
+                "Aggregated lead counts, conversion metrics, stage/source/assignee breakdowns, "
+                "and date comparisons across the entire pipeline. Use this for questions like "
+                "'how many leads do we have?', 'how many leads came this month?', 'how many won leads?', "
+                "or 'leads per stage/source/assignee'."
+            ),
+            permission=_READ,
+            input_model=PipelineMetricsInput,
+            handler=get_pipeline_metrics,
+        ),
+        ToolSpec(
+            name="get_meta_integration_status",
+            description=(
+                "Check Facebook/Meta integration connection status, connected Facebook pages, "
+                "active form lead sources, total imported leads, and sync errors. Use this for "
+                "'is Facebook/Meta connected?', 'which pages are connected?', or 'are any forms reporting errors?'."
+            ),
+            permission=_READ_ALL,
+            input_model=MetaIntegrationStatusInput,
+            handler=get_meta_integration_status,
+        ),
+        ToolSpec(
+            name="list_meta_lead_forms",
+            description=(
+                "List all configured Meta/Facebook lead forms, their active or paused status, "
+                "Facebook form ID, page ID, sync status, and total leads imported. Use for "
+                "'which Facebook forms are connected?' or 'which forms are active/paused?'."
+            ),
+            permission=_READ_ALL,
+            input_model=ListMetaLeadFormsInput,
+            handler=list_meta_lead_forms,
+        ),
+        ToolSpec(
+            name="get_form_lead_metrics",
+            description=(
+                "Lead volume, conversion rate, top performing form, and recent leads per Meta lead form. "
+                "Use this for 'how many leads came from Wedding Shoot form?', 'which form brought the most leads?', "
+                "or 'show me recent leads from this form'."
+            ),
+            permission=_READ_ALL,
+            input_model=FormLeadMetricsInput,
+            handler=get_form_lead_metrics,
+        ),
+        ToolSpec(
+            name="get_whatsapp_integration_status",
+            description=(
+                "Check WhatsApp account connection status, brand keys, connection timestamps, "
+                "and disconnect reasons. Use for 'is WhatsApp connected?' or 'which WhatsApp accounts are connected?'."
+            ),
+            permission=_READ,
+            input_model=WhatsAppIntegrationStatusInput,
+            handler=get_whatsapp_integration_status,
+        ),
+        ToolSpec(
+            name="get_conversation_statistics",
+            description=(
+                "Summary of conversation activity, unanswered inbound messages, leads awaiting replies with "
+                "wait times, and 24h active volume. Use for 'who hasn't received a reply?' or "
+                "'how many leads are waiting for replies?'."
+            ),
+            permission=_READ,
+            input_model=ConversationStatisticsInput,
+            handler=get_conversation_statistics,
+        ),
+        ToolSpec(
+            name="get_reminder_metrics",
+            description=(
+                "Comprehensive reminder statistics including overdue follow-ups, tasks due today, "
+                "upcoming reminders, and leads without scheduled follow-ups. Use for 'which reminders/follow-ups are overdue?' "
+                "or 'what is due today?'."
+            ),
+            permission=CRM_TASKS_MANAGE,
+            input_model=ReminderMetricsInput,
+            handler=get_reminder_metrics,
+        ),
+        ToolSpec(
+            name="get_team_overview",
+            description=(
+                "Team performance, assigned leads per employee, won leads, conversion rates, and unassigned leads. "
+                "Use for 'which employee manages the most leads?' or 'how many leads per employee?'."
+            ),
+            permission=_READ_ALL,
+            input_model=TeamOverviewInput,
+            handler=get_team_overview,
         ),
     )
 }

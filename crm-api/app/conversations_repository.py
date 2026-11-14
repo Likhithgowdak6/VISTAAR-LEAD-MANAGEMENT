@@ -65,6 +65,7 @@ async def list_conversations(
     ai_status: str | None = None,
     needs_attention: bool | None = None,
     search: str | None = None,
+    lead_source_id: Any = None,
     limit: int = 50,
     skip: int = 0,
     now: datetime | None = None,
@@ -103,6 +104,11 @@ async def list_conversations(
 
     if status:
         filter_query["status"] = status
+
+    if lead_source_id is not None:
+        src_id = _to_object_id(lead_source_id)
+        if src_id:
+            filter_query["leadSourceId"] = src_id
 
     derived: list[dict[str, Any]] = []
     if enquiry_class:
