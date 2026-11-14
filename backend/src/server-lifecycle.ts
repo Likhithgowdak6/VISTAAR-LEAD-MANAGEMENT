@@ -103,6 +103,7 @@ const disconnectDependencies = async ({
 export interface StartServerParams {
   appInstance?: Express;
   port?: number;
+  gatewayOnly?: boolean;
   connectDatabaseFn?: () => Promise<unknown>;
   connectRedisFn?: () => Promise<unknown>;
   disconnectDatabaseFn?: () => Promise<unknown>;
@@ -129,6 +130,7 @@ export interface StartServerParams {
 export const startServer = async ({
   appInstance = app,
   port = env.PORT,
+  gatewayOnly = env.WHATSAPP_GATEWAY_ONLY,
   connectDatabaseFn = connectDatabase,
   connectRedisFn = connectRedis,
   disconnectDatabaseFn = disconnectDatabase,
@@ -183,115 +185,119 @@ export const startServer = async ({
     });
     startedDeliveryRunner.start();
 
-    const startedLeadImportRunner = createLeadImportRunnerFn();
-    leadImportRunner = startedLeadImportRunner;
-    rollbackSteps.push(() => {
-      startedLeadImportRunner.stop();
-      if (leadImportRunner === startedLeadImportRunner) {
-        leadImportRunner = null;
-      }
-    });
-    startedLeadImportRunner.start();
+    // Python owns business sweeps in the SaaS deployment; Node retains Baileys and delivery.
+    if (!gatewayOnly) {
+      const startedLeadImportRunner = createLeadImportRunnerFn();
+      leadImportRunner = startedLeadImportRunner;
+      rollbackSteps.push(() => {
+        startedLeadImportRunner.stop();
+        if (leadImportRunner === startedLeadImportRunner) {
+          leadImportRunner = null;
+        }
+      });
+      startedLeadImportRunner.start();
 
-    const startedNurtureRunner = createNurtureRunnerFn();
-    nurtureRunner = startedNurtureRunner;
-    rollbackSteps.push(() => {
-      startedNurtureRunner.stop();
-      if (nurtureRunner === startedNurtureRunner) {
-        nurtureRunner = null;
-      }
-    });
-    startedNurtureRunner.start();
+      const startedNurtureRunner = createNurtureRunnerFn();
+      nurtureRunner = startedNurtureRunner;
+      rollbackSteps.push(() => {
+        startedNurtureRunner.stop();
+        if (nurtureRunner === startedNurtureRunner) {
+          nurtureRunner = null;
+        }
+      });
+      startedNurtureRunner.start();
 
-    const startedPromiseFollowUpRunner = createPromiseFollowUpRunnerFn();
-    promiseFollowUpRunner = startedPromiseFollowUpRunner;
-    rollbackSteps.push(() => {
-      startedPromiseFollowUpRunner.stop();
-      if (promiseFollowUpRunner === startedPromiseFollowUpRunner) {
-        promiseFollowUpRunner = null;
-      }
-    });
-    startedPromiseFollowUpRunner.start();
+      const startedPromiseFollowUpRunner = createPromiseFollowUpRunnerFn();
+      promiseFollowUpRunner = startedPromiseFollowUpRunner;
+      rollbackSteps.push(() => {
+        startedPromiseFollowUpRunner.stop();
+        if (promiseFollowUpRunner === startedPromiseFollowUpRunner) {
+          promiseFollowUpRunner = null;
+        }
+      });
+      startedPromiseFollowUpRunner.start();
 
-    const startedReminderRunner = createReminderRunnerFn();
-    reminderRunner = startedReminderRunner;
-    rollbackSteps.push(() => {
-      startedReminderRunner.stop();
-      if (reminderRunner === startedReminderRunner) {
-        reminderRunner = null;
-      }
-    });
-    startedReminderRunner.start();
+      const startedReminderRunner = createReminderRunnerFn();
+      reminderRunner = startedReminderRunner;
+      rollbackSteps.push(() => {
+        startedReminderRunner.stop();
+        if (reminderRunner === startedReminderRunner) {
+          reminderRunner = null;
+        }
+      });
+      startedReminderRunner.start();
 
-    const startedMorningReadRunner = createMorningReadRunnerFn();
-    morningReadRunner = startedMorningReadRunner;
-    rollbackSteps.push(() => {
-      startedMorningReadRunner.stop();
-      if (morningReadRunner === startedMorningReadRunner) {
-        morningReadRunner = null;
-      }
-    });
-    startedMorningReadRunner.start();
+      const startedMorningReadRunner = createMorningReadRunnerFn();
+      morningReadRunner = startedMorningReadRunner;
+      rollbackSteps.push(() => {
+        startedMorningReadRunner.stop();
+        if (morningReadRunner === startedMorningReadRunner) {
+          morningReadRunner = null;
+        }
+      });
+      startedMorningReadRunner.start();
 
-    const startedDigestRunner = createDigestRunnerFn();
-    digestRunner = startedDigestRunner;
-    rollbackSteps.push(() => {
-      startedDigestRunner.stop();
-      if (digestRunner === startedDigestRunner) {
-        digestRunner = null;
-      }
-    });
-    startedDigestRunner.start();
+      const startedDigestRunner = createDigestRunnerFn();
+      digestRunner = startedDigestRunner;
+      rollbackSteps.push(() => {
+        startedDigestRunner.stop();
+        if (digestRunner === startedDigestRunner) {
+          digestRunner = null;
+        }
+      });
+      startedDigestRunner.start();
 
-    const startedBookingCountdownRunner = createBookingCountdownRunnerFn();
-    bookingCountdownRunner = startedBookingCountdownRunner;
-    rollbackSteps.push(() => {
-      startedBookingCountdownRunner.stop();
-      if (bookingCountdownRunner === startedBookingCountdownRunner) {
-        bookingCountdownRunner = null;
-      }
-    });
-    startedBookingCountdownRunner.start();
+      const startedBookingCountdownRunner = createBookingCountdownRunnerFn();
+      bookingCountdownRunner = startedBookingCountdownRunner;
+      rollbackSteps.push(() => {
+        startedBookingCountdownRunner.stop();
+        if (bookingCountdownRunner === startedBookingCountdownRunner) {
+          bookingCountdownRunner = null;
+        }
+      });
+      startedBookingCountdownRunner.start();
 
-    const startedPaymentFollowUpRunner = createPaymentFollowUpRunnerFn();
-    paymentFollowUpRunner = startedPaymentFollowUpRunner;
-    rollbackSteps.push(() => {
-      startedPaymentFollowUpRunner.stop();
-      if (paymentFollowUpRunner === startedPaymentFollowUpRunner) {
-        paymentFollowUpRunner = null;
-      }
-    });
-    startedPaymentFollowUpRunner.start();
+      const startedPaymentFollowUpRunner = createPaymentFollowUpRunnerFn();
+      paymentFollowUpRunner = startedPaymentFollowUpRunner;
+      rollbackSteps.push(() => {
+        startedPaymentFollowUpRunner.stop();
+        if (paymentFollowUpRunner === startedPaymentFollowUpRunner) {
+          paymentFollowUpRunner = null;
+        }
+      });
+      startedPaymentFollowUpRunner.start();
 
-    const startedAutoGreetRunner = createAutoGreetRunnerFn();
-    autoGreetRunner = startedAutoGreetRunner;
-    rollbackSteps.push(() => {
-      startedAutoGreetRunner.stop();
-      if (autoGreetRunner === startedAutoGreetRunner) {
-        autoGreetRunner = null;
-      }
-    });
-    startedAutoGreetRunner.start();
+      const startedAutoGreetRunner = createAutoGreetRunnerFn();
+      autoGreetRunner = startedAutoGreetRunner;
+      rollbackSteps.push(() => {
+        startedAutoGreetRunner.stop();
+        if (autoGreetRunner === startedAutoGreetRunner) {
+          autoGreetRunner = null;
+        }
+      });
+      startedAutoGreetRunner.start();
 
-    const startedEventReminderRunner = createEventReminderRunnerFn();
-    eventReminderRunner = startedEventReminderRunner;
-    rollbackSteps.push(() => {
-      startedEventReminderRunner.stop();
-      if (eventReminderRunner === startedEventReminderRunner) {
-        eventReminderRunner = null;
-      }
-    });
-    startedEventReminderRunner.start();
+      const startedEventReminderRunner = createEventReminderRunnerFn();
+      eventReminderRunner = startedEventReminderRunner;
+      rollbackSteps.push(() => {
+        startedEventReminderRunner.stop();
+        if (eventReminderRunner === startedEventReminderRunner) {
+          eventReminderRunner = null;
+        }
+      });
+      startedEventReminderRunner.start();
 
-    const startedOwnerCallEscalationRunner = createOwnerCallEscalationRunnerFn();
-    ownerCallEscalationRunner = startedOwnerCallEscalationRunner;
-    rollbackSteps.push(() => {
-      startedOwnerCallEscalationRunner.stop();
-      if (ownerCallEscalationRunner === startedOwnerCallEscalationRunner) {
-        ownerCallEscalationRunner = null;
-      }
-    });
-    startedOwnerCallEscalationRunner.start();
+      const startedOwnerCallEscalationRunner = createOwnerCallEscalationRunnerFn();
+      ownerCallEscalationRunner = startedOwnerCallEscalationRunner;
+      rollbackSteps.push(() => {
+        startedOwnerCallEscalationRunner.stop();
+        if (ownerCallEscalationRunner === startedOwnerCallEscalationRunner) {
+          ownerCallEscalationRunner = null;
+        }
+      });
+      startedOwnerCallEscalationRunner.start();
+
+    }
 
     // Restore sessions for accounts that were connected before the process stopped. Best-effort:
     // a reconnect failure must never prevent the server from coming up.
