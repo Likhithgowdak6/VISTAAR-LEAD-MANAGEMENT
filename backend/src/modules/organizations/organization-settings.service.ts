@@ -36,6 +36,7 @@ export interface OrganizationSettingsDto {
 /** The slice of the organization document this needs, so tests can pass a plain object. */
 export interface OrganizationSettingsRecord {
   ownerWhatsappNumber?: string | null;
+  saasManaged?: boolean;
 }
 
 export interface OrganizationSettingsRepositoryLike {
@@ -131,7 +132,8 @@ export const createOrganizationSettingsService = ({
 
     try {
       const organization = await repository.findOrganizationById(organizationId);
-      const value = normalizeOwnerWhatsappNumber(organization?.ownerWhatsappNumber) ?? envOwnerNumber();
+      const value = normalizeOwnerWhatsappNumber(organization?.ownerWhatsappNumber) ??
+        (organization?.saasManaged ? '' : envOwnerNumber());
 
       cache.set(cacheKey, { value, expiresAt: now() + cacheTtlMs });
 
@@ -145,7 +147,7 @@ export const createOrganizationSettingsService = ({
         'Owner-number settings read failed safely; falling back to the configured default.',
       );
 
-      return envOwnerNumber();
+      return '';
     }
   };
 

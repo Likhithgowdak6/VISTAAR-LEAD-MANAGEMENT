@@ -190,11 +190,11 @@ describe('getOrganizationSettings', () => {
 });
 
 describe('failure handling', () => {
-  it('falls back to the env value and logs when the database read throws', async () => {
+  it('returns no owner destination and logs when a tenant lookup fails', async () => {
     const { service, repository, logger } = createHarness();
     repository.findOrganizationById.mockRejectedValue(new Error('mongo down'));
 
-    await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe(ENV_NUMBER);
+    await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe('');
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -202,7 +202,7 @@ describe('failure handling', () => {
     const { service, repository } = createHarness();
     repository.findOrganizationById.mockRejectedValueOnce(new Error('mongo down'));
 
-    await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe(ENV_NUMBER);
+    await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe('');
 
     repository.findOrganizationById.mockResolvedValue({ ownerWhatsappNumber: DB_NUMBER });
     await expect(service.getOwnerNumber({ organizationId: 'org-1' })).resolves.toBe(DB_NUMBER);
@@ -212,5 +212,13 @@ describe('failure handling', () => {
 describe('getOrganizationSettingsService', () => {
   it('hands every consumer the same instance, so they share one cache', () => {
     expect(getOrganizationSettingsService()).toBe(getOrganizationSettingsService());
+  });
+});
+
+describe('SaaS owner isolation', () => {
+  it('never inherits the installation owner for a new workspace', async () => {
+    const { service, repository } = createHarness();
+    repository.findOrganizationById.mockResolvedValue({ ownerWhatsappNumber: null, saasManaged: true });
+    await expect(service.getOwnerNumber({ organizationId: 'tenant-b' })).resolves.toBe('');
   });
 });
