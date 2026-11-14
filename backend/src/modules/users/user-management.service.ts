@@ -1,3 +1,5 @@
+import { createHttpError } from '../../utils/http-error.js';
+import { admitWorkspaceResource } from '../organizations/workspace-limits.service.js';
 import { type HydratedDocument, type UpdateQuery } from 'mongoose';
 
 import {
@@ -155,6 +157,9 @@ export const createOrganizationUser = async ({
   userData,
   requestContext,
 }: CreateOrganizationUserParams) => {
+  if (userData.email.trim().toLowerCase() === 'ai-assistant@internal.local') {
+    throw createHttpError({ statusCode: 400, code: 'EMAIL_RESERVED', message: 'This email address is reserved.' });
+  }
   if (userData.role === ROLES.SUPER_ADMIN) {
     throw createUserManagementError('SUPER_ADMIN_CANNOT_BE_CREATED_BY_API');
   }
@@ -177,6 +182,7 @@ export const createOrganizationUser = async ({
   const passwordHash = await hashPassword(userData.password);
 
   const user = await runInTransaction(async (session) => {
+    await admitWorkspaceResource(organizationId, 'users', session);
     const createdUser = await createUser({
       organizationId,
       name: userData.name,
@@ -251,6 +257,9 @@ export const updateOrganizationUser = async ({
   }
 
   const updatedUser = await runInTransaction(async (session) => {
+    if (sanitizedUpdateData.status === USER_STATUSES.ACTIVE) {
+      await admitWorkspaceResource(organizationId, 'users', session, userId);
+    }
     const updatedUser = await updateUserById({
       userId,
       organizationId,
@@ -357,6 +366,7 @@ export const enableOrganizationUser = async ({
   });
 
   const updatedUser = await runInTransaction(async (session) => {
+    await admitWorkspaceResource(organizationId, 'users', session, userId);
     const updatedUser = await updateUserById({
       userId,
       organizationId,
