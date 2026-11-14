@@ -13,7 +13,7 @@ export const API_BASE_URL = (() => {
     }
     return envUrl;
   }
-  return envUrl || 'http://localhost:5001/api/v1';
+  return envUrl || '/api/v1';
 })();
 
 export class ApiError extends Error {

@@ -1,3 +1,4 @@
+import WorkspaceSettings from '../components/WorkspaceSettings';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 
 import {
@@ -13,7 +14,7 @@ import Spinner from '../components/Spinner';
 import { errorMessage } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
-const SettingsPage = () => {
+const SettingsPage = ({ onNavigate }: { onNavigate?: (view: 'team-and-accounts' | 'ai-knowledge') => void }) => {
   const { authedRequest, permissions } = useAuth();
   const [ownerWhatsappNumber, setOwnerWhatsappNumber] = useState('');
   const [loading, setLoading] = useState(true);
@@ -182,6 +183,8 @@ const SettingsPage = () => {
           Organization-wide settings for the AI sales agent.
         </p>
       </div>
+
+      {canManage ? <WorkspaceSettings onNavigate={onNavigate} /> : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (

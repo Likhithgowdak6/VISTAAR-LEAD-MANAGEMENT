@@ -84,7 +84,7 @@ import {
 // --- Auth (cookie-based refresh; no token needed for these three) ---
 
 export interface LoginParams {
-  organizationSlug: string;
+  organizationSlug?: string;
   email: string;
   password: string;
 }
@@ -2080,3 +2080,30 @@ export const askAssistant = ({
     token,
     body: { question, threadId: threadId ?? null, useHistory },
   });
+
+// Workspace lifecycle uses the same API client and session as the CRM.
+export interface RegistrationParams extends LoginParams {
+  organizationName: string;
+  name: string;
+  inviteCode?: string;
+}
+export const registerWorkspace = (body: RegistrationParams): Promise<AuthResponse> =>
+  apiFetch('/auth/register', { method: 'POST', body });
+export const getSignupOptions = (): Promise<ApiSuccessResponse<{ enabled: boolean; inviteRequired: boolean; googleClientId?: string }>> =>
+  apiFetch('/auth/signup-options');
+export interface WorkspaceDetails {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  billingStatus: string;
+  limits: { users: number; whatsappAccounts: number } | null;
+  usage: { users: number; whatsappAccounts: number };
+  profile: { industry?: string; timezone?: string };
+  onboarding: { businessProfile: boolean; whatsappConnected: boolean; knowledgeAdded: boolean };
+}
+export const getWorkspace = ({ token }: { token: string | null }): Promise<ApiSuccessResponse<WorkspaceDetails>> =>
+  apiFetch('/workspace', { token });
+export const updateWorkspace = ({ token, ...body }: {
+  token: string | null; name: string; industry: string; timezone: string;
+}): Promise<ApiSuccessResponse<WorkspaceDetails>> => apiFetch('/workspace', { method: 'PATCH', token, body });

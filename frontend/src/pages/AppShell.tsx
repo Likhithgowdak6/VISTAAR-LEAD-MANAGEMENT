@@ -29,8 +29,6 @@ import CalendarPage from './CalendarPage';
 import LeadSourcesPage from './LeadSourcesPage';
 import SettingsPage from './SettingsPage';
 import StagesAndTagsPage from './StagesAndTagsPage';
-import StagesPage from './StagesPage';
-import TagsPage from './TagsPage';
 import TasksPage from './TasksPage';
 import TeamAndAccountsPage from './TeamAndAccountsPage';
 import LeadsPage from './LeadsPage';
@@ -64,6 +62,7 @@ type AuthUser = {
 type AuthOrganization = {
   id: string;
   name: string;
+  onboardingRequired?: boolean;
 };
 
 type AuthValue = {
@@ -177,6 +176,8 @@ const AppShell = () => {
     if (deepLink) {
       return 'inbox';
     }
+
+    if (organization?.onboardingRequired) return 'settings';
 
     // Leads is the landing screen. The inbox is one tap away and entirely unchanged.
     return readMetaConnectReturn() ? 'lead-sources' : 'leads';
@@ -789,7 +790,7 @@ const AppShell = () => {
         </SectionScreen>
       ) : view === 'settings' && canManageSettings ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Settings">
-          <SettingsPage />
+          <SettingsPage onNavigate={setView} />
         </SectionScreen>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden bg-transparent animate-fade-in lg:gap-3 lg:px-4 lg:pb-4">

@@ -12,6 +12,8 @@ import {
 import { ApiError } from '../api/client';
 import {
   login as loginRequest,
+  registerWorkspace,
+  type RegistrationParams,
   logout as logoutRequest,
   refresh as refreshRequest,
 } from '../api/endpoints';
@@ -27,6 +29,8 @@ export interface AuthUser {
 export interface AuthOrganization {
   id: string;
   name: string;
+  slug?: string;
+  onboardingRequired?: boolean;
 }
 
 export interface AuthState {
@@ -37,7 +41,7 @@ export interface AuthState {
 }
 
 export interface LoginCredentials {
-  organizationSlug: string;
+  organizationSlug?: string;
   email: string;
   password: string;
 }
@@ -46,8 +50,11 @@ export interface AuthContextValue extends AuthState {
   isAuthenticated: boolean;
   bootstrapping: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
+  register: (credentials: RegistrationParams) => Promise<void>;
   logout: () => Promise<void>;
   authedRequest: <T>(makeRequest: (token: string | null) => Promise<T>) => Promise<T>;
+  acceptSession: (payload: unknown) => void;
+  applyOrganization: (organization: AuthOrganization) => void;
   applyUser: (nextUser: AuthUser | null | undefined) => void;
 }
 
@@ -143,6 +150,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     [applyAuth],
   );
 
+  const register = useCallback(async (credentials: RegistrationParams) => {
+    const nextAuth = readAuthPayload(await registerWorkspace(credentials));
+    if (!nextAuth.token || !nextAuth.user) throw new Error('Workspace session could not be established.');
+    applyAuth(nextAuth);
+  }, [applyAuth]);
+
   const logout = useCallback(async () => {
     try {
       await logoutRequest();
@@ -213,17 +226,24 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setAuth((current) => ({ ...current, user: nextUser ?? current.user }));
   }, []);
 
+  const applyOrganization = useCallback((organization: AuthOrganization) => {
+    setAuth((current) => ({ ...current, organization }));
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       ...auth,
       isAuthenticated: Boolean(auth.token),
       bootstrapping,
       login,
+      register,
       logout,
       authedRequest,
       applyUser,
+      applyOrganization,
+      acceptSession: (payload) => applyAuth(readAuthPayload(payload)),
     }),
-    [auth, bootstrapping, login, logout, authedRequest, applyUser],
+    [auth, bootstrapping, login, register, logout, authedRequest, applyUser, applyOrganization, applyAuth],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
