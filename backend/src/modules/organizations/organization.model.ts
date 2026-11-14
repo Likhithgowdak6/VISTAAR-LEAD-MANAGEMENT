@@ -8,6 +8,10 @@ import {
 
 export interface OrganizationDocument {
   _id: Types.ObjectId;
+  saasManaged?: boolean;
+  saasPlan?: string;
+  saasLimits?: { users: number; whatsappAccounts: number };
+  saasRevision?: number;
   name: string;
   slug: string;
   status: OrganizationStatus;
@@ -28,6 +32,10 @@ export interface OrganizationDocument {
 
 const organizationSchema = new mongoose.Schema<OrganizationDocument>(
   {
+    saasManaged: { type: Boolean, default: false },
+    saasPlan: { type: String },
+    saasLimits: { users: Number, whatsappAccounts: Number },
+    saasRevision: { type: Number, default: 0 },
     name: {
       type: String,
       required: true,
