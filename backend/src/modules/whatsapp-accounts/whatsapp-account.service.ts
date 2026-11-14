@@ -1,3 +1,5 @@
+import { runInTransaction } from '../../config/database.js';
+import { admitWorkspaceResource } from '../organizations/workspace-limits.service.js';
 import { type HydratedDocument } from 'mongoose';
 
 import { ACCOUNT_REMOVAL_OUTCOMES } from '../../constants/account-removal-outcomes.js';
@@ -176,13 +178,16 @@ export const createAccountForActor = async ({
     throw new Error('ACCOUNT_BRAND_KEY_EXISTS');
   }
 
-  const account = await createAccountRecord({
+  const account = await runInTransaction(async (session) => {
+    await admitWorkspaceResource(organizationId, 'whatsappAccounts', session);
+    return createAccountRecord({
     organizationId: organizationId as WhatsAppAccountDocument['organizationId'],
     name: name as string,
     brandKey: brandKey as string,
     description,
     ownerUserId: actor._id as WhatsAppAccountDocument['ownerUserId'],
     createdBy: actor._id as WhatsAppAccountDocument['createdBy'],
+    }, session);
   });
 
   return withRuntime(account);

@@ -1,5 +1,7 @@
 import { type QueryFilter, type UpdateQuery } from 'mongoose';
 
+import { type DatabaseSession } from '../../config/database.js';
+
 import { ACCOUNT_STATUSES, type AccountStatus } from '../../constants/account-statuses.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { ActivityLog } from '../activity/activity-log.model.js';
@@ -122,8 +124,13 @@ export interface FindAccountPrivateIdentifiersOptions {
   organizationId?: ObjectIdLike;
 }
 
-export const createAccountRecord = (accountData: Partial<WhatsAppAccountDocument>) =>
-  WhatsAppAccount.create(accountData);
+export const createAccountRecord = async (
+  accountData: Partial<WhatsAppAccountDocument>, session?: DatabaseSession,
+) => {
+  if (!session) return WhatsAppAccount.create(accountData);
+  const [account] = await WhatsAppAccount.create([accountData], { session });
+  return account!;
+};
 
 export const findAccountById = ({
   accountId,
