@@ -1,3 +1,4 @@
+import type * as Repository from './tag.repository.js';
 /**
  * CHARACTERISATION TESTS. Written before the Python port, against the Node implementation as it
  * stands. This module shipped with zero tests.
@@ -41,7 +42,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./tag.repository.js', async () => {
   // `normalizeTagSlug` is deliberately NOT mocked - it is the behaviour under test.
-  const actual = await vi.importActual<typeof import('./tag.repository.js')>('./tag.repository.js');
+  const actual = await vi.importActual<typeof Repository>('./tag.repository.js');
 
   return { ...actual, ...mocks };
 });

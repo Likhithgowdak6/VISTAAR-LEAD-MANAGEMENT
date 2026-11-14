@@ -1,3 +1,4 @@
+import type * as Repository from './stage.repository.js';
 /**
  * CHARACTERISATION TESTS. Written before the Python port, against the Node implementation as it
  * stands, to capture behaviour that is currently specified nowhere - this module shipped with
@@ -38,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./stage.repository.js', async () => {
   // `normalizeStageKey` is deliberately NOT mocked - it is the behaviour under test.
-  const actual = await vi.importActual<typeof import('./stage.repository.js')>(
+  const actual = await vi.importActual<typeof Repository>(
     './stage.repository.js',
   );
 

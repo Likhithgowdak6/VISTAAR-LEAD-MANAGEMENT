@@ -16,7 +16,6 @@ import {
   SILENCE_FIRST_FOLLOW_UP_MS,
   SILENCE_MAX_FOLLOW_UPS,
   SILENCE_SECOND_FOLLOW_UP_MS,
-  SILENCE_SUBSEQUENT_INTERVAL_MS,
   decideSilenceFollowUp,
   dueAtForStep,
   silenceAnchor,
@@ -30,6 +29,7 @@ const INBOUND = at('2026-10-21T09:00:00.000Z');
 const OUR_REPLY = at('2026-10-21T09:05:00.000Z');
 
 const base = {
+  now: INBOUND,
   lastInboundAt: INBOUND,
   lastOutboundAt: OUR_REPLY,
   createdAt: at('2026-10-01T00:00:00.000Z'),
