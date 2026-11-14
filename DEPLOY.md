@@ -1,5 +1,7 @@
 # Deploying, and building the Android app
 
+> For the current free SaaS beta with Baileys, use [SAAS_BETA.md](SAAS_BETA.md) and its split API routing.
+
 Two separate things, in this order. The app is a shell around the dashboard — it does **not**
 contain the backend, so the server has to exist first.
 

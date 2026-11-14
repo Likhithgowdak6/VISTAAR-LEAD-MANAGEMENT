@@ -1,0 +1,22 @@
+# Set CRM_DOMAIN to your real hostname before starting Caddy.
+{$CRM_DOMAIN} {
+    encode zstd gzip
+
+    # Baileys sockets and QR/pairing are owned by Node.
+    handle /api/v1/whatsapp-accounts* {
+        reverse_proxy 127.0.0.1:5001
+    }
+
+    # Includes signup, workspace, all CRM routes and the realtime SSE stream.
+    handle /api/* {
+        reverse_proxy 127.0.0.1:5002 {
+            flush_interval -1
+        }
+    }
+
+    handle {
+        root * /srv/vistaar/frontend
+        try_files {path} /index.html
+        file_server
+    }
+}

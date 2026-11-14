@@ -1,5 +1,7 @@
 # Vistaar Lead Management
 
+> For the current free SaaS beta with Baileys, use [SAAS_BETA.md](SAAS_BETA.md) and its split API routing.
+
 A WhatsApp-first CRM with an AI sales agent for an events/media business. Leads arrive over
 WhatsApp (direct DMs or imported from ad campaigns), the AI qualifies them on its own, and every
 actual sales reply waits for the owner's approval before it is sent.

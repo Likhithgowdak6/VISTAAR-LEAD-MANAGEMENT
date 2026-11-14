@@ -4,7 +4,7 @@ services:
     container_name: wam-crm-ai-mongo
     command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
     ports:
-      - '27017:27017'
+      - '127.0.0.1:27017:27017'
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -22,7 +22,7 @@ services:
     container_name: wam-crm-ai-redis
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
@@ -42,7 +42,7 @@ services:
       POSTGRES_PASSWORD: ai_brain
       POSTGRES_DB: ai_brain_checkpoints
     ports:
-      - '5434:5432'
+      - '127.0.0.1:5434:5432'
     volumes:
       - ai_brain_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -59,7 +59,7 @@ services:
       ai-brain-db:
         condition: service_healthy
     ports:
-      - '8091:8091'
+      - '127.0.0.1:8091:8091'
     environment:
       DATABASE_URL: postgresql://ai_brain:ai_brain@ai-brain-db:5432/ai_brain_checkpoints
       SERVICE_API_KEY: ${AI_BRAIN_SERVICE_KEY:-}
@@ -111,6 +111,13 @@ services:
       AUTH_COOKIE_CROSS_SITE: ${AUTH_COOKIE_CROSS_SITE:-false}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-}
+      CONTACT_LOOKUP_HMAC_KEY: ${CONTACT_LOOKUP_HMAC_KEY:?Set the shared contact lookup key}
+      WHATSAPP_TEST_ALLOWED_NUMBERS: ${WHATSAPP_TEST_ALLOWED_NUMBERS:-}
+      WHATSAPP_GATEWAY_URL: ${WHATSAPP_GATEWAY_URL:-http://127.0.0.1:5001}
+      WHATSAPP_GATEWAY_SERVICE_KEY: ${WHATSAPP_GATEWAY_SERVICE_KEY:-}
+      GOOGLE_AUTH_CLIENT_ID: ${GOOGLE_AUTH_CLIENT_ID:-}
+      SAAS_SIGNUP_ENABLED: ${SAAS_SIGNUP_ENABLED:-true}
+      SAAS_SIGNUP_INVITE_CODE: ${SAAS_SIGNUP_INVITE_CODE:-}
 
       # Push & Deep Links
       PUSH_ENABLED: ${PUSH_ENABLED:-false}
@@ -180,6 +187,13 @@ services:
       AUTH_COOKIE_CROSS_SITE: ${AUTH_COOKIE_CROSS_SITE:-true}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-}
       ENCRYPTION_KEY_V1: ${ENCRYPTION_KEY_V1:-}
+      CONTACT_LOOKUP_HMAC_KEY: ${CONTACT_LOOKUP_HMAC_KEY:?Set the shared contact lookup key}
+      WHATSAPP_TEST_ALLOWED_NUMBERS: ${WHATSAPP_TEST_ALLOWED_NUMBERS:-}
+      WHATSAPP_GATEWAY_URL: ${WHATSAPP_GATEWAY_URL:-http://127.0.0.1:5001}
+      WHATSAPP_GATEWAY_SERVICE_KEY: ${WHATSAPP_GATEWAY_SERVICE_KEY:-}
+      GOOGLE_AUTH_CLIENT_ID: ${GOOGLE_AUTH_CLIENT_ID:-}
+      SAAS_SIGNUP_ENABLED: ${SAAS_SIGNUP_ENABLED:-true}
+      SAAS_SIGNUP_INVITE_CODE: ${SAAS_SIGNUP_INVITE_CODE:-}
 
       # Push & Alarms
       PUSH_ENABLED: ${PUSH_ENABLED:-false}
