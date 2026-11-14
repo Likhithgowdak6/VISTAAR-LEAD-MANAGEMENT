@@ -37,18 +37,19 @@ describe('login flow', () => {
     const heading = await screen.findByRole('heading', { name: 'Sign in' });
     expect(heading).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'acme' } });
+    expect(screen.queryByLabelText('Organization')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'asha@acme.com' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret-123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     await waitFor(() =>
-      expect(endpoints.login).toHaveBeenCalledWith({
-        organizationSlug: 'acme',
+      expect(endpoints.login).toHaveBeenCalledWith(expect.objectContaining({
         email: 'asha@acme.com',
         password: 'secret-123',
-      }),
+      })),
     );
+
+    expect(endpoints.login.mock.lastCall[0].organizationSlug).toBeUndefined();
 
     // LANDS ON LEADS, not the inbox. That is the point of the change, so the sign-in test is
     // where it gets asserted - a default landing screen nobody checks is one that can quietly
@@ -70,7 +71,7 @@ describe('login flow', () => {
     render(<App />);
 
     await screen.findByRole('heading', { name: 'Sign in' });
-    fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'acme' } });
+    expect(screen.queryByLabelText('Organization')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'asha@acme.com' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
