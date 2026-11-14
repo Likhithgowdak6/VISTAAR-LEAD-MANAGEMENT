@@ -15,4 +15,5 @@ npm test
 npm run build      # typecheck + production build
 ```
 
-`VITE_API_BASE_URL` overrides the API target (default `http://localhost:5001/api/v1`).
+`VITE_API_BASE_URL` overrides the web API target (default `/api/v1`, using the Vite or production proxy).
+For the free SaaS beta and Baileys routing, see [SAAS_BETA.md](../SAAS_BETA.md).
