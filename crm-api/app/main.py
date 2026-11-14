@@ -18,6 +18,7 @@ path, and will keep owning them until individual modules are moved one at a time
 running the same sweep would send a customer the same message twice.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -60,6 +61,7 @@ from app.config import settings
 # implementation behind part of it, and a client that could distinguish them would be a client
 # that breaks when the next module moves.
 SERVICE_NAME = "wam-backend"
+logger = logging.getLogger(__name__)
 
 # THE PYTHON ROUTES ARE SPELLED EXACTLY AS THE PUBLIC API IS, and that is not cosmetic.
 #
@@ -87,6 +89,10 @@ async def lifespan(_: FastAPI):
             await ensure_google_calendar_indexes()
         except Exception as exc:
             logger.warning("Could not ensure Google Calendar indexes: %s", exc)
+
+    if settings.node_env != "test":
+        from app.saas import ensure_indexes
+        await ensure_indexes()
 
     runners = None
     if settings.node_env != "test" and settings.enable_background_runners:
@@ -148,6 +154,13 @@ app.add_middleware(
 )
 
 install_error_handlers(app)
+
+from app.routers.google_auth import router as google_auth_router
+app.include_router(google_auth_router, prefix=f"{API_PREFIX}/auth/google")
+
+from app.routers.saas import public_router, workspace_router
+app.include_router(public_router, prefix=f"{API_PREFIX}/auth")
+app.include_router(workspace_router, prefix=f"{API_PREFIX}/workspace")
 
 # Phase 1. Mounted at the public path, because Caddy forwards the matched prefix unchanged.
 app.include_router(
