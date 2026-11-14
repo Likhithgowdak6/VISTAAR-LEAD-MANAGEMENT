@@ -28,6 +28,8 @@ import tagRouter from './modules/tags/tag.routes.js';
 import userRouter from './modules/users/user.routes.js';
 import whatsappAccountRouter from './modules/whatsapp-accounts/whatsapp-account.routes.js';
 
+import { createGatewayRouter } from './modules/whatsapp/gateway.routes.js';
+
 const app = express();
 
 app.disable('x-powered-by');
@@ -85,6 +87,8 @@ app.use(
 );
 app.use(requestContextMiddleware);
 app.use(rateLimitMiddleware);
+
+app.use('/internal/v1/whatsapp', createGatewayRouter());
 
 app.use('/api/v1/health', healthRouter);
 app.use('/api/v1/auth', authRouter);

@@ -37,6 +37,8 @@ export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
   PORT: z.coerce.number().int().positive().default(5001),
+  WHATSAPP_GATEWAY_ONLY: booleanString.default(false),
+  WHATSAPP_GATEWAY_SERVICE_KEY: z.string().default(''),
 
   /**
    * Send the refresh cookie as `SameSite=None; Secure`, for the Capacitor mobile app.
