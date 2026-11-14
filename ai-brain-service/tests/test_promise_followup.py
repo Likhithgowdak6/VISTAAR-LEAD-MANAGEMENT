@@ -106,7 +106,7 @@ class FollowupRouting(unittest.TestCase):
     """Which prompt the endpoint picks, which is the whole reason the field exists."""
 
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers={"X-Service-Key": "test-service-key"})
 
     def _post(self, body: dict):
         return self.client.post(

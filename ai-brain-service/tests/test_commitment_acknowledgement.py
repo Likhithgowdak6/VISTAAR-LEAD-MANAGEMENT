@@ -34,7 +34,7 @@ from fastapi.testclient import TestClient
 from app import prompts
 from app.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-Service-Key": "test-service-key"})
 
 
 def model_says(decision="ask", message="", learned=None, escalation_reason="", category=""):

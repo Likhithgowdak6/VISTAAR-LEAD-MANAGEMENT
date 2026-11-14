@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-Service-Key": "test-service-key"})
 
 
 def post(message: str, transcript=None, conversation_id: str = "conv-1"):

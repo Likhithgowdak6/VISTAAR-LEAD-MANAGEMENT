@@ -43,7 +43,7 @@ from fastapi.testclient import TestClient
 from app import nodes
 from app.main import app
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-Service-Key": "test-service-key"})
 
 OCCASION_Q = "Kaunsa occasion hai?"
 DATE_Q = "Wedding date kya hai?"

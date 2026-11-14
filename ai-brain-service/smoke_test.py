@@ -9,6 +9,9 @@ import sys
 from fastapi.testclient import TestClient
 
 from app import llm
+from app.config import settings
+settings.database_url = ""
+settings.service_api_key = "smoke-test-service-key"
 
 CALLS = []
 QUALIFY_SYSTEMS = []
@@ -36,7 +39,7 @@ llm.complete = fake_complete
 
 from app.main import app  # noqa: E402  (import after monkeypatch so nodes.py picks up the fakes)
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-Service-Key": settings.service_api_key})
 
 conv_id = "test-conv-1"
 required = ["event_date", "city"]

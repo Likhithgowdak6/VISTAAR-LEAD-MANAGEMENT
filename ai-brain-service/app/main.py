@@ -44,7 +44,9 @@ app = FastAPI(title="Vistaar AI Brain", version="0.1.0")
 
 
 def require_service_key(x_service_key: str | None = Header(default=None)) -> None:
-    if settings.service_api_key and x_service_key != settings.service_api_key:
+    if not settings.service_api_key:
+        raise HTTPException(503, "Service authentication is not configured")
+    if x_service_key != settings.service_api_key:
         raise HTTPException(401, "bad or missing X-Service-Key")
 
 

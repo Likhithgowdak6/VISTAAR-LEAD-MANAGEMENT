@@ -135,7 +135,7 @@ class RejectionCoercion(unittest.TestCase):
 
 class RejectionEndpoint(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers={"X-Service-Key": "test-service-key"})
 
     def _post(self, body: dict):
         return self.client.post("/v1/rejection", json=body)

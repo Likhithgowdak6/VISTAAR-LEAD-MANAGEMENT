@@ -211,10 +211,10 @@ class TestTheWireContractWithCrmApi:
 
         monkeypatch.setattr(llm, "complete_with_tools", lambda **_kwargs: payload)
 
-        return TestClient(main.app).post(
+        return TestClient(main.app, headers={"X-Service-Key": "test-service-key"}).post(
             "/v1/assistant/agent-turn",
             json={"messages": [{"role": "user", "content": "hi"}], "tools": []},
-            headers={"X-Service-Key": ""},
+            headers={"X-Service-Key": "test-service-key"},
         )
 
     def test_THE_RESPONSE_CARRIES_EVERY_KEY_THE_LOOP_READS(self, monkeypatch):
@@ -240,10 +240,10 @@ class TestTheWireContractWithCrmApi:
 
         monkeypatch.setattr(llm, "complete_with_tools", lambda **_kwargs: fake_result())
 
-        response = TestClient(main.app).post(
+        response = TestClient(main.app, headers={"X-Service-Key": "test-service-key"}).post(
             "/v1/assistant/agent-turn",
             json={"messages": [], "tools": []},
-            headers={"X-Service-Key": ""},
+            headers={"X-Service-Key": "test-service-key"},
         )
 
         assert response.status_code == 422
