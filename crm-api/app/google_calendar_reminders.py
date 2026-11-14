@@ -115,6 +115,11 @@ async def schedule_event_reminders(
 
     scheduled = []
     database = db.get_database()
+    conversation = await database["conversations"].find_one({
+        "_id": conversation_id, "organizationId": event_sync.get("organizationId")})
+    if not conversation or not conversation.get("whatsappAccountId") or not conversation.get("contactId"):
+        logger.warning("Cannot schedule reminder without a tenant-owned delivery destination.")
+        return []
     customer_name = event_sync.get("customerName", "there")
     purpose = event_sync.get("summary", "meeting")
 
@@ -151,9 +156,13 @@ async def schedule_event_reminders(
             "conversationId": conversation_id,
             "direction": MESSAGE_DIRECTION_OUT,
             "status": MESSAGE_STATUS_QUEUED,
-            "text": text,
+            "body": text,
+            "type": "text",
+            "whatsappAccountId": conversation["whatsappAccountId"],
+            "contactId": conversation["contactId"],
             "scheduledAt": send_at,
-            "author": "system",
+            "authoredBy": "human",
+            "statusUpdatedAt": now,
             "source": "google_calendar_reminder",
             "idempotencyKey": idempotency_key,
             "deliveryAttempts": 0,

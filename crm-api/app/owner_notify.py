@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import httpx
 from typing import Any, Callable
 
 from app import db
@@ -48,7 +49,11 @@ class OwnerNotifyService:
             return getattr(settings, "whatsapp_owner_number", "")
 
         database = db.get_database()
-        org = await database["organizations"].find_one({"_id": organization_id}, {"settings.ownerNumber": 1})
+        org = await database["organizations"].find_one({"_id": organization_id}, {"settings.ownerNumber": 1, "ownerWhatsappNumber": 1, "saasManaged": 1})
+        if org and org.get("ownerWhatsappNumber"):
+            return org["ownerWhatsappNumber"]
+        if org and org.get("saasManaged"):
+            return ""
         if org and isinstance(org.get("settings"), dict) and org["settings"].get("ownerNumber"):
             return org["settings"]["ownerNumber"]
 
@@ -70,7 +75,10 @@ class OwnerNotifyService:
             logger.info("Owner alert blocked by test allowlist: %s", owner_jid)
             return {"providerMessageId": None, "blocked": "not_on_test_allowlist"}
 
-        if self._send_fn:
+        sender = self._send_fn
+        if sender is None and settings.node_env != "test":
+            sender = self._gateway_send
+        if sender:
             # THE SEND IS UNCHANGED AND STILL COMES FIRST.
             #
             # The tempting refactor is to push this through `enqueue_outbound_message` so the
@@ -84,7 +92,10 @@ class OwnerNotifyService:
             mid = None
 
             try:
-                res = await self._send_fn(account_id=account_id, to=owner_jid, text=text)
+                res = await (self._gateway_send(account_id=account_id, organization_id=organization_id, text=text)
+                             if self._send_fn is None else sender(account_id=account_id, to=owner_jid, text=text))
+                if isinstance(res, dict) and res.get("blocked"):
+                    return res
                 mid = (
                     res.get("providerMessageId")
                     if isinstance(res, dict)
@@ -117,9 +128,21 @@ class OwnerNotifyService:
 
             return {"providerMessageId": mid}
 
-        # Standalone / decoupled simulation
+        # Only explicit test environments simulate delivery without an injected sender.
         logger.debug("Simulated owner notification to %s: %s", owner_jid, text[:100])
         return {"providerMessageId": "owner_notify_simulated"}
+
+    async def _gateway_send(self, *, account_id: Any, organization_id: Any, text: str) -> dict[str, Any]:
+        key = settings.whatsapp_gateway_service_key or settings.ai_brain_service_key
+        if not key or not organization_id or not account_id:
+            raise RuntimeError("Owner notification gateway is not configured.")
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                settings.whatsapp_gateway_url.rstrip("/") + "/internal/v1/whatsapp/owner-notify",
+                headers={"X-Service-Key": key},
+                json={"organizationId": str(organization_id), "accountId": str(account_id), "text": text})
+            response.raise_for_status()
+            return response.json()["data"]
 
     async def _record(
         self,

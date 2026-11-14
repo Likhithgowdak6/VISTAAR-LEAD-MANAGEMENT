@@ -484,7 +484,9 @@ async def confirm_uncertain_event(
 
     if payload.conversationId and ObjectId.is_valid(payload.conversationId):
         conv_oid = ObjectId(payload.conversationId)
-        conv = await database["conversations"].find_one({"_id": conv_oid})
+        conv = await database["conversations"].find_one({"_id": conv_oid, "organizationId": ObjectId(str(org_id))})
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
         if conv:
             update_fields["conversationId"] = conv_oid
             update_fields["contactId"] = conv.get("contactId")

@@ -189,10 +189,10 @@ class OwnerCallEscalationService:
         oid = ObjectId(organization_id) if isinstance(organization_id, str) and ObjectId.is_valid(organization_id) else organization_id
         org = await database["organizations"].find_one({"_id": oid})
 
-        raw_number = None
-        if org and isinstance(org.get("settings"), dict):
+        raw_number = org.get("ownerWhatsappNumber") if org else None
+        if not raw_number and org and not org.get("saasManaged") and isinstance(org.get("settings"), dict):
             raw_number = org["settings"].get("ownerWhatsappNumber")
-        if not raw_number:
+        if not raw_number and org and not org.get("saasManaged"):
             raw_number = getattr(self.config, "whatsapp_owner_number", "")
 
         owner_number = normalize_owner_number(raw_number)
