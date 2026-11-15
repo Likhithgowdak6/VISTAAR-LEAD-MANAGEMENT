@@ -109,6 +109,25 @@ def test_list_conversations_restricted_passes_assigned_to(client):
         assert kwargs["search"] == "Rahul"
 
 
+@pytest.mark.parametrize("kind", ["lead", "owner_assistant"])
+def test_list_kind_preserves_tenant_and_assignment_scope(client, kind):
+    app.dependency_overrides[conv_router._require_read] = lambda: _auth([CONVERSATIONS_READ_ASSIGNED])
+    listing = AsyncMock(return_value=[])
+    with patch("app.routers.conversations.list_conversations", listing):
+        response = client.get(f"/api/v1/conversations?kind={kind}&limit=1")
+    assert response.status_code == 200
+    assert listing.call_args.kwargs["kind"] == kind
+    assert listing.call_args.kwargs["organization_id"] == ObjectId(ORG_ID)
+    assert listing.call_args.kwargs["assigned_to"] == ObjectId(USER_ID)
+
+
+def test_list_rejects_unrecognized_kind(client):
+    app.dependency_overrides[conv_router._require_read] = lambda: _auth([CONVERSATIONS_READ_ALL])
+    with patch("app.routers.conversations.list_conversations", AsyncMock()) as listing:
+        assert client.get("/api/v1/conversations?kind=anything").status_code == 400
+        listing.assert_not_called()
+
+
 def test_get_conversation_detail_clears_unread(client):
     app.dependency_overrides[conv_router._require_read] = lambda: _auth([CONVERSATIONS_READ_ALL])
 

@@ -56,6 +56,7 @@ def display_name_search_filter(search: str) -> dict[str, Any]:
 async def list_conversations(
     *,
     organization_id: Any,
+    kind: str | None = None,
     whatsapp_account_id: Any = None,
     assigned_to: Any = None,
     stage: str | None = None,
@@ -81,6 +82,13 @@ async def list_conversations(
         **NOT_DELETED,
         "organizationId": oid,
     }
+
+    # Apply before pagination so an older assistant remains discoverable independently
+    # of the customer inbox. Missing kind identifies existing customer conversations.
+    if kind == "owner_assistant":
+        filter_query["kind"] = "owner_assistant"
+    elif kind == "lead":
+        filter_query["kind"] = {"$ne": "owner_assistant"}
 
     if whatsapp_account_id:
         acc_id = _to_object_id(whatsapp_account_id)

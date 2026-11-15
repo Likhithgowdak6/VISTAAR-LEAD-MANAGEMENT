@@ -17,7 +17,6 @@ import ConversationFilters, { ConversationClassChip } from './inbox/Conversation
 import InboxFilters from './InboxFilters';
 import MobileAppBar from './mobile/MobileAppBar';
 import LeadScoreBadge from './LeadScoreBadge';
-import OwnerAssistantBadge from './OwnerAssistantBadge';
 import LeadTemperatureBadge from './LeadTemperatureBadge';
 import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
@@ -70,6 +69,9 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
   const canAddLead = hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
   const [addingLead, setAddingLead] = useState(false);
   const [conversations, setConversations] = useState<ClassifiedConversation[]>([]);
+  const [ownerAssistant, setOwnerAssistant] = useState<ClassifiedConversation | null>(null);
+  const [assistantLoading, setAssistantLoading] = useState(true);
+  const [assistantError, setAssistantError] = useState(false);
   const [stages, setStages] = useState<StageOption[]>(mergeStages());
   const [tags, setTags] = useState<Tag[]>([]);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
@@ -108,6 +110,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
       const payload = await authedRequest((token) =>
         listConversations({
           token,
+          kind: 'lead',
           limit: 50,
           /**
            * PAGE ONE, ALWAYS - and this is where the classification filters differ from the
@@ -127,7 +130,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
           needsAttention: needsAttentionFilter ? true : undefined,
         }),
       );
-      setConversations(payload.data ?? []);
+      setConversations((payload.data ?? []).filter((conversation) => conversation.kind !== 'owner_assistant'));
       setError(null);
     } catch (loadError: unknown) {
       setError(errorMessage(loadError, 'Unable to load conversations.'));
@@ -143,15 +146,41 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
     needsAttentionFilter,
   ]);
 
+  const loadAssistant = useCallback(async () => {
+    try {
+      const payload = await authedRequest((token) =>
+        listConversations({ token, kind: 'owner_assistant', limit: 1, skip: 0 }),
+      );
+      setOwnerAssistant(payload.data?.find((conversation) => conversation.kind === 'owner_assistant') ?? null);
+      setAssistantError(false);
+    } catch {
+      setAssistantError(true);
+    } finally {
+      setAssistantLoading(false);
+    }
+  }, [authedRequest]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([load(), loadAssistant()]);
+  }, [load, loadAssistant]);
+
+  // Independent of lead filters and pagination, including when the assistant is old.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadAssistant();
+    const timer = setInterval(loadAssistant, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [loadAssistant]);
+
+  useEffect(() => subscribe(() => loadAssistant()), [subscribe, loadAssistant]);
+
   /**
    * Pull down at the top of the inbox to refetch it.
    *
-   * Wired to `load` rather than to a refresh of its own, so a pull asks exactly what the
-   * sixty-second poll asks: page one with the current filters. `load` resolves after it has
-   * set state and never rejects - it reports failures through `error` - so the indicator
-   * stops when the data has really landed, successfully or not.
+   * Refresh both the filtered customer list and the independent assistant entry. Each
+   * reports its own error, so a failed assistant request does not hide customer chats.
    */
-  const pull = usePullToRefresh({ scrollRef, onRefresh: load });
+  const pull = usePullToRefresh({ scrollRef, onRefresh: refresh });
 
   useEffect(() => {
     // Fetch-on-mount + slow fallback poll: state updates happen after each request resolves.
@@ -273,7 +302,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                 ) : null}
                 <button
                   type="button"
-                  onClick={load}
+                  onClick={refresh}
                   aria-label="Refresh the list"
                   className="m-appbar-action"
                 >
@@ -358,7 +387,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
             ) : null}
             <button
               type="button"
-              onClick={load}
+              onClick={refresh}
               className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-xs transition hover:bg-slate-50 hover:text-slate-900"
             >
               Refresh
@@ -366,6 +395,32 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
           </div>
         </header>
       )}
+
+      <section aria-label="Owner Assistant" className="shrink-0 border-b border-hairline p-3">
+        <button
+          type="button"
+          aria-label="Open Owner Assistant"
+          aria-current={Boolean(ownerAssistant && selectedId === ownerAssistant.id)}
+          disabled={!ownerAssistant && !assistantError}
+          onClick={() => ownerAssistant ? onSelect(ownerAssistant.id) : loadAssistant()}
+          className="lead-list-row flex w-full items-center gap-3 rounded-xl border border-hairline px-3 py-3 text-left transition-colors"
+        >
+          <span aria-hidden="true" className="chip chip-key flex h-9 w-9 shrink-0 items-center justify-center p-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className="h-5 w-5">
+              <rect x="4" y="8" width="16" height="12" rx="3" />
+              <path d="M12 4v4M8 13h.01M16 13h.01M9 17h6" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="lead-list-title block text-sm font-semibold">Owner Assistant</span>
+            <span className="lead-list-preview block truncate text-xs leading-relaxed">
+              {ownerAssistant ? 'Updates and reminders' : assistantError ? 'Could not load. Click to retry.' : assistantLoading ? 'Loading assistant...' : 'No assistant messages yet'}
+            </span>
+          </span>
+          <UnreadBadge count={ownerAssistant?.unreadCount ?? 0} />
+          <span aria-hidden="true" className="lead-list-meta text-lg">&rsaquo;</span>
+        </button>
+      </section>
 
       {addingLead ? (
         <AddLeadDialog
@@ -480,7 +535,6 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                           >
                             {conversation.displayName}
                           </span>
-                          <OwnerAssistantBadge kind={conversation.kind} />
                         </span>
                         <RelativeTime
                           value={conversation.lastMessageAt}

@@ -121,6 +121,7 @@ export interface TokenParams {
 }
 
 export interface ListConversationsParams extends TokenParams {
+  kind?: 'lead' | 'owner_assistant';
   stage?: StageKey | null;
   tagIds?: readonly string[] | null;
   status?: string | null;
@@ -152,6 +153,7 @@ export interface ListConversationsParams extends TokenParams {
 
 export const listConversations = ({
   token,
+  kind,
   stage,
   tagIds,
   status,
@@ -164,6 +166,7 @@ export const listConversations = ({
 }: ListConversationsParams = {}): Promise<ApiSuccessResponse<Conversation[]>> =>
   apiFetch(
     `/conversations${buildQuery({
+      kind,
       stage,
       // Match-ALL on the server; omitted entirely when nothing is selected.
       tagIds: tagIds?.length ? tagIds.join(',') : undefined,

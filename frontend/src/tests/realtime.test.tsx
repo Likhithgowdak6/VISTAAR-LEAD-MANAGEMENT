@@ -99,12 +99,17 @@ describe('realtime inbox refresh', () => {
       ),
     );
 
-    const before = endpoints.listConversations.mock.calls.length;
+    const requestCount = (kind: string) => endpoints.listConversations.mock.calls.filter(
+      ([params]: [{ kind?: string }]) => params.kind === kind,
+    ).length;
+    const beforeLeads = requestCount('lead');
+    const beforeAssistant = requestCount('owner_assistant');
 
     streamController.emit({ type: 'conversation.changed', conversationId: 'c1' });
 
-    await waitFor(() =>
-      expect(endpoints.listConversations.mock.calls.length).toBe(before + 1),
-    );
+    await waitFor(() => {
+      expect(requestCount('lead')).toBe(beforeLeads + 1);
+      expect(requestCount('owner_assistant')).toBe(beforeAssistant + 1);
+    });
   });
 });
