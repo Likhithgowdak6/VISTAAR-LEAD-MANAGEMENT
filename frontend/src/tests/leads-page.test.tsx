@@ -50,6 +50,40 @@ afterEach(() => {
 });
 
 describe('the leads list', () => {
+  it('excludes the internal assistant from customer rows and the lead count', async () => {
+    endpoints.listConversations.mockResolvedValue({ data: [
+      lead(),
+      lead({ id: 'owner-1', displayName: 'Owner Assistant', kind: 'owner_assistant' }),
+    ] });
+    render();
+    await screen.findByText('Riya Sharma');
+    expect(screen.queryByText('Owner Assistant')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Lead count')).toHaveTextContent('1');
+    expect(endpoints.listConversations).toHaveBeenCalledWith(expect.objectContaining({ kind: 'lead' }));
+    fireEvent.change(screen.getByLabelText('Search leads by name'), { target: { value: 'owner' } });
+    await waitFor(() => expect(endpoints.listConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'lead', search: 'owner' }),
+    ));
+    expect(screen.queryByText('Owner Assistant')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty lead list when only an internal assistant is returned', async () => {
+    endpoints.listConversations.mockResolvedValue({ data: [
+      lead({ displayName: 'Owner Assistant', kind: 'owner_assistant' }),
+    ] });
+    render();
+    expect(await screen.findByText('No leads yet')).toBeInTheDocument();
+    expect(screen.getByLabelText('Lead count')).toHaveTextContent('0');
+    expect(screen.queryByText('Owner Assistant')).not.toBeInTheDocument();
+  });
+
+  it('keeps a real customer named Owner Assistant as a lead', async () => {
+    endpoints.listConversations.mockResolvedValue({ data: [lead({ displayName: 'Owner Assistant', kind: null })] });
+    render();
+    expect(await screen.findByText('Owner Assistant')).toBeInTheDocument();
+    expect(screen.getByLabelText('Lead count')).toHaveTextContent('1');
+  });
+
   it('shows the lead with its enquiry summary', async () => {
     render();
 

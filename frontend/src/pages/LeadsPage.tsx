@@ -128,6 +128,7 @@ const LeadsPage = ({ onOpenLead }: Props) => {
     authedRequest((token) =>
       listConversations({
         token,
+        kind: 'lead',
         search: debouncedSearch || undefined,
         enquiryClass,
         aiStatus,
@@ -141,7 +142,7 @@ const LeadsPage = ({ onOpenLead }: Props) => {
           return;
         }
 
-        setConversations(payload?.data ?? []);
+        setConversations((payload?.data ?? []).filter((conversation) => conversation.kind !== 'owner_assistant'));
         setError(null);
       })
       .catch((loadError: unknown) => {
@@ -205,7 +206,7 @@ const LeadsPage = ({ onOpenLead }: Props) => {
             <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Leads</h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Browse, search, and manage all prospective clients</p>
           </div>
-          <span className="rounded-full bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
+          <span aria-label="Lead count" className="rounded-full bg-blue-50 dark:bg-blue-950/60 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
             {conversations.length}
           </span>
         </div>
