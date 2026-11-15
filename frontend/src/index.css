@@ -537,20 +537,20 @@ button:not(:disabled):active {
     padding: 0.2rem 0.6rem;
     border-radius: 999px;
     border: 0;
-    background: rgba(120, 120, 128, 0.12);
-    color: #3c3c43;
+    background: #eef2f6;
+    color: #344054;
     white-space: nowrap;
     transition: background-color 0.15s ease;
   }
 
   .chip-key {
-    background: rgba(0, 122, 255, 0.12);
-    color: #0062cc;
+    background: #e8f0fe;
+    color: #174ea6;
   }
 
   .chip-fill {
-    background: rgba(50, 173, 230, 0.14);
-    color: #0b7199;
+    background: #e3f3f8;
+    color: #155e75;
   }
 
   .btn-key {
@@ -812,18 +812,56 @@ html.dark .surface-card:hover {
 }
 
 html.dark .chip {
-  background: rgba(120, 120, 128, 0.24);
-  color: #d1d1d6;
+  background: #273345;
+  color: #e4ecf7;
 }
 
 html.dark .chip-key {
-  background: rgba(10, 132, 255, 0.22);
-  color: #64b0ff;
+  background: #183458;
+  color: #a8d1ff;
 }
 
 html.dark .chip-fill {
-  background: rgba(100, 210, 255, 0.2);
-  color: #64d2ff;
+  background: #153b46;
+  color: #a4e4ef;
+}
+
+/* Opaque row surfaces keep selection and small labels readable in either theme. */
+.lead-list-row {
+  --lead-row-bg: #ffffff;
+  --lead-row-hover: #f5f8fc;
+  --lead-row-selected: #eaf2ff;
+  background-color: var(--lead-row-bg);
+}
+
+html.dark .lead-list-row {
+  --lead-row-bg: #1c1c1e;
+  --lead-row-hover: #27272c;
+  --lead-row-selected: #1b3554;
+}
+
+.lead-list-row:hover { background-color: var(--lead-row-hover); }
+.lead-list-row[aria-current='true'] { background-color: var(--lead-row-selected); }
+.lead-list-row:focus-visible {
+  outline: 2px solid #007aff;
+  outline-offset: -3px;
+}
+
+.lead-list-title { color: #172b4d; }
+.lead-list-preview { color: #475569; }
+.lead-list-meta { color: #52627a; }
+html.dark .lead-list-title { color: #f1f5f9; }
+html.dark .lead-list-preview { color: #c0cbda; }
+html.dark .lead-list-meta { color: #adbbcd; }
+
+.chip-custom::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--stage-accent);
+  box-shadow: 0 0 0 1px currentColor;
 }
 
 /* ---------------------------------------------------------------------------

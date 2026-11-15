@@ -22,15 +22,13 @@ const StageBadge = ({ stage, label, color }: Props) => {
     return <span className={builtinClassName}>{displayLabel}</span>;
   }
 
-  // A custom stage: tint the chip with the stage's own color. The colour is the org's choice, so
-  // it is used at 15% for the fill and full strength for the text and border - readable on the
-  // graded base whatever hue they picked, without a light pill punching a hole in the panel.
+  // Keep custom colors as an accent, so even pale stage colors have readable labels.
   const tintStyle: CSSProperties | undefined = color
-    ? { backgroundColor: `${color}26`, borderColor: `${color}59`, color }
+    ? ({ '--stage-accent': color } as CSSProperties)
     : undefined;
 
   return (
-    <span className="chip" style={tintStyle}>
+    <span className={`chip${color ? ' chip-custom' : ''}`} style={tintStyle}>
       {displayLabel}
     </span>
   );

@@ -458,11 +458,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   type="button"
                   onClick={() => onSelect(conversation.id)}
                   aria-current={isSelected}
-                  className={`relative flex w-full flex-col gap-1.5 px-4 py-3 text-left transition-colors duration-150 active:bg-slate-100 ${
-                    isSelected
-                      ? 'bg-blue-50/70 shadow-xs'
-                      : 'bg-white hover:bg-slate-50/90'
-                  }`}
+                  className="lead-list-row relative flex w-full flex-col gap-2 px-4 py-3.5 text-left transition-colors duration-150"
                 >
                   {/* The sprocket: active blue marker down the left edge */}
                   <span
@@ -480,9 +476,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5">
                           <span
-                            className={`truncate text-sm font-semibold ${
-                              isSelected ? 'text-blue-900' : 'text-slate-800'
-                            }`}
+                            className="lead-list-title truncate text-sm font-semibold"
                           >
                             {conversation.displayName}
                           </span>
@@ -490,12 +484,12 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                         </span>
                         <RelativeTime
                           value={conversation.lastMessageAt}
-                          className="shrink-0 text-[0.6875rem] font-medium text-slate-400"
+                          className="lead-list-meta shrink-0 text-xs font-medium"
                         />
                       </div>
 
                       <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <span className="truncate text-xs leading-snug text-slate-500">
+                        <span className="lead-list-preview truncate text-sm leading-snug">
                           {conversation.lastMessagePreview ?? 'No messages yet'}
                         </span>
                         <UnreadBadge count={conversation.unreadCount} />
@@ -530,7 +524,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
 
                 {/* The AI's off switch for this one lead */}
                 <span className="absolute bottom-3 right-4 flex items-center gap-1.5">
-                  <span className="text-[0.6875rem] font-semibold text-slate-500">
+                  <span className="lead-list-meta text-xs font-semibold">
                     AI
                   </span>
                   <ToggleSwitch

@@ -30,21 +30,21 @@ const LeadCard = ({ conversation, stages, tagsById, onOpen }: Props) => {
       <button
         type="button"
         onClick={() => onOpen(conversation.id)}
-        className="flex w-full flex-col gap-2 border-b border-slate-100 bg-white p-4 text-left transition-all duration-150 hover:bg-slate-50/80 hover:translate-x-1 active:scale-[0.99] active:bg-slate-100"
+        className="lead-list-row flex w-full flex-col gap-2 border-b border-slate-100 p-4 text-left transition-colors duration-150"
       >
         <div className="flex items-center gap-3 min-w-0">
           <Avatar name={conversation.displayName} size="sm" />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-sm font-semibold text-slate-800">
+              <span className="lead-list-title truncate text-sm font-semibold">
                 {conversation.displayName}
               </span>
               <RelativeTime
                 value={conversation.lastMessageAt}
-                className="shrink-0 text-[0.6875rem] font-medium text-slate-400"
+                className="lead-list-meta shrink-0 text-xs font-medium"
               />
             </div>
-            <p className="line-clamp-2 text-xs leading-relaxed text-slate-500 mt-0.5">
+            <p className="lead-list-preview line-clamp-2 text-sm leading-relaxed mt-0.5">
               {preview ?? 'No enquiry details yet'}
             </p>
           </div>
@@ -58,7 +58,7 @@ const LeadCard = ({ conversation, stages, tagsById, onOpen }: Props) => {
             return tag ? (
               <span
                 key={tagId}
-                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[0.6875rem] font-medium text-slate-600"
+                className="chip"
               >
                 {tag.name}
               </span>
@@ -66,7 +66,7 @@ const LeadCard = ({ conversation, stages, tagsById, onOpen }: Props) => {
           })}
 
           {overflow > 0 ? (
-            <span className="text-[0.6875rem] font-medium text-slate-400">+{overflow}</span>
+            <span className="lead-list-meta text-xs font-medium">+{overflow}</span>
           ) : null}
         </div>
       </button>
