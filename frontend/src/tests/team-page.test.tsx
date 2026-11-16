@@ -40,6 +40,7 @@ const USERS = [
 
 beforeEach(() => {
   endpoints.listUsers.mockResolvedValue({ data: USERS });
+  endpoints.updateUser.mockReset();
 });
 
 afterEach(() => {
@@ -123,6 +124,7 @@ describe('TeamPage', () => {
     expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reset password' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
   });
 
   it('offers no self-management controls for the signed-in user', async () => {
@@ -132,5 +134,72 @@ describe('TeamPage', () => {
     await screen.findByText('Asha Menon');
     // The helper signs in as u1 (Asha), so only u2 and u3 expose actions.
     expect(screen.getAllByRole('button', { name: 'Reset password' })).toHaveLength(2);
+    expect(screen.queryByRole('switch', { name: 'Can view phone numbers for Asha Menon' })).not.toBeInTheDocument();
+  });
+
+  it('grants phone access without replacing unrelated permission overrides', async () => {
+    asAdmin();
+    const phone = PERMISSIONS.CLIENT_PII_REVEAL;
+    const overrides = { allow: [PERMISSIONS.CRM_TASKS_MANAGE], deny: [PERMISSIONS.CONVERSATIONS_DELETE, phone] };
+    const users = USERS.map((user) => user.id === 'u2' ? { ...user, permissionOverrides: overrides } : user);
+    endpoints.listUsers.mockResolvedValue({ data: users });
+    endpoints.updateUser.mockImplementation(async ({ permissionOverrides }: { permissionOverrides: typeof overrides }) => {
+      endpoints.listUsers.mockResolvedValue({ data: users.map((user) => user.id === 'u2' ? { ...user, permissionOverrides } : user) });
+      return { data: {} };
+    });
+    renderAuthed(<TeamPage />);
+    const toggle = await screen.findByRole('switch', { name: 'Can view phone numbers for Vikram Rao' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(endpoints.updateUser).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'u2', permissionOverrides: {
+        allow: [PERMISSIONS.CRM_TASKS_MANAGE, phone], deny: [PERMISSIONS.CONVERSATIONS_DELETE],
+      },
+    })));
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
+
+  it('revokes role-default admin phone access with an explicit deny', async () => {
+    asAdmin();
+    const users = USERS.map((user) => user.id === 'u2' ? { ...user, role: 'admin' } : user);
+    endpoints.listUsers.mockResolvedValue({ data: users });
+    endpoints.updateUser.mockImplementation(async ({ permissionOverrides }: { permissionOverrides: { allow: string[]; deny: string[] } }) => {
+      endpoints.listUsers.mockResolvedValue({ data: users.map((user) => user.id === 'u2' ? { ...user, permissionOverrides } : user) });
+      return { data: {} };
+    });
+    renderAuthed(<TeamPage />);
+    const toggle = await screen.findByRole('switch', { name: 'Can view phone numbers for Vikram Rao' });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(endpoints.updateUser).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'u2', permissionOverrides: { allow: [], deny: [PERMISSIONS.CLIENT_PII_REVEAL] },
+    })));
+    await waitFor(() => expect(toggle).not.toBeChecked());
+  });
+
+  it('keeps the current state and shows an error when saving fails', async () => {
+    asAdmin();
+    endpoints.updateUser.mockRejectedValue(new Error('Could not save phone access.'));
+    renderAuthed(<TeamPage />);
+    const toggle = await screen.findByRole('switch', { name: 'Can view phone numbers for Vikram Rao' });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save phone access.');
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeEnabled();
+  });
+
+  it('honors explicit denials and never offers controls for a super admin', async () => {
+    asAdmin();
+    endpoints.listUsers.mockResolvedValue({ data: [
+      ...USERS.map((user) => user.id === 'u2' ? {
+        ...user, role: 'admin', permissionOverrides: {
+          allow: [PERMISSIONS.CLIENT_PII_REVEAL], deny: [PERMISSIONS.CLIENT_PII_REVEAL],
+        },
+      } : user),
+      { ...USERS[0], id: 'root', name: 'Workspace owner', role: 'super_admin' },
+    ] });
+    renderAuthed(<TeamPage />);
+    expect(await screen.findByRole('switch', { name: 'Can view phone numbers for Vikram Rao' })).not.toBeChecked();
+    expect(screen.queryByRole('switch', { name: 'Can view phone numbers for Workspace owner' })).not.toBeInTheDocument();
   });
 });

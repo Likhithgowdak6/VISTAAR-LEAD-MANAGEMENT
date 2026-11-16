@@ -909,6 +909,7 @@ export const createUser = ({
   });
 
 export interface UpdateUserChanges {
+  permissionOverrides?: User['permissionOverrides'];
   name?: string;
   email?: string;
   role?: AssignableRole;

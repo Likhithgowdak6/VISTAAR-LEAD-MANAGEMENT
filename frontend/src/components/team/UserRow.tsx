@@ -1,10 +1,11 @@
 import { type ReactNode, useState } from 'react';
 
-import { disableUser, enableUser, resetUserPassword } from '../../api/endpoints';
+import { disableUser, enableUser, resetUserPassword, updateUser } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../lib/permissions';
 import { type AuthValue, type AuthedRequest, errorMessage, type TeamMember } from '../types';
 import RoleBadge from './RoleBadge';
+import ToggleSwitch from '../ToggleSwitch';
 
 /** Mirrors PASSWORD_POLICY.MIN_LENGTH in the backend's password.service.ts - change both together. */
 const MIN_PASSWORD_LENGTH = 8;
@@ -52,13 +53,20 @@ const UserRow = ({ user, currentUserId, onChanged }: Props) => {
   const isSelf = user.id === currentUserId;
   const isSuperAdmin = user.role === 'super_admin';
   const showActions = canManage && !isSelf && !isSuperAdmin;
+  const phonePermission = PERMISSIONS.CLIENT_PII_REVEAL;
+  const allowed = user.permissionOverrides?.allow ?? [];
+  const denied = user.permissionOverrides?.deny ?? [];
+  // Mirrors the backend defaults for this permission. An explicit deny always wins.
+  const canViewPhone = !denied.includes(phonePermission) && (
+    allowed.includes(phonePermission) || user.role === 'admin' || user.role === 'super_admin'
+  );
 
   const run = async (makeRequest: Parameters<AuthedRequest>[0]) => {
     setBusy(true);
     setError(null);
     try {
       await authedRequest(makeRequest);
-      onChanged?.();
+      await onChanged?.();
     } catch (actionError: unknown) {
       setError(errorMessage(actionError, 'Action failed.'));
     } finally {
@@ -87,6 +95,16 @@ const UserRow = ({ user, currentUserId, onChanged }: Props) => {
 
   const disabled = user.status === 'disabled';
 
+  const setPhoneAccess = (enabled: boolean) => {
+    const allow = allowed.filter((permission) => permission !== phonePermission);
+    const deny = denied.filter((permission) => permission !== phonePermission);
+    if (enabled) allow.push(phonePermission);
+    else deny.push(phonePermission);
+    run((token) => updateUser({
+      token, userId: user.id, permissionOverrides: { allow, deny },
+    }));
+  };
+
   return (
     <li className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -114,6 +132,16 @@ const UserRow = ({ user, currentUserId, onChanged }: Props) => {
 
       {showActions ? (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          <div className="mr-2 flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-700">Can view phone numbers</span>
+            <ToggleSwitch
+              size="sm"
+              label={`Can view phone numbers for ${user.name}`}
+              checked={canViewPhone}
+              disabled={busy}
+              onChange={setPhoneAccess}
+            />
+          </div>
           {disabled ? (
             <ActionButton
               onClick={() => run((token) => enableUser({ token, userId: user.id }))}
