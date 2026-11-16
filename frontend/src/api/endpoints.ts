@@ -966,7 +966,7 @@ export const changePassword = ({
   token,
   currentPassword,
   newPassword,
-}: ChangePasswordParams): Promise<ApiSuccessResponse<{ user: User }>> =>
+}: ChangePasswordParams): Promise<ApiSuccessResponse<{ passwordChanged?: boolean; user?: User }>> =>
   apiFetch('/auth/change-password', {
     method: 'POST',
     token,

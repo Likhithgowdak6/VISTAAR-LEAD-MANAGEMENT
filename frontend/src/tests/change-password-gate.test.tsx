@@ -47,10 +47,10 @@ describe('ChangePasswordGate', () => {
     expect(screen.queryByText('Choose a new password')).not.toBeInTheDocument();
   });
 
-  it('submits the change and drops into the app on success', async () => {
+  it.each(['profile', 'confirmation'])('continues into the app after a %s success response', async (response) => {
     endpoints.refresh.mockResolvedValue(authPayload(true));
     endpoints.changePassword.mockResolvedValue({
-      data: {
+      data: response === 'confirmation' ? { passwordChanged: true } : {
         passwordChanged: true,
         user: { id: 'u1', name: 'Asha Menon', mustChangePassword: false },
       },
@@ -82,6 +82,34 @@ describe('ChangePasswordGate', () => {
 
     // The gate clears because the refreshed profile no longer owes a change.
     expect(await screen.findByRole('button', { name: 'Inbox' })).toBeInTheDocument();
+  });
+
+  it('clears the saving state and keeps the gate when success is not confirmed', async () => {
+    endpoints.refresh.mockResolvedValue(authPayload(true));
+    endpoints.changePassword.mockResolvedValue({ data: {} });
+    renderAuthed(<AppShell />);
+    await screen.findByText('Choose a new password');
+    fireEvent.change(screen.getByLabelText('Current (temporary) password'), { target: { value: 'TemporaryPass123' } });
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'BrandNewPassword456' } });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'BrandNewPassword456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set password and continue' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not confirm the password change.');
+    expect(screen.getByRole('button', { name: 'Set password and continue' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Inbox' })).not.toBeInTheDocument();
+  });
+
+  it('clears the saving state and keeps the gate when the request is rejected', async () => {
+    endpoints.refresh.mockResolvedValue(authPayload(true));
+    endpoints.changePassword.mockRejectedValue(new Error('Current password is incorrect.'));
+    renderAuthed(<AppShell />);
+    await screen.findByText('Choose a new password');
+    fireEvent.change(screen.getByLabelText('Current (temporary) password'), { target: { value: 'TemporaryPass123' } });
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'BrandNewPassword456' } });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'BrandNewPassword456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set password and continue' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Current password is incorrect.');
+    expect(screen.getByRole('button', { name: 'Set password and continue' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Inbox' })).not.toBeInTheDocument();
   });
 
   it('refuses to submit when the confirmation does not match', async () => {

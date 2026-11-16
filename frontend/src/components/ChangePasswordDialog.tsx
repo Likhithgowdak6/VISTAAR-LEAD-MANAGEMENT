@@ -36,7 +36,7 @@ const ChangePasswordDialog = ({ onClose }: Props) => {
   // Mounted only while open, so `active: true` is the whole condition. On a phone the back
   // gesture dismisses this layer instead of leaving the app.
   useMobileBackLayer({ active: true, onBack: onClose });
-  const { authedRequest, applyUser } = useAuth() as AuthValue;
+  const { authedRequest, applyUser, user } = useAuth() as AuthValue;
   const [form, setForm] = useState<PasswordForm>({
     currentPassword: '',
     newPassword: '',
@@ -72,10 +72,14 @@ const ChangePasswordDialog = ({ onClose }: Props) => {
         }),
       );
 
-      // The response carries the refreshed user, including mustChangePassword now being false -
-      // without applying it, an owner who arrived here from the forced-change flow would still
-      // be gated on the next render.
-      applyUser((payload?.data?.user as AuthUser | null | undefined) ?? null);
+      const updatedUser = payload?.data?.user as AuthUser | undefined;
+      if (updatedUser?.mustChangePassword === false) {
+        applyUser(updatedUser);
+      } else if (payload?.data?.passwordChanged === true && user) {
+        applyUser({ ...user, mustChangePassword: false });
+      } else {
+        throw new Error('Could not confirm the password change. Refresh the page before trying again.');
+      }
       setDone(true);
     } catch (submitError: unknown) {
       setError(errorMessage(submitError, 'Unable to change the password.'));

@@ -46,9 +46,9 @@ describe('ChangePasswordDialog', () => {
     expect(await openDialog()).toBeInTheDocument();
   });
 
-  it('submits the current and new password', async () => {
+  it.each(['profile', 'confirmation'])('accepts a %s response after changing the password', async (response) => {
     endpoints.changePassword.mockResolvedValue({
-      data: { user: { id: 'u1', name: 'Himanshu', role: 'super_admin', mustChangePassword: false } },
+      data: response === 'confirmation' ? { passwordChanged: true } : { user: { id: 'u1', name: 'Himanshu', role: 'super_admin', mustChangePassword: false } },
     });
 
     await openDialog();
