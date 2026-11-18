@@ -25,6 +25,7 @@ import {
 } from './modules/realtime/realtime.hub.js';
 import { createRealtimeOutboxRunner } from './modules/realtime/realtime-outbox.runner.js';
 import { createDeliveryRunner } from './modules/whatsapp/delivery/delivery-runner.js';
+import { createCloudWebhookInboxRunner } from './modules/whatsapp/cloud/cloud-webhook.inbox.js';
 import { getSessionManager } from './modules/whatsapp/sessions/session-manager.instance.js';
 
 interface BackgroundRunnerHandle {
@@ -33,6 +34,7 @@ interface BackgroundRunnerHandle {
 }
 
 let deliveryRunner: BackgroundRunnerHandle | null = null;
+let cloudInboxRunner: BackgroundRunnerHandle | null = null;
 let realtimeOutboxRunner: BackgroundRunnerHandle | null = null;
 let leadImportRunner: BackgroundRunnerHandle | null = null;
 let nurtureRunner: BackgroundRunnerHandle | null = null;
@@ -112,6 +114,7 @@ export interface StartServerParams {
   stopRealtimeSubscriberFn?: () => Promise<unknown>;
   createRealtimeOutboxRunnerFn?: () => BackgroundRunnerHandle;
   createDeliveryRunnerFn?: () => BackgroundRunnerHandle;
+  createCloudWebhookInboxRunnerFn?: () => BackgroundRunnerHandle;
   createLeadImportRunnerFn?: () => BackgroundRunnerHandle;
   createNurtureRunnerFn?: () => BackgroundRunnerHandle;
   createPromiseFollowUpRunnerFn?: () => BackgroundRunnerHandle;
@@ -139,6 +142,7 @@ export const startServer = async ({
   stopRealtimeSubscriberFn = stopRealtimeSubscriber,
   createRealtimeOutboxRunnerFn = createRealtimeOutboxRunner,
   createDeliveryRunnerFn = createDeliveryRunner,
+  createCloudWebhookInboxRunnerFn = createCloudWebhookInboxRunner,
   createLeadImportRunnerFn = createLeadImportRunner,
   createNurtureRunnerFn = createNurtureRunner,
   createPromiseFollowUpRunnerFn = createPromiseFollowUpRunner,
@@ -184,6 +188,10 @@ export const startServer = async ({
       }
     });
     startedDeliveryRunner.start();
+    const inboxRunner = createCloudWebhookInboxRunnerFn();
+    cloudInboxRunner = inboxRunner;
+    rollbackSteps.push(() => { inboxRunner.stop(); if (cloudInboxRunner === inboxRunner) cloudInboxRunner = null; });
+    inboxRunner.start();
 
     // Python owns business sweeps in the SaaS deployment; Node retains Baileys and delivery.
     if (!gatewayOnly) {
@@ -373,6 +381,8 @@ export const stopServer = async ({
     leadImportRunner?.stop();
     leadImportRunner = null;
     deliveryRunner?.stop();
+    cloudInboxRunner?.stop();
+    cloudInboxRunner = null;
     deliveryRunner = null;
     realtimeOutboxRunner?.stop();
     realtimeOutboxRunner = null;

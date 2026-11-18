@@ -19,6 +19,7 @@ import pushRouter from './modules/push/push.routes.js';
 import healthRouter from './modules/health/health.routes.js';
 import leadSourceRouter from './modules/lead-sources/lead-source.routes.js';
 import metaPublicRouter from './modules/lead-sources/meta-public.routes.js';
+import cloudPublicRouter from './modules/whatsapp/cloud/cloud-public.routes.js';
 import messageTemplateRouter from './modules/message-templates/message-template.routes.js';
 import starredMessageRouter from './modules/starred-messages/starred-message.routes.js';
 import organizationSettingsRouter from './modules/organizations/organization-settings.routes.js';
@@ -68,7 +69,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(
   express.json({
-    limit: '1mb',
+    limit: '3mb',
     /**
      * Keeps the raw bytes alongside the parsed body, for Meta's webhook signature.
      *
@@ -111,6 +112,9 @@ app.use('/api/v1/lead-sources', leadSourceRouter);
 // Mounted on their own path rather than inside the router above, so the separation survives
 // somebody reordering that file. Each proves its own authenticity - see meta-public.routes.ts.
 app.use('/api/v1/meta', metaPublicRouter);
+// The same arrangement for WhatsApp, on its own path and its own verify token - see
+// whatsapp/cloud/cloud-public.routes.ts for why it is not folded into the router above.
+app.use('/api/v1/whatsapp/cloud', cloudPublicRouter);
 app.use('/api/v1/whatsapp-accounts', whatsappAccountRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/settings', organizationSettingsRouter);
