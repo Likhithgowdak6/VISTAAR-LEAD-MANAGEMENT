@@ -88,7 +88,7 @@ number from Team & Accounts using Baileys. No seed script is required for new or
 3. Configure FRONTEND_ORIGIN and HTTPS. Use VITE_API_BASE_URL=/api/v1 for the web build,
    then build frontend and backend. Android builds need the full deployed HTTPS API address
    instead; follow DEPLOY.md for the mobile build.
-4. Copy frontend/dist to /srv/vistaar/frontend. Set CRM_DOMAIN for Caddy and use deploy/Caddyfile.
+4. Copy frontend/dist to /srv/vistaar/. Set CRM_DOMAIN for Caddy and use deploy/Caddyfile.
 5. Run Node under a supervisor; run Compose CRM API/worker and the AI service.
 6. MongoDB and Redis must remain private. Compose now publishes infrastructure only on loopback;
    enforce a host firewall too. Allow public ingress only through HTTPS. Keep 5001 and 5002 private.

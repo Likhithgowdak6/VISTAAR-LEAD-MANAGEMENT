@@ -7,6 +7,10 @@
         reverse_proxy 127.0.0.1:5001
     }
 
+    handle /api/v1/whatsapp/cloud/* {
+        reverse_proxy 127.0.0.1:5001
+    }
+
     # Includes signup, workspace, all CRM routes and the realtime SSE stream.
     handle /api/* {
         reverse_proxy 127.0.0.1:5002 {
@@ -15,7 +19,7 @@
     }
 
     handle {
-        root * /srv/vistaar/frontend
+        root * /srv/vistaar
         try_files {path} /index.html
         file_server
     }
