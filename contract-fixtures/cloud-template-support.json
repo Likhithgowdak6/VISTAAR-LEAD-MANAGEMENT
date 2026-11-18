@@ -1,0 +1,16 @@
+[
+  {"name":"plain text","components":[{"type":"BODY","text":"Welcome"}],"supported":true},
+  {"name":"numbered parameters","components":[{"type":"BODY","text":"Hello {{1}}, date {{2}}"}],"supported":true},
+  {"name":"text header","components":[{"type":"HEADER","format":"TEXT","text":"Hello {{1}}"},{"type":"BODY","text":"Welcome"}],"supported":true},
+  {"name":"static footer","components":[{"type":"BODY","text":"Welcome"},{"type":"FOOTER","text":"Studio"}],"supported":true},
+  {"name":"named parameter","components":[{"type":"BODY","text":"Hello {{customer}}"}],"supported":false},
+  {"name":"image header","components":[{"type":"HEADER","format":"IMAGE"},{"type":"BODY","text":"Welcome"}],"supported":false},
+  {"name":"document header","components":[{"type":"HEADER","format":"DOCUMENT"},{"type":"BODY","text":"Welcome"}],"supported":false},
+  {"name":"video header","components":[{"type":"HEADER","format":"VIDEO"},{"type":"BODY","text":"Welcome"}],"supported":false},
+  {"name":"buttons","components":[{"type":"BODY","text":"Welcome"},{"type":"BUTTONS","buttons":[{"type":"URL","url":"https://example.com/{{1}}"}]}],"supported":false},
+  {"name":"zero placeholder","components":[{"type":"BODY","text":"Hello {{0}}"}],"supported":false},
+  {"name":"unknown component","components":[{"type":"BODY","text":"Welcome"},{"type":"CAROUSEL"}],"supported":false},
+  {"name":"empty body","components":[{"type":"BODY","text":""}],"supported":false},
+  {"name":"no body","components":[{"type":"HEADER","format":"TEXT","text":"Hi"}],"supported":false},
+  {"name":"no components","components":[],"supported":false}
+]

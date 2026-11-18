@@ -403,6 +403,7 @@ export const updateConversationAccount = ({
     {
       $set: removeUndefinedValues({
         whatsappAccountId: toObjectId(whatsappAccountId),
+        lastInboundAt: null,
         lastHandledBy: actorId ? toObjectId(actorId) : undefined,
         lastHandledAt: actorId ? now : undefined,
       }),

@@ -1,4 +1,4 @@
-import { type QueryFilter } from 'mongoose';
+import { type QueryFilter, type UpdateQuery } from 'mongoose';
 
 import { MESSAGE_AUTHORS, type MessageAuthor } from '../../constants/message-authors.js';
 import { MESSAGE_DIRECTIONS } from '../../constants/message-directions.js';
@@ -9,6 +9,7 @@ import { type ObjectIdLike } from '../../types/common.js';
 import {
   Message,
   type MediaStorageStatus,
+  type MessageCloudTemplate,
   type MessageDocument,
   type MessageMedia,
 } from './message.model.js';
@@ -93,6 +94,7 @@ export interface CreateOutboundMessageRecordParams {
   status?: MessageStatus;
   authoredBy?: MessageAuthor;
   scheduledAt?: Date | null;
+  cloudTemplate?: MessageCloudTemplate | null;
   session?: DatabaseSession;
 }
 
@@ -111,6 +113,7 @@ export const createOutboundMessageRecord = ({
   status = MESSAGE_STATUSES.CREATED,
   authoredBy = MESSAGE_AUTHORS.HUMAN,
   scheduledAt = null,
+  cloudTemplate = null,
   session,
 }: CreateOutboundMessageRecordParams = {}) =>
   Message.create(
@@ -132,6 +135,7 @@ export const createOutboundMessageRecord = ({
         statusUpdatedAt: sentAt,
         authoredBy,
         scheduledAt,
+        cloudTemplate,
       },
     ],
     { session },
@@ -455,6 +459,100 @@ export const markOutboundMessageFailed = ({
       runValidators: true,
     },
   ).exec();
+
+/**
+ * How far along the delivery ladder each status sits.
+ *
+ * Needed because Meta's receipts ARRIVE OUT OF ORDER. A `read` webhook routinely lands before the
+ * `delivered` one for the same message, and applying them blindly would show a message the
+ * customer has already read as merely delivered. Rank comparison makes the update monotonic:
+ * a receipt only ever moves a message forward.
+ *
+ * `failed` is given the top rank deliberately. A failure reported after a delivery receipt is the
+ * truth - Meta can accept a message, acknowledge it, and then refuse it - and the agent needs to
+ * see that it did not arrive far more than they need the earlier optimistic tick.
+ */
+const DELIVERY_STATUS_RANK: Readonly<Record<string, number>> = Object.freeze({
+  [MESSAGE_STATUSES.QUEUED]: 0,
+  [MESSAGE_STATUSES.SENDING]: 1,
+  [MESSAGE_STATUSES.SENT]: 2,
+  [MESSAGE_STATUSES.DELIVERED]: 3,
+  [MESSAGE_STATUSES.READ]: 4,
+  [MESSAGE_STATUSES.FAILED]: 5,
+  [MESSAGE_STATUSES.FAILED_PERMANENT]: 6,
+});
+
+export interface ApplyProviderDeliveryStatusParams {
+  organizationId?: ObjectIdLike;
+  whatsappAccountId?: ObjectIdLike;
+  providerMessageId?: string | null;
+  status: MessageStatus;
+  error?: string | null;
+  now?: Date;
+}
+
+/**
+ * Applies a provider delivery receipt to an already-sent message.
+ *
+ * Addressed by `providerMessageId` rather than our own `_id`, because a receipt is all the
+ * provider knows about: it names the id IT issued when the message was accepted.
+ *
+ * Returns the updated document, or null when nothing changed - which covers both "no such
+ * message" (a receipt for something another system sent from the same number) and "already
+ * further along". Callers treat both the same way, so they are not distinguished.
+ */
+export const applyProviderDeliveryStatus = async ({
+  organizationId,
+  whatsappAccountId,
+  providerMessageId,
+  status,
+  error = null,
+  now = new Date(),
+}: ApplyProviderDeliveryStatusParams) => {
+  const id = typeof providerMessageId === 'string' ? providerMessageId.trim() : '';
+
+  if (id === '') {
+    return null;
+  }
+
+  const incomingRank = DELIVERY_STATUS_RANK[status];
+
+  if (incomingRank === undefined) {
+    return null;
+  }
+
+  // The rank guard is part of the QUERY, not a read-then-write in application code: two receipts
+  // for the same message can arrive on overlapping webhook deliveries, and a check-then-update
+  // would let the later-but-lower one win whenever it lost the race.
+  const behindStatuses = Object.entries(DELIVERY_STATUS_RANK)
+    .filter(([, rank]) => rank < incomingRank)
+    .map(([value]) => value as MessageStatus);
+
+  const update: UpdateQuery<MessageDocument> = {
+    $set: {
+      status,
+      statusUpdatedAt: now,
+    },
+  };
+
+  if (error !== null) {
+    (update.$set as Record<string, unknown>).lastDeliveryError = String(error).slice(0, 300);
+  }
+
+  return Message.findOneAndUpdate(
+    {
+      organizationId,
+      whatsappAccountId,
+      providerMessageId: id,
+      status: { $in: behindStatuses },
+    },
+    update,
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  ).exec();
+};
 
 export interface CancelQueuedMessagesForConversationParams {
   conversationId?: ObjectIdLike;

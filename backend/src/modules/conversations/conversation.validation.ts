@@ -93,10 +93,35 @@ export const sendMessageBodySchema = z
     whatsappAccountId: objectIdSchema.optional(),
     // Points at bytes already uploaded to THIS conversation; the service re-checks that.
     media: sendMediaSchema.optional(),
+    /**
+     * Send an approved WhatsApp template instead of free text.
+     *
+     * Only the NAME, language and placeholder values. The wording is never accepted from the
+     * client: the service looks it up from the synced cache, so a request cannot put words into
+     * the thread that Meta did not approve.
+     */
+    template: z
+      .object({
+        name: z.string().trim().min(1).max(512),
+        language: z.string().trim().min(2).max(32),
+        bodyParameters: z.array(z.string().trim().max(1024)).max(50).default([]),
+        headerParameters: z.array(z.string().trim().max(1024)).max(50).default([]),
+      })
+      .optional(),
   })
-  .refine((value) => (value.body ?? '') !== '' || value.media !== undefined, {
-    message: 'A message needs either text or an attachment.',
-    path: ['body'],
+  .refine(
+    (value) =>
+      (value.body ?? '') !== '' || value.media !== undefined || value.template !== undefined,
+    {
+      message: 'A message needs either text, an attachment or a template.',
+      path: ['body'],
+    },
+  )
+  .refine((value) => value.template === undefined || value.media === undefined, {
+    // Meta has no message shape that is both. Caught here rather than at the API, where it would
+    // come back as a template error that says nothing about the attachment.
+    message: 'A template cannot carry an attachment.',
+    path: ['template'],
   });
 
 // Not a Zod enum: a stage may be a built-in value or an admin-defined custom stage's key.

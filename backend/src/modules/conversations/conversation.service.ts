@@ -5,6 +5,7 @@ import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { type ConversationStatus } from '../../constants/conversation-statuses.js';
 import { PERMISSIONS, type Permission } from '../../constants/permissions.js';
 import { runInTransaction } from '../../config/database.js';
+import { createHttpError } from '../../utils/http-error.js';
 import { type ObjectIdLike } from '../../types/common.js';
 import { canUserAccessAccount } from '../auth/account-access.service.js';
 import { getSessionManager } from '../whatsapp/sessions/session-manager.instance.js';
@@ -31,6 +32,9 @@ import { enqueueConversationChanged } from '../realtime/realtime-outbox.reposito
 import { resolveUsableStageValue } from '../stages/stage.service.js';
 import { type UserDocument } from '../users/user.model.js';
 import { findAccountById } from '../whatsapp-accounts/whatsapp-account.repository.js';
+import { WHATSAPP_TEMPLATE_STATUSES } from '../whatsapp-templates/whatsapp-template.model.js';
+import { isSupportedTemplate, renderTemplatePreview } from '../whatsapp-templates/whatsapp-template.parser.js';
+import { findWhatsAppTemplateByName } from '../whatsapp-templates/whatsapp-template.repository.js';
 import { CATEGORY_PLAYBOOKS } from '../ai-brain/category-playbooks.js';
 import { cancelQueuedMessagesForConversation } from '../messages/message.repository.js';
 import { AUDIT_EVENTS } from '../../constants/audit-events.js';
@@ -688,6 +692,20 @@ export interface SendMessageForActorParams {
   whatsappAccountId?: ObjectIdLike;
   /** An attachment already uploaded to this conversation. See media.controller.ts. */
   media?: SendMediaInput;
+  /**
+   * Send an approved WhatsApp template instead of free text.
+   *
+   * Only meaningful on a Cloud API number, and the only thing that works at all once the 24-hour
+   * service window has closed. The caller supplies the template's name, language and placeholder
+   * values; the approved WORDING is looked up here from the synced cache, so the preview stored
+   * in the thread is the real template body rather than whatever the client claimed it was.
+   */
+  template?: {
+    name: string;
+    language: string;
+    bodyParameters: string[];
+    headerParameters: string[];
+  };
 }
 
 const isDuplicateKeyError = (error: unknown): boolean =>
@@ -798,6 +816,7 @@ export const sendMessageForActor = async ({
   idempotencyKey,
   whatsappAccountId,
   media,
+  template,
 }: SendMessageForActorParams) => {
   const conversation = await loadVisibleConversation({
     organizationId,
@@ -834,12 +853,93 @@ export const sendMessageForActor = async ({
       })
     : conversation;
 
+  // A template send is resolved against the synced cache, not taken on trust. Three things are
+  // being established here that the client cannot be allowed to assert for itself:
+  //
+  //   1. the template exists ON THIS NUMBER - a name from another account would be refused by
+  //      Meta anyway, but as a bounced message an agent has to interpret;
+  //   2. it is APPROVED - sending a pending one wastes the only chance to reopen the window;
+  //   3. the right NUMBER of values was supplied - Meta rejects a mismatch, and the agent sees a
+  //      failed message rather than a form error they could have fixed in two seconds.
+  //
+  // The preview body is rendered from the CACHED wording for the same reason: the thread must
+  // show what the customer actually received.
+  const cloudTemplate = template
+    ? await resolveTemplateForSend({
+        organizationId,
+        whatsappAccountId: targetConversation.whatsappAccountId,
+        template,
+      })
+    : null;
+
   return outboundMessageService.enqueueOutboundMessage({
     organizationId,
     conversation: targetConversation,
     actor,
-    body,
+    body: cloudTemplate ? cloudTemplate.preview : body,
     idempotencyKey,
     media,
+    ...(cloudTemplate ? { cloudTemplate: cloudTemplate.payload } : {}),
   });
+};
+
+interface ResolveTemplateForSendOptions {
+  organizationId: ObjectIdLike;
+  whatsappAccountId: ObjectIdLike;
+  template: NonNullable<SendMessageForActorParams['template']>;
+}
+
+const resolveTemplateForSend = async ({
+  organizationId,
+  whatsappAccountId,
+  template,
+}: ResolveTemplateForSendOptions) => {
+  const stored = await findWhatsAppTemplateByName({
+    organizationId,
+    whatsappAccountId,
+    name: template.name,
+    language: template.language,
+  });
+
+  if (!stored) {
+    throw new Error('TEMPLATE_NOT_FOUND');
+  }
+
+  if (stored.status !== WHATSAPP_TEMPLATE_STATUSES.APPROVED) {
+    throw new Error('TEMPLATE_NOT_APPROVED');
+  }
+  if (!isSupportedTemplate(stored.components)) {
+    throw createHttpError({ statusCode: 400, code: 'TEMPLATE_UNSUPPORTED', message: 'Choose an approved text template with numbered placeholders. Media and button templates are unavailable.' });
+  }
+
+  const bodyParameters = template.bodyParameters ?? [];
+  const headerParameters = template.headerParameters ?? [];
+
+  if (bodyParameters.length !== stored.bodyVariableCount) {
+    throw new Error('TEMPLATE_PARAMETER_MISMATCH');
+  }
+
+  if (headerParameters.length !== stored.headerVariableCount) {
+    throw new Error('TEMPLATE_PARAMETER_MISMATCH');
+  }
+
+  // An empty value would be substituted by Meta as a gap in the sentence, and a template
+  // approved with a name in it would reach the customer reading "Hi ,".
+  if ([...bodyParameters, ...headerParameters].some((value) => value.trim() === '')) {
+    throw new Error('TEMPLATE_PARAMETER_EMPTY');
+  }
+
+  const renderedBody = renderTemplatePreview(stored.bodyText, bodyParameters);
+  const renderedHeader = renderTemplatePreview(stored.headerText, headerParameters);
+
+  return {
+    payload: {
+      name: stored.name,
+      language: stored.language,
+      bodyParameters,
+      headerParameters,
+    },
+    // Header and body joined for the thread preview, matching how WhatsApp stacks them.
+    preview: [renderedHeader, renderedBody].filter((part) => part !== '').join('\n\n'),
+  };
 };

@@ -37,6 +37,53 @@ export interface MessageMedia {
   isVoiceNote: boolean;
 }
 
+/**
+ * Which approved template to send, and what to fill into it.
+ *
+ * NOT the wording. Meta holds the approved text; a send names the template and supplies the
+ * placeholder values, and Meta performs the substitution. `body` on the message holds a rendered
+ * preview so the thread reads correctly in the inbox, but that preview is never what travels.
+ */
+export interface MessageCloudTemplate {
+  name: string;
+  language: string;
+  /** Values for the body's `{{1}}`, `{{2}}`, ... in declaration order. */
+  bodyParameters: string[];
+  /** Values for a text header's placeholders, which Meta counts as a separate component. */
+  headerParameters: string[];
+}
+
+const messageCloudTemplateSchema = new mongoose.Schema<MessageCloudTemplate>(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 512,
+    },
+
+    language: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 32,
+    },
+
+    bodyParameters: {
+      type: [String],
+      default: () => [],
+    },
+
+    headerParameters: {
+      type: [String],
+      default: () => [],
+    },
+  },
+  {
+    _id: false,
+  },
+);
+
 export interface MessageDocument {
   _id: Types.ObjectId;
   organizationId: Types.ObjectId;
@@ -61,6 +108,18 @@ export interface MessageDocument {
   nextAttemptAt: Date | null;
   /** Who authored this outbound message's content - the AI automation, or a human. */
   authoredBy: MessageAuthor;
+  /**
+   * Set when this outbound message must go as an approved WhatsApp template rather than free text.
+   *
+   * Carried on the MESSAGE rather than decided at send time on purpose. The 24-hour service window
+   * can close between an agent pressing send and the queue reaching the row - quiet hours alone
+   * can hold a message for hours - and a message queued as a template must still be that template
+   * when it finally goes out. Deciding at send time would mean the queue silently choosing
+   * different words than the agent approved.
+   *
+   * Null on every Baileys message and on any Cloud message sent inside the window.
+   */
+  cloudTemplate: MessageCloudTemplate | null;
   /** Not claimable for delivery before this time; null means eligible as soon as claimed. */
   scheduledAt: Date | null;
   createdAt: Date;
@@ -244,6 +303,11 @@ const messageSchema = new mongoose.Schema<MessageDocument>(
 
     scheduledAt: {
       type: Date,
+      default: null,
+    },
+
+    cloudTemplate: {
+      type: messageCloudTemplateSchema,
       default: null,
     },
   },

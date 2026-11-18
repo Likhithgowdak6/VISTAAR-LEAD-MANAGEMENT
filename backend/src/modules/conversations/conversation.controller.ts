@@ -72,6 +72,22 @@ const conversationErrorMap = {
     statusCode: 409,
     message: 'This contact already has a separate thread on that WhatsApp number.',
   },
+  TEMPLATE_NOT_FOUND: {
+    statusCode: 404,
+    message: 'That template is not on this WhatsApp number. Sync templates and try again.',
+  },
+  TEMPLATE_NOT_APPROVED: {
+    statusCode: 409,
+    message: 'WhatsApp has not approved that template yet, so it cannot be sent.',
+  },
+  TEMPLATE_PARAMETER_MISMATCH: {
+    statusCode: 400,
+    message: 'That template needs a different number of values than were supplied.',
+  },
+  TEMPLATE_PARAMETER_EMPTY: {
+    statusCode: 400,
+    message: 'Every value in a template must be filled in.',
+  },
   // A key that was minted for a different conversation, or a different tenant. Refused rather
   // than sent: this is the error that stops one lead's photo reaching another lead.
   MEDIA_NOT_FOR_CONVERSATION: {
@@ -551,6 +567,7 @@ export const sendConversationMessage = asyncHandler(async (req, res) => {
       idempotencyKey: body.idempotencyKey,
       whatsappAccountId: body.whatsappAccountId,
       media: body.media,
+      template: body.template,
     });
 
     res.status(result.created ? 202 : 200).json({

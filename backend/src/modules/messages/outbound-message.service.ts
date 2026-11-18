@@ -22,6 +22,7 @@ import { REALTIME_REASONS } from '../realtime/realtime.events.js';
 import { enqueueConversationChanged as defaultEnqueueConversationChanged } from '../realtime/realtime-outbox.repository.js';
 import { type UserDocument } from '../users/user.model.js';
 import { describeMediaMessage } from './message-media-labels.js';
+import { type MessageCloudTemplate } from './message.model.js';
 import { serializeMessage } from './message.serializer.js';
 import {
   createOutboundMessageRecord as defaultCreateOutboundMessageRecord,
@@ -81,6 +82,15 @@ export interface EnqueueOutboundMessageParams {
     sizeBytes: number;
     isVoiceNote: boolean;
   };
+  /**
+   * Send this as an approved WhatsApp template rather than as free text.
+   *
+   * `body` is still required alongside it, and still becomes the thread's text - but it is a
+   * RENDERED PREVIEW of the approved wording, not the thing that travels. The caller is
+   * responsible for rendering it from the cached template, so the inbox shows what the customer
+   * received rather than a row that reads as empty.
+   */
+  cloudTemplate?: MessageCloudTemplate;
 }
 
 /** Picks a uniformly-random delay in [min, max], clamped so a misconfigured max never inverts it. */
@@ -117,6 +127,7 @@ export const createOutboundMessageService = ({
     idempotencyKey,
     authoredBy = MESSAGE_AUTHORS.HUMAN,
     media,
+    cloudTemplate,
   }: EnqueueOutboundMessageParams) => {
     const whatsappAccountId = conversation.whatsappAccountId;
     const sentAt = now();
@@ -158,6 +169,7 @@ export const createOutboundMessageService = ({
           sentAt,
           authoredBy,
           scheduledAt,
+          cloudTemplate: cloudTemplate ?? null,
           session,
           ...(media
             ? {

@@ -186,6 +186,9 @@ export const serializeConversation = (conversation: unknown): SerializedConversa
     summary: value.summary,
     unreadCount: value.unreadCount,
     lastMessageAt: serializeDate(value.lastMessageAt),
+    // Exposed so the composer can work out the Cloud API's 24-hour service window. Harmless on a
+    // Baileys thread, which has no such window and simply ignores it.
+    lastInboundAt: serializeDate(value.lastInboundAt),
     lastMessagePreview: value.lastMessagePreview,
     nextFollowUpAt: serializeDate(value.nextFollowUpAt),
     status: value.status,
