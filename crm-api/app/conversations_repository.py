@@ -385,6 +385,7 @@ async def update_conversation_account(
     now_dt = datetime.now(timezone.utc)
     update_doc: dict[str, Any] = {
         "whatsappAccountId": aid,
+        "lastInboundAt": None,
         "updatedAt": now_dt,
     }
     if actor_id:

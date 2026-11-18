@@ -148,11 +148,26 @@ class CreateManualLeadBody(BaseModel):
         return cleaned
 
 
+class CloudTemplateSelection(BaseModel):
+    name: str = Field(min_length=1, max_length=512)
+    language: str = Field(min_length=1, max_length=32)
+    bodyParameters: list[str] = Field(default_factory=list, max_length=32)
+    headerParameters: list[str] = Field(default_factory=list, max_length=1)
+
+    @field_validator("bodyParameters", "headerParameters")
+    @classmethod
+    def valid_parameters(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1024 for value in values):
+            raise ValueError("Template parameters must be non-empty and at most 1024 characters.")
+        return values
+
+
 class SendMessageBody(BaseModel):
     body: Optional[str] = Field(default=None, max_length=5000)
     idempotencyKey: str = Field(min_length=8, max_length=255)
     whatsappAccountId: Optional[str] = None
     media: Optional[dict[str, Any]] = None
+    template: Optional[CloudTemplateSelection] = None
 
     @field_validator("whatsappAccountId")
     @classmethod
@@ -163,7 +178,9 @@ class SendMessageBody(BaseModel):
     def check_body_or_media(self) -> "SendMessageBody":
         has_body = self.body is not None and self.body.strip() != ""
         has_media = self.media is not None
-        if not (has_body or has_media):
+        if self.template is not None and (has_body or has_media):
+            raise ValueError("A template cannot be combined with free text or media.")
+        if not (has_body or has_media or self.template is not None):
             raise ValueError("A message needs either text or an attachment.")
         return self
 

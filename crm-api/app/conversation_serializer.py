@@ -143,6 +143,7 @@ def serialize_conversation(conversation: Any) -> dict[str, Any] | None:
         "id": serialize_id(value.get("_id") or value.get("id")),
         "organizationId": serialize_id(value.get("organizationId")),
         "whatsappAccountId": serialize_id(value.get("whatsappAccountId")),
+        "lastInboundAt": serialize_date(_to_date(value.get("lastInboundAt"))),
         "contactId": serialize_id(value.get("contactId")),
         "leadId": value.get("leadId"),
         "displayName": value.get("displayName"),

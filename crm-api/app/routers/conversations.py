@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import ai_draft, db
+from app.cloud_templates import validate_send as validate_cloud_send
 from app.activity import create_activity, find_activity_for_conversation, serialize_activity_log
 from app.category_playbooks import CATEGORY_PLAYBOOKS, SELECTABLE_AI_CATEGORIES
 from app.conversation_access import (
@@ -262,6 +263,7 @@ async def get_conversation_detail(
                 "name": account_doc.get("name"),
                 "brandKey": account_doc.get("brandKey"),
                 "status": account_doc.get("status"),
+                "provider": account_doc.get("provider") or "baileys",
             }
 
     return {
@@ -717,6 +719,34 @@ async def post_message(
         ):
             raise _error(403, "MEDIA_NOT_FOR_CONVERSATION", "That attachment does not belong to this conversation.")
 
+    # Check idempotency
+    existing_msg = await db.get_database()["messages"].find_one({
+        "idempotencyKey": body.idempotencyKey,
+        "organizationId": _to_object_id(org_id),
+    })
+    if existing_msg and str(existing_msg.get("conversationId")) != str(conv["_id"]):
+        raise _error(409, "IDEMPOTENCY_KEY_CONFLICT", "This request key belongs to a different conversation.")
+    if existing_msg:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "data": {
+                    "id": str(existing_msg["_id"]),
+                    "conversationId": str(existing_msg["conversationId"]),
+                    "body": existing_msg.get("body"),
+                    "status": existing_msg.get("status"),
+                },
+                "meta": {"queued": False},
+            },
+        )
+
+    target_id = _to_object_id(body.whatsappAccountId) if body.whatsappAccountId else _to_object_id(conv.get("whatsappAccountId"))
+    cloud_template = await validate_cloud_send(
+        organization_id=_to_object_id(org_id), account_id=target_id, actor=auth.user,
+        selection=body.template, conversation=conv,
+        switching=str(target_id) != str(conv.get("whatsappAccountId")),
+    )
+
     # Account switch check
     target_account_id = conv.get("whatsappAccountId")
     if body.whatsappAccountId and str(body.whatsappAccountId) != str(conv.get("whatsappAccountId")):
@@ -750,25 +780,6 @@ async def post_message(
         )
         target_account_id = aid
 
-    # Check idempotency
-    existing_msg = await db.get_database()["messages"].find_one({
-        "idempotencyKey": body.idempotencyKey,
-        "organizationId": _to_object_id(org_id),
-    })
-    if existing_msg:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "data": {
-                    "id": str(existing_msg["_id"]),
-                    "conversationId": str(existing_msg["conversationId"]),
-                    "body": existing_msg.get("body"),
-                    "status": existing_msg.get("status"),
-                },
-                "meta": {"queued": False},
-            },
-        )
-
     now_dt = datetime.now(timezone.utc)
     msg_doc = {
         "organizationId": _to_object_id(org_id),
@@ -782,13 +793,16 @@ async def post_message(
         "sentByUserId": _to_object_id(auth.user_id),
         "authoredBy": "human",
         "status": "queued",
-        "body": body.body,
+        "body": cloud_template["preview"] if cloud_template else body.body,
         "media": body.media,
         "idempotencyKey": body.idempotencyKey,
         "sentAt": now_dt,
         "createdAt": now_dt,
         "updatedAt": now_dt,
     }
+
+    if cloud_template:
+        msg_doc["cloudTemplate"] = cloud_template["payload"]
 
     res = await db.get_database()["messages"].insert_one(msg_doc)
     msg_doc["_id"] = res.inserted_id
@@ -799,7 +813,7 @@ async def post_message(
         {
             "$set": {
                 "lastMessageAt": now_dt,
-                "lastMessagePreview": body.body or (body.media.get("mimeType") if body.media else "Media"),
+                "lastMessagePreview": msg_doc["body"] or (body.media.get("mimeType") if body.media else "Media"),
                 "lastHandledBy": _to_object_id(auth.user_id),
                 "lastHandledAt": now_dt,
                 "updatedAt": now_dt,
