@@ -2,6 +2,11 @@ import { env, type Env } from '../../../config/env.js';
 import { logger } from '../../../config/logger.js';
 import { ACCOUNT_STATUSES } from '../../../constants/account-statuses.js';
 import { type ObjectIdLike } from '../../../types/common.js';
+import {
+  createCloudDeliverySession,
+  getCloudRuntime,
+  type CloudRuntime,
+} from '../cloud/cloud-runtime.service.js';
 import { getSessionManager } from '../sessions/session-manager.instance.js';
 import { type WhatsAppSessionManager } from '../sessions/session-manager.service.js';
 import {
@@ -15,11 +20,20 @@ export interface CreateDeliveryServiceOptions {
   accountId: ObjectIdLike;
 }
 
+export interface CloudAccountRef {
+  accountId: string;
+  organizationId: string;
+}
+
 export interface CreateDeliveryRunnerOptions {
   config?: Env;
   sessionManager?: WhatsAppSessionManager;
+  cloudRuntime?: CloudRuntime;
   now?: () => Date;
   createDeliveryService?: (options: CreateDeliveryServiceOptions) => OutboundDeliveryService;
+  /** The Cloud accounts to drain. Injected so a test can run the tick with no database. */
+  listCloudAccounts?: () => Promise<CloudAccountRef[]>;
+  createCloudDeliveryService?: (account: CloudAccountRef) => OutboundDeliveryService;
 }
 
 /**
@@ -30,6 +44,7 @@ export interface CreateDeliveryRunnerOptions {
 export const createDeliveryRunner = ({
   config = env,
   sessionManager = getSessionManager(),
+  cloudRuntime = getCloudRuntime(),
   now = () => new Date(),
   createDeliveryService = ({ accountId }) =>
     createOutboundDeliveryService({
@@ -40,6 +55,16 @@ export const createDeliveryRunner = ({
           sessionManager.sendTextMessage({ accountId, to, text: text ?? undefined }),
         sendMediaMessage: (options) => sessionManager.sendMediaMessage({ accountId, ...options }),
       },
+    }),
+  listCloudAccounts = () => cloudRuntime.listSendableAccounts(),
+  // Same delivery service, same queue, same quiet hours and allowlist - only the transport
+  // underneath differs. That is the whole point of routing Cloud through `sessionService`
+  // rather than giving it a parallel sending path: there is one set of outbound rules.
+  createCloudDeliveryService = ({ accountId, organizationId }) =>
+    createOutboundDeliveryService({
+      config,
+      now,
+      sessionService: createCloudDeliverySession({ accountId, organizationId, runtime: cloudRuntime }),
     }),
 }: CreateDeliveryRunnerOptions = {}) => {
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -74,6 +99,20 @@ export const createDeliveryRunner = ({
         const deliveryService = createDeliveryService({ accountId });
 
         await deliveryService.drainQueue({ organizationId, whatsappAccountId: accountId });
+      }
+
+      // Cloud accounts are invisible to the session manager - they have no socket to appear in
+      // its runtime map - so they are read from the database instead. Without this half of the
+      // tick their queued messages would sit at `queued` forever, with nothing in the product
+      // saying why.
+      //
+      // Failure-isolated from the Baileys half above: a database hiccup here must not stop
+      // sockets that are working from draining.
+      for (const account of await listCloudAccounts()) {
+        await createCloudDeliveryService(account).drainQueue({
+          organizationId: account.organizationId,
+          whatsappAccountId: account.accountId,
+        });
       }
     } catch (error: unknown) {
       const err = error as { code?: unknown; name?: unknown };

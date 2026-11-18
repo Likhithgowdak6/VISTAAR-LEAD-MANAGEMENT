@@ -59,6 +59,7 @@ export interface ContactPrivatePii {
 }
 
 export interface DeliverySessionService {
+  providerKind?: 'cloud';
   sendTextMessage: (options: {
     to: string;
     text?: string | null;
@@ -71,6 +72,19 @@ export interface DeliverySessionService {
   sendMediaMessage?: (
     options: Omit<SendMediaMessageOptions, 'sessionHandle' | 'socket'>,
   ) => Promise<SendMediaMessageResult | { providerMessageId?: string | null }>;
+  /**
+   * Optional: only the Cloud API has approved templates. A Baileys session simply does not have
+   * this, and a message queued as a template against one fails permanently with
+   * `template_unsupported` rather than being quietly downgraded to free text - which would send
+   * the preview wording instead of the approved wording.
+   */
+  sendTemplateMessage?: (options: {
+    to: string;
+    name: string;
+    language: string;
+    bodyParameters: string[];
+    headerParameters: string[];
+  }) => Promise<SendTextMessageResult | { providerMessageId?: string | null }>;
 }
 
 export interface ContactRepositoryLike {
@@ -586,9 +600,33 @@ export const createOutboundDeliveryService = ({
       }
     }
 
+    // Recheck at delivery time: a reply held in the queue may outlive its service window.
+    if (sessionService.providerKind === 'cloud' && !message.cloudTemplate) {
+      const currentConversation = await findConversationById({ organizationId, conversationId: message.conversationId });
+      const inbound = currentConversation?.lastInboundAt;
+      const opensUntil = inbound ? new Date(inbound).getTime() + 24 * 60 * 60 * 1000 : 0;
+      if (!Number.isFinite(opensUntil) || opensUntil <= now().getTime()) {
+        await failPermanently({ organizationId, message, reason: 'window_closed', trace });
+        return { delivered: false, failed: true, permanent: true, reason: 'window_closed' };
+      }
+    }
+
     // (d) An attachment is read off disk here and nowhere earlier: a 12 MB video has no business
     // sitting in memory while the message waits in the queue, and a row that fails every guard
     // above should never have caused a disk read at all.
+    // (c2) A template message is checked before the attachment read below, because a template and
+    // an attachment are mutually exclusive on the wire and a template row never has media.
+    if (message.cloudTemplate && typeof sessionService.sendTemplateMessage !== 'function') {
+      await failPermanently({ organizationId, message, reason: 'template_unsupported', trace });
+
+      return {
+        delivered: false,
+        failed: true,
+        permanent: true,
+        reason: 'template_unsupported',
+      };
+    }
+
     let mediaPayload: { bytes: Buffer; kind: OutboundMediaKind } | null = null;
 
     if (message.mediaObjectKey) {
@@ -622,21 +660,32 @@ export const createOutboundDeliveryService = ({
     }
 
     try {
-      const result = mediaPayload
-        ? await sessionService.sendMediaMessage!({
+      const result = message.cloudTemplate
+        ? // Sends the template NAME and the stored values, never `message.body`. The body holds a
+          // rendered preview for the inbox; sending it would be free text, which is exactly what
+          // the template exists to avoid.
+          await sessionService.sendTemplateMessage!({
             to: recipient,
-            kind: mediaPayload.kind,
-            data: mediaPayload.bytes,
-            mimeType: message.media?.mimeType ?? 'application/octet-stream',
-            fileName: message.media?.fileName ?? null,
-            caption: message.body,
-            // Persisted at upload time; `audio` alone would arrive as an attached track.
-            isVoiceNote: message.media?.isVoiceNote === true,
+            name: message.cloudTemplate.name,
+            language: message.cloudTemplate.language,
+            bodyParameters: message.cloudTemplate.bodyParameters ?? [],
+            headerParameters: message.cloudTemplate.headerParameters ?? [],
           })
-        : await sessionService.sendTextMessage({
-            to: recipient,
-            text: message.body,
-          });
+        : mediaPayload
+          ? await sessionService.sendMediaMessage!({
+              to: recipient,
+              kind: mediaPayload.kind,
+              data: mediaPayload.bytes,
+              mimeType: message.media?.mimeType ?? 'application/octet-stream',
+              fileName: message.media?.fileName ?? null,
+              caption: message.body,
+              // Persisted at upload time; `audio` alone would arrive as an attached track.
+              isVoiceNote: message.media?.isVoiceNote === true,
+            })
+          : await sessionService.sendTextMessage({
+              to: recipient,
+              text: message.body,
+            });
 
       await messageRepository.markOutboundMessageSent({
         messageId: message._id,
@@ -726,7 +775,18 @@ export const createOutboundDeliveryService = ({
         messageId: message._id.toString(),
       };
     } catch (error: unknown) {
-      const permanent = message.deliveryAttempts >= maxAttempts;
+      // A provider may declare its own refusal unretryable, and when it does that answer wins.
+      //
+      // The attempt count alone is the right rule for a dropped socket, which is what Baileys
+      // fails with. It is the wrong rule for most of what the Cloud API refuses: a closed
+      // 24-hour window will still be closed in thirty seconds, a rejected template will not
+      // approve itself, and a revoked token will not come back. Walking the backoff ladder to
+      // the same answer wastes fifteen minutes before the agent is told anything - and in the
+      // window case, fifteen minutes during which they could have sent a template instead.
+      //
+      // Baileys never sets this flag, so its behaviour is exactly what it was.
+      const providerSaysPermanent = (error as { permanent?: unknown })?.permanent === true;
+      const permanent = providerSaysPermanent || message.deliveryAttempts >= maxAttempts;
       const nextAttemptAt = permanent
         ? null
         : new Date(now().getTime() + computeBackoffMs(message.deliveryAttempts));
