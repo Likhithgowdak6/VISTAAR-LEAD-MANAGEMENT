@@ -6,6 +6,8 @@ import {
   removeAccount,
   resetAccount,
   resumeAccount,
+  syncAccountTemplates,
+  testCloudAccount,
 } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../lib/permissions';
@@ -102,6 +104,19 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
 
   const status = localStatus ?? account.status;
   const canConnect = ['pending', 'disconnected', 'reconnecting'].includes(status);
+  const isCloud = account.provider === 'cloud';
+
+  // A Cloud number has no stored WhatsApp Web login, so Reset has nothing to clear; the server
+  // refuses it. Hidden rather than shown disabled, so nobody tries it when a number stops working
+  // and concludes the product is broken.
+  const canReset = !isCloud && status !== 'pending';
+
+  // Meta's own warning that a number is about to be limited. There is nowhere else in the product
+  // this surfaces, and by the time it shows in Meta's dashboard the limiting has usually started.
+  const qualityWarning =
+    isCloud && (account.cloud?.qualityRating === 'RED' || account.cloud?.qualityRating === 'YELLOW')
+      ? account.cloud.qualityRating
+      : null;
 
   return (
     <li className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -109,8 +124,30 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
         <div className="flex items-center gap-2">
           <span className="truncate font-semibold text-slate-900">{account.name}</span>
           <AccountStatusBadge status={status} />
+          {isCloud ? (
+            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              Official API
+            </span>
+          ) : null}
+          {qualityWarning ? (
+            <span
+              title="Meta rates this number's quality. A low rating is the warning before it limits how many people you can message."
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                qualityWarning === 'RED'
+                  ? 'bg-red-50 text-red-700'
+                  : 'bg-amber-50 text-amber-700'
+              }`}
+            >
+              Quality {qualityWarning.toLowerCase()}
+            </span>
+          ) : null}
         </div>
-        <p className="truncate text-xs text-slate-400">{account.brandKey}</p>
+        <p className="truncate text-xs text-slate-400">
+          {account.brandKey}
+          {isCloud && account.cloud?.displayPhoneNumber
+            ? ` · ${account.cloud.displayPhoneNumber}`
+            : ''}
+        </p>
       </div>
 
       {canManage ? (
@@ -144,13 +181,30 @@ const AccountRow = ({ account, onConnect, onChanged, onRemoved }: Props) => {
               Disconnect
             </ActionButton>
           ) : null}
-          {status !== 'pending' ? (
+          {canReset ? (
             <ActionButton
               onClick={() => run((token) => resetAccount({ token, accountId: account.id }))}
               disabled={busy}
             >
               Reset
             </ActionButton>
+          ) : null}
+          {isCloud && account.cloud?.phoneNumberId ? (
+            <>
+              {/* "Is this still working?" — the only way to find out before a customer does. */}
+              <ActionButton
+                onClick={() => run((token) => testCloudAccount({ token, accountId: account.id }))}
+                disabled={busy}
+              >
+                Test
+              </ActionButton>
+              <ActionButton
+                onClick={() => run((token) => syncAccountTemplates({ token, accountId: account.id }))}
+                disabled={busy}
+              >
+                Sync templates
+              </ActionButton>
+            </>
           ) : null}
           <ActionButton tone="danger" onClick={() => setConfirmingRemove(true)} disabled={busy}>
             Remove

@@ -4,6 +4,7 @@ import { listAccounts } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import AccountRow from '../components/accounts/AccountRow';
 import AddAccountForm from '../components/accounts/AddAccountForm';
+import ConnectCloudModal from '../components/accounts/ConnectCloudModal';
 import ConnectQrModal from '../components/accounts/ConnectQrModal';
 import EmptyState from '../components/EmptyState';
 import Spinner from '../components/Spinner';
@@ -25,6 +26,9 @@ const AccountsPage = ({ embedded = false }: AccountsPageProps) => {
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<WhatsAppAccount | null>(null);
   const [removalNotice, setRemovalNotice] = useState<string | null>(null);
+  // Defaults to false so a stale or older API, which sends no such flag, simply does not offer
+  // the Cloud option - rather than offering one the server would refuse.
+  const [cloudAvailable, setCloudAvailable] = useState(false);
   const canManage = hasPermission(permissions, PERMISSIONS.ACCOUNTS_MANAGE);
 
   const load = useCallback(async () => {
@@ -33,6 +37,7 @@ const AccountsPage = ({ embedded = false }: AccountsPageProps) => {
       // The API already leaves removed accounts out of the default list; this is belt and braces
       // so a soft-removed number can never reappear here with a grey "Removed" badge.
       setAccounts((payload.data ?? []).filter((account) => account.status !== 'removed'));
+      setCloudAvailable(payload.meta?.cloudAvailable === true);
       setError(null);
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load accounts.');
@@ -88,7 +93,7 @@ const AccountsPage = ({ embedded = false }: AccountsPageProps) => {
         </div>
       ) : null}
 
-      {canManage ? <AddAccountForm onCreated={load} /> : null}
+      {canManage ? <AddAccountForm onCreated={load} cloudAvailable={cloudAvailable} /> : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (
@@ -117,15 +122,29 @@ const AccountsPage = ({ embedded = false }: AccountsPageProps) => {
         </ul>
       </div>
 
+      {/* The two connect flows have nothing in common: one polls for a QR scan, the other is a
+          credentials form. Chosen by the account's own provider rather than by a toggle, so a
+          number can never be offered the flow it cannot complete. */}
       {connecting ? (
-        <ConnectQrModal
-          account={connecting}
-          onClose={() => {
-            setConnecting(null);
-            void load();
-          }}
-          onConnected={load}
-        />
+        connecting.provider === 'cloud' ? (
+          <ConnectCloudModal
+            account={connecting}
+            onClose={() => {
+              setConnecting(null);
+              void load();
+            }}
+            onConnected={load}
+          />
+        ) : (
+          <ConnectQrModal
+            account={connecting}
+            onClose={() => {
+              setConnecting(null);
+              void load();
+            }}
+            onConnected={load}
+          />
+        )
       ) : null}
     </div>
   );

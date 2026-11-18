@@ -3,6 +3,7 @@ import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from 'r
 import { type UploadedMedia } from '../api/endpoints';
 import { formatFileSize } from '../lib/format';
 import { type MessageTemplate } from '../types';
+import { formatWindowRemaining, resolveServiceWindow } from '../utils/serviceWindow';
 import VoiceRecorder from './composer/VoiceRecorder';
 import { errorMessage, type SendableAccount } from './types';
 
@@ -63,6 +64,8 @@ type Props = {
    * on its own, and lives in a dialog so it does not crowd the composer on a phone.
    */
   onOpenTemplates?: () => void;
+  /** A reviewed AI reply can be inserted without changing the template writer. */
+  onOpenSuggestion?: () => void;
   canUseTemplates?: boolean;
   /** Numbers with a live session that this user may send from. */
   sendableAccounts?: readonly SendableAccount[];
@@ -87,15 +90,26 @@ type Props = {
    * Each insert carries a `nonce` so that choosing the SAME saved message twice in a row still
    * registers: comparing the text alone would make the second pick a no-op.
    */
-  starredInsert?: { body: string; nonce: number } | null;
+  starredInsert?: { body: string; nonce: number; source?: 'suggestion' } | null;
   /** Called once an insert has been applied or declined, so the parent can clear it. */
   onStarredInsertHandled?: () => void;
+  /**
+   * When the customer last wrote. Only meaningful on a Cloud API number, where it decides whether
+   * WhatsApp will accept free text at all - see utils/serviceWindow.ts.
+   */
+  lastInboundAt?: string | null;
+  /**
+   * Opens the approved-template picker. Rendered only when the open thread is on a Cloud number;
+   * outside the 24-hour window it becomes the only way to send anything at all.
+   */
+  onOpenWhatsAppTemplates?: (accountId: string) => void;
 };
 
 const MessageComposer = ({
   onSend,
   onUploadMedia,
   onOpenTemplates,
+  onOpenSuggestion,
   canUseTemplates = false,
   sendableAccounts = [],
   currentAccountId = null,
@@ -104,6 +118,8 @@ const MessageComposer = ({
   onOpenStarred,
   starredInsert = null,
   onStarredInsertHandled,
+  lastInboundAt = null,
+  onOpenWhatsAppTemplates,
 }: Props) => {
   const [body, setBody] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -224,7 +240,9 @@ const MessageComposer = ({
 
     const accepted =
       body.trim() === '' ||
-      window.confirm('Replace what you have typed with this saved message?');
+      window.confirm(starredInsert.source === 'suggestion'
+        ? 'Replace what you have typed with this AI reply draft?'
+        : 'Replace what you have typed with this saved message?');
 
     if (accepted) {
       // The insert itself. Synchronous by nature: the parent has handed down a one-shot
@@ -258,10 +276,42 @@ const MessageComposer = ({
   const isSwitchingAccount =
     activeAccountId !== null && currentAccountId !== null && activeAccountId !== currentAccountId;
 
+  /**
+   * Whether the number this message would actually go out on is a Cloud API number.
+   *
+   * Resolved from `activeAccountId` rather than from the thread, so switching the send-from
+   * dropdown to a Cloud number immediately shows the 24-hour rule - the agent should learn it
+   * before they type, not after the send bounces.
+   */
+  const activeAccount = sendableAccounts.find((account) => account.id === activeAccountId);
+  const isCloudAccount = activeAccount?.provider === 'cloud';
+
+  const serviceWindow = resolveServiceWindow({ lastInboundAt: isSwitchingAccount ? null : lastInboundAt });
+
+  // ONLY a Cloud number has a window. A Baileys thread can always send free text, and showing it
+  // a countdown would be describing a rule that does not apply to it.
+  const windowBlocksFreeText = isCloudAccount && !serviceWindow.canSendFreeText;
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const trimmed = body.trim();
+
+    /*
+      Refuse a send WhatsApp is certain to reject.
+
+      Not a substitute for the server's own check - the clock here is the browser's, and the real
+      authority is Meta - but it turns "your message bounced" into "you need a template", at the
+      moment the agent can still act on it. The message is deliberately left in the box so nothing
+      they typed is lost.
+    */
+    if (windowBlocksFreeText) {
+      setError(
+        'WhatsApp will not deliver a free-form message to this lead right now. Choose an approved template instead.',
+      );
+
+      return;
+    }
 
     // An attachment can travel with no caption; text alone still has to be text.
     if ((!trimmed && !attachment) || submittingRef.current) {
@@ -323,7 +373,53 @@ const MessageComposer = ({
           {error}
         </p>
       ) : null}
-      {canUseTemplates || showAccountPicker || templates.length > 0 || onOpenStarred ? (
+
+      {/*
+        The 24-hour rule, stated where it is about to matter.
+
+        Three distinct situations, because the right next action differs:
+          - never messaged  → this is a Lead Ads lead; a template is the ONLY opening move;
+          - closed          → they went quiet; a template is how to reopen the conversation;
+          - closing         → still fine, but say so while there is time to act.
+      */}
+      {isCloudAccount && serviceWindow.state !== 'open' ? (
+        <div
+          role="status"
+          className={`mb-2 rounded-lg px-3 py-2 text-xs ${
+            windowBlocksFreeText
+              ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300'
+              : 'bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+          }`}
+        >
+          {serviceWindow.state === 'never-opened' ? (
+            <>
+              This lead has never messaged you, so WhatsApp will only deliver an approved
+              template.
+            </>
+          ) : serviceWindow.state === 'closed' ? (
+            <>
+              It has been more than 24 hours since they last wrote, so WhatsApp will only deliver
+              an approved template.
+            </>
+          ) : (
+            <>
+              {formatWindowRemaining(serviceWindow.remainingMs)} left to reply freely. After that
+              only an approved template will send.
+            </>
+          )}
+          {onOpenWhatsAppTemplates ? (
+            <button
+              type="button"
+              onClick={() => activeAccountId && onOpenWhatsAppTemplates?.(activeAccountId)}
+              className="ml-2 font-semibold underline underline-offset-2"
+            >
+              Choose a template
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {canUseTemplates || onOpenSuggestion || showAccountPicker || templates.length > 0 || onOpenStarred ? (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {templates.length > 0 ? (
@@ -352,6 +448,16 @@ const MessageComposer = ({
                 className="h-8 rounded-full bg-amber-500/15 px-3 text-xs font-semibold text-amber-700 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
               >
                 ★ Starred
+              </button>
+            ) : null}
+            {onOpenSuggestion ? (
+              <button
+                type="button"
+                onClick={onOpenSuggestion}
+                disabled={sending}
+                className="h-8 rounded-full bg-blue-500/12 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-300"
+              >
+                Suggest reply
               </button>
             ) : null}
             {canUseTemplates && onOpenTemplates ? (

@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import MessageComposer from '../components/MessageComposer';
 
+// Both Baileys, because this file is about the picker itself. The Cloud API's effect on the
+// composer - the 24-hour window and the template picker - is covered in cloud-composer.test.tsx.
 const ACCOUNTS = [
-  { id: 'acc-1', name: 'Studio Main', brandKey: 'studio-main' },
-  { id: 'acc-2', name: 'Studio Events', brandKey: 'studio-events' },
+  { id: 'acc-1', name: 'Studio Main', brandKey: 'studio-main', provider: 'baileys' as const },
+  { id: 'acc-2', name: 'Studio Events', brandKey: 'studio-events', provider: 'baileys' as const },
 ];
 
 const typeAndSend = (text: string) => {

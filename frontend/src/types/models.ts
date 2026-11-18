@@ -191,6 +191,13 @@ export interface Conversation {
   summary: string | null;
   unreadCount: number;
   lastMessageAt: string | null;
+  /**
+   * When the CUSTOMER last wrote, as distinct from `lastMessageAt`, which mixes both directions.
+   *
+   * On a Cloud API thread this is what decides whether WhatsApp will accept free text at all:
+   * the 24-hour service window is measured from here. See utils/serviceWindow.ts.
+   */
+  lastInboundAt: string | null;
   lastMessagePreview: string | null;
   nextFollowUpAt: string | null;
   status: ConversationStatus;
@@ -463,6 +470,34 @@ export interface ActivityLog {
   createdAt: string | null;
 }
 
+/**
+ * How a number is connected, which changes what the UI may offer.
+ *
+ *   baileys — QR scan, a live socket, free text at any time, no Meta approval.
+ *   cloud   — Meta's official API. No QR. Free text only within 24 hours of the customer's last
+ *             message; outside that, an approved template is the only thing that will send.
+ */
+export type WhatsAppProviderKind = 'baileys' | 'cloud';
+
+/**
+ * The Cloud connection, as the dashboard is allowed to see it.
+ *
+ * `tokenLast4` is the ONLY part of the access token that ever crosses the API boundary, and it
+ * exists so an admin rotating a credential can tell the old one from the new one. There is no
+ * endpoint that returns the token itself.
+ */
+export interface WhatsAppCloudConfig {
+  phoneNumberId: string | null;
+  wabaId: string | null;
+  displayPhoneNumber: string | null;
+  verifiedName: string | null;
+  /** Meta's GREEN / YELLOW / RED rating. RED is the warning before Meta limits the number. */
+  qualityRating: string | null;
+  tokenLast4: string | null;
+  verifiedAt: string | null;
+  templatesSyncedAt: string | null;
+}
+
 export interface WhatsAppAccount {
   id: string;
   organizationId: string | null;
@@ -470,6 +505,9 @@ export interface WhatsAppAccount {
   description: string | null;
   brandKey: string | null;
   status: AccountStatus;
+  provider: WhatsAppProviderKind;
+  /** Null on a Baileys number, which has no such thing. */
+  cloud: WhatsAppCloudConfig | null;
   ownerUserId: string | null;
   settings: {
     outboundIntervalMs: number | null;
@@ -833,6 +871,51 @@ export interface SendableAccount {
   id: string;
   name: string;
   brandKey: string | null;
+  /**
+   * Which API this number sends through. The composer needs it: a Cloud number cannot send free
+   * text outside the 24-hour window, and without this the only way an agent would find out is a
+   * message that bounces.
+   */
+  provider: WhatsAppProviderKind;
+}
+
+/** A WhatsApp message template, as Meta approved it. See whatsapp-template.model.ts. */
+export type WhatsAppTemplateStatus =
+  | 'APPROVED'
+  | 'PENDING'
+  | 'REJECTED'
+  | 'PAUSED'
+  | 'DISABLED'
+  | 'UNKNOWN';
+
+export interface WhatsAppTemplate {
+  id: string;
+  whatsappAccountId: string | null;
+  name: string;
+  language: string;
+  status: WhatsAppTemplateStatus;
+  category: string | null;
+  /** The approved wording, placeholders and all. Shown so an agent reads what they will send. */
+  bodyText: string | null;
+  headerText: string | null;
+  footerText: string | null;
+  /** How many values the body needs. The composer refuses to send with the wrong number. */
+  bodyVariableCount: number;
+  headerVariableCount: number;
+  syncedAt: string | null;
+}
+
+export interface WhatsAppTemplateSyncResult {
+  synced: number;
+  removed: number;
+  syncedAt: string;
+}
+
+export interface CloudConnectionTest {
+  ok: boolean;
+  displayPhoneNumber: string | null;
+  verifiedName: string | null;
+  qualityRating: string | null;
 }
 
 export interface RevealPhoneResult {

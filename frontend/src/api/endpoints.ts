@@ -78,7 +78,11 @@ import {
   type TestOwnerCallOutcome,
   type User,
   type UserStatus,
+  type CloudConnectionTest,
   type WhatsAppAccount,
+  type WhatsAppProviderKind,
+  type WhatsAppTemplate,
+  type WhatsAppTemplateSyncResult,
 } from '../types';
 
 // --- Auth (cookie-based refresh; no token needed for these three) ---
@@ -292,6 +296,19 @@ export interface SendMessageParams extends ConversationIdParams {
   whatsappAccountId?: string | null;
   /** An attachment already uploaded to this conversation. */
   media?: UploadedMedia | null;
+  /**
+   * Send an approved WhatsApp template instead of free text.
+   *
+   * Only the name, language and placeholder values travel. The approved WORDING is never sent
+   * from here: the server looks it up from the synced cache, so the client cannot put words into
+   * a customer's thread that Meta did not approve.
+   */
+  template?: {
+    name: string;
+    language: string;
+    bodyParameters: string[];
+    headerParameters: string[];
+  } | null;
 }
 
 export const sendMessage = ({
@@ -301,6 +318,7 @@ export const sendMessage = ({
   idempotencyKey,
   whatsappAccountId,
   media,
+  template,
 }: SendMessageParams): Promise<ApiSuccessResponse<Message>> =>
   apiFetch(`/conversations/${conversationId}/messages`, {
     method: 'POST',
@@ -310,6 +328,7 @@ export const sendMessage = ({
       idempotencyKey,
       ...(whatsappAccountId ? { whatsappAccountId } : {}),
       ...(media ? { media } : {}),
+      ...(template ? { template } : {}),
     },
   });
 
@@ -793,6 +812,8 @@ export interface CreateAccountParams extends TokenParams {
   name: string;
   brandKey?: string | null;
   description?: string | null;
+  /** Omitted means Baileys, which is what the API defaults to and what every old client sends. */
+  provider?: WhatsAppProviderKind;
 }
 
 export const createAccount = ({
@@ -800,12 +821,78 @@ export const createAccount = ({
   name,
   brandKey,
   description,
+  provider,
 }: CreateAccountParams): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
   apiFetch('/whatsapp-accounts', {
     method: 'POST',
     token,
-    body: { name, brandKey, description },
+    body: { name, brandKey, description, ...(provider ? { provider } : {}) },
   });
+
+export interface ConnectCloudAccountParams extends AccountIdParams {
+  phoneNumberId: string;
+  wabaId: string;
+  accessToken: string;
+}
+
+/**
+ * Connects a number through Meta's official Cloud API.
+ *
+ * The token is sent once and never comes back: the response carries only its last four
+ * characters. Rotating a credential means pasting a new one, which is the only arrangement where
+ * a stolen dashboard session cannot walk off with a customer's WhatsApp credentials.
+ */
+export const connectCloudAccount = ({
+  token,
+  accountId,
+  phoneNumberId,
+  wabaId,
+  accessToken,
+}: ConnectCloudAccountParams): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud`, {
+    method: 'POST',
+    token,
+    body: { phoneNumberId, wabaId, accessToken },
+  });
+
+/** Re-checks stored credentials against Meta, and refreshes the quality rating. */
+export const testCloudAccount = ({
+  token,
+  accountId,
+}: AccountIdParams): Promise<ApiSuccessResponse<CloudConnectionTest>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud/test`, { method: 'POST', token });
+
+export const disconnectCloudAccount = ({
+  token,
+  accountId,
+}: AccountIdParams): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud`, { method: 'DELETE', token });
+
+/**
+ * Deliberately NOT `ListTemplatesParams`, which already belongs to the CRM's own saved replies
+ * at `/templates`. The two are different things - one is the owner's text, the other is Meta's -
+ * and a shared name there would be an easy mistake to make and a confusing one to find.
+ */
+export interface ListWhatsAppTemplatesParams extends AccountIdParams {
+  /** Only what WhatsApp will actually accept. The composer asks for this; the admin page does not. */
+  approvedOnly?: boolean;
+}
+
+export const listAccountTemplates = ({
+  token,
+  accountId,
+  approvedOnly = false,
+}: ListWhatsAppTemplatesParams): Promise<ApiSuccessResponse<WhatsAppTemplate[]>> =>
+  apiFetch(
+    `/whatsapp-accounts/${accountId}/templates${approvedOnly ? '?approvedOnly=true' : ''}`,
+    { token },
+  );
+
+export const syncAccountTemplates = ({
+  token,
+  accountId,
+}: AccountIdParams): Promise<ApiSuccessResponse<WhatsAppTemplateSyncResult>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/templates/sync`, { method: 'POST', token });
 
 export interface ConnectAccountParams extends AccountIdParams {
   pairingPhoneNumber?: string | null;
@@ -978,8 +1065,9 @@ export const changePassword = ({
 export const generateAiDraft = ({
   token,
   conversationId,
-}: ConversationIdParams): Promise<ApiSuccessResponse<AiDraft>> =>
-  apiFetch(`/conversations/${conversationId}/ai-draft`, { method: 'POST', token });
+  signal,
+}: ConversationIdParams & { signal?: AbortSignal }): Promise<ApiSuccessResponse<AiDraft>> =>
+  apiFetch(`/conversations/${conversationId}/ai-draft`, { method: 'POST', token, signal });
 
 export interface RecordAiDraftOutcomeParams extends ConversationIdParams {
   draftId: string;

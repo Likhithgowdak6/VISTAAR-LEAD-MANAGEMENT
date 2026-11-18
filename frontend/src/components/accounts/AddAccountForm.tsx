@@ -19,11 +19,39 @@ type AccountForm = {
 
 type Props = {
   onCreated?: () => void;
+  /**
+   * Whether this installation can offer the Cloud API at all (WHATSAPP_CLOUD_ENABLED on the
+   * server). When false the choice is hidden entirely rather than shown disabled: an option
+   * nobody can pick is just a question the admin cannot answer.
+   */
+  cloudAvailable?: boolean;
 };
 
-const AddAccountForm = ({ onCreated }: Props) => {
+/**
+ * The two ways a number can connect, described in the terms that actually decide which one an
+ * owner wants. The 24-hour rule is stated here rather than discovered later, because it is the
+ * difference that changes how the inbox works every day.
+ */
+const PROVIDER_CHOICES = [
+  {
+    value: 'baileys' as const,
+    title: 'Link by QR code',
+    summary: 'Scan a QR from WhatsApp on your phone. Free, and you can message anyone, any time.',
+    caveat: 'Unofficial. Meta may ban the number, and the phone must stay online.',
+  },
+  {
+    value: 'cloud' as const,
+    title: 'Official WhatsApp API',
+    summary: "Meta's own API. Nothing to keep online, and the number cannot be banned for using it.",
+    caveat:
+      'Meta charges per conversation, and after 24 hours of silence you can only send an approved template.',
+  },
+];
+
+const AddAccountForm = ({ onCreated, cloudAvailable = false }: Props) => {
   const { authedRequest } = useAuth() as AuthValue;
   const [form, setForm] = useState<AccountForm>({ name: '', brandKey: '', description: '' });
+  const [provider, setProvider] = useState<'baileys' | 'cloud'>('baileys');
   const [brandKeyTouched, setBrandKeyTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,9 +80,11 @@ const AddAccountForm = ({ onCreated }: Props) => {
           name: form.name.trim(),
           brandKey: toBrandKey(form.brandKey || form.name),
           description: form.description.trim() || undefined,
+          provider,
         }),
       );
       setForm({ name: '', brandKey: '', description: '' });
+      setProvider('baileys');
       setBrandKeyTouched(false);
       onCreated?.();
     } catch (submitError: unknown) {
@@ -100,6 +130,48 @@ const AddAccountForm = ({ onCreated }: Props) => {
           />
         </div>
       </div>
+
+      {cloudAvailable ? (
+        <fieldset className="mt-4">
+          <legend className="mb-2 text-xs font-medium text-slate-600">How it connects</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {PROVIDER_CHOICES.map((choice) => {
+              const selected = provider === choice.value;
+
+              return (
+                <label
+                  key={choice.value}
+                  className={`cursor-pointer rounded-lg border p-3 text-left transition ${
+                    selected
+                      ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <span className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="acct-provider"
+                      value={choice.value}
+                      checked={selected}
+                      onChange={() => setProvider(choice.value)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-900">
+                        {choice.title}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-600">{choice.summary}</span>
+                      {/* Stated up front rather than in a tooltip: both of these change how the
+                          number behaves every day, and finding out later is expensive. */}
+                      <span className="mt-1 block text-xs text-amber-700">{choice.caveat}</span>
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      ) : null}
 
       {error ? (
         <p role="alert" className="mt-2 text-xs text-red-600">

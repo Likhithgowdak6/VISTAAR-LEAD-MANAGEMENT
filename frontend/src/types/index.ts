@@ -102,5 +102,11 @@ export type {
   TestOwnerCallOutcome,
   User,
   UserStatus,
+  CloudConnectionTest,
   WhatsAppAccount,
+  WhatsAppCloudConfig,
+  WhatsAppProviderKind,
+  WhatsAppTemplate,
+  WhatsAppTemplateStatus,
+  WhatsAppTemplateSyncResult,
 } from './models';

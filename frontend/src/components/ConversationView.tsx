@@ -24,8 +24,10 @@ import ConversationSummaryPanel from './ConversationSummaryPanel';
 import EmptyState from './EmptyState';
 import LeadPanel from './lead/LeadPanel';
 import MessageTemplatesDialog from './MessageTemplatesDialog';
+import ReplySuggestionDialog from './ReplySuggestionDialog';
 import MobileAppBar from './mobile/MobileAppBar';
 import MessageComposer from './MessageComposer';
+import WhatsAppTemplateDialog from './WhatsAppTemplateDialog';
 import MessageThread from './MessageThread';
 import Spinner from './Spinner';
 import StarredMessagesDialog from './StarredMessagesDialog';
@@ -130,6 +132,8 @@ const ConversationView = ({
    * `aiCategory` and `aiFacts`, which this component already holds and the composer does not.
    */
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [suggestionOpen, setSuggestionOpen] = useState(false);
+  const [whatsAppTemplateAccount, setWhatsAppTemplateAccount] = useState<string | null>(null);
 
   /**
    * The user's own saved messages.
@@ -146,7 +150,7 @@ const ConversationView = ({
    * The pending insert for the composer. The nonce is what makes picking the same saved
    * message twice in a row work - the text alone would compare equal and be ignored.
    */
-  const [starredInsert, setStarredInsert] = useState<{ body: string; nonce: number } | null>(null);
+  const [starredInsert, setStarredInsert] = useState<{ body: string; nonce: number; source?: 'suggestion' } | null>(null);
   const closeDetails = useCallback(() => setDetailsOpen(false), []);
 
   /**
@@ -366,6 +370,46 @@ const ConversationView = ({
     [authedRequest, conversationId],
   );
 
+  /**
+   * Sending an approved WhatsApp template.
+   *
+   * Its own call rather than a branch inside `handleSend`, because almost nothing is shared: a
+   * template carries no body the agent wrote and cannot carry an attachment. The selected
+   * sending account owns the approved template list and is included explicitly in the request.
+   *
+   * The server renders the preview body from its own cached copy of the approved wording, so the
+   * message that lands in the thread is what the customer received rather than anything composed
+   * here.
+   */
+  const handleSendTemplate = useCallback(
+    async (selection: {
+      name: string;
+      language: string;
+      bodyParameters: string[];
+      headerParameters: string[];
+    }) => {
+      const payload = await authedRequest((token) =>
+        sendMessage({
+          token,
+          conversationId,
+          idempotencyKey: `tpl-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          template: selection,
+          whatsappAccountId: whatsAppTemplateAccount,
+        }),
+      );
+
+      if (payload?.data) {
+        setMessages((current) => mergeDesc(current, [payload.data]));
+      }
+      if (whatsAppTemplateAccount && whatsAppTemplateAccount !== detail?.whatsappAccount?.id) {
+        authedRequest((token) => getConversation({ token, conversationId }))
+          .then((conversationPayload) => setDetail(conversationPayload.data ?? null))
+          .catch(() => {});
+      }
+    },
+    [authedRequest, conversationId, whatsAppTemplateAccount, detail?.whatsappAccount?.id],
+  );
+
   const handleSend = useCallback(
     async ({
       body,
@@ -559,6 +603,7 @@ const ConversationView = ({
           onSend={handleSend}
           onUploadMedia={handleUploadMedia}
           onOpenTemplates={() => setTemplatesOpen(true)}
+          onOpenSuggestion={canUseTemplates && canSendMessages ? () => setSuggestionOpen(true) : undefined}
           canUseTemplates={canUseTemplates}
           sendableAccounts={sendableAccounts}
           currentAccountId={whatsappAccount?.id ?? null}
@@ -567,7 +612,35 @@ const ConversationView = ({
           onOpenStarred={canSendMessages ? () => setStarredOpen(true) : undefined}
           starredInsert={starredInsert}
           onStarredInsertHandled={() => setStarredInsert(null)}
+          lastInboundAt={conversation?.lastInboundAt ?? null}
+          // Offered only when this thread is on a Cloud number AND the user may send. On a
+          // Baileys thread there are no WhatsApp templates to pick from, and the composer hides
+          // the whole 24-hour affordance.
+          onOpenWhatsAppTemplates={
+            canSendMessages ? (accountId) => setWhatsAppTemplateAccount(accountId) : undefined
+          }
         />
+
+        {whatsAppTemplateAccount ? (
+          <WhatsAppTemplateDialog
+            key={conversationId}
+            accountId={whatsAppTemplateAccount}
+            onClose={() => setWhatsAppTemplateAccount(null)}
+            onSend={handleSendTemplate}
+          />
+        ) : null}
+
+        {suggestionOpen && canUseTemplates && canSendMessages && conversation ? (
+          <ReplySuggestionDialog
+            key={conversationId}
+            conversationId={conversationId}
+            onClose={() => setSuggestionOpen(false)}
+            onUse={(body) => {
+              setStarredInsert({ body, nonce: Date.now(), source: 'suggestion' });
+              setSuggestionOpen(false);
+            }}
+          />
+        ) : null}
 
         {/* Keyed on the thread, so switching leads remounts the writer and one lead's drafts
             cannot be left on screen looking ready to send to another. The `generatedFor` stamp
