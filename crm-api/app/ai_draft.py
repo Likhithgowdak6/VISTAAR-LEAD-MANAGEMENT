@@ -43,34 +43,57 @@ class AiProvider(Protocol):
 
 
 class DefaultAiProvider:
-    """Mock/default provider when no external LLM API is configured or in test mode."""
+    """Configured provider only; failures must never masquerade as generated replies."""
 
     async def generate_reply_draft(self, *, system_prompt: str, thread_text: str) -> dict[str, str]:
-        if settings.ai_provider == "anthropic" and settings.anthropic_api_key:
-            try:
-                import httpx
-                headers = {
-                    "x-api-key": settings.anthropic_api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                }
-                payload = {
-                    "model": settings.ai_model,
-                    "max_tokens": settings.ai_max_output_tokens,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": thread_text}],
-                }
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        text = data.get("content", [{}])[0].get("text", "")
-                        return {"draftText": text}
-            except Exception as e:
-                logger.error("Anthropic API draft generation failed: %s", e)
+        import httpx
 
-        # Fallback draft text for test/offline environments
-        return {"draftText": "Hello! Thank you for reaching out. How can I assist you further today?"}
+        provider = settings.ai_provider
+        if provider == "anthropic" and settings.anthropic_api_key:
+            url = "https://api.anthropic.com/v1/messages"
+            headers = {
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            payload = {
+                "model": settings.ai_model,
+                "max_tokens": settings.ai_max_output_tokens,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": thread_text}],
+            }
+        elif provider in ("grok", "groq"):
+            key = settings.xai_api_key if provider == "grok" else settings.groq_api_key
+            if not key:
+                raise _http_error(502, "AI_PROVIDER_NOT_READY", "AI reply suggestions are not configured. Ask an admin to check the AI settings.")
+            url = "https://api.x.ai/v1/chat/completions" if provider == "grok" else "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+            payload = {
+                "model": settings.ai_model,
+                "max_tokens": settings.ai_max_output_tokens,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": thread_text},
+                ],
+            }
+        else:
+            raise _http_error(502, "AI_PROVIDER_NOT_READY", "AI reply suggestions are not configured. Ask an admin to check the AI settings.")
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+            if provider == "anthropic":
+                text = "\n".join(block["text"] for block in data["content"] if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str))
+            else:
+                text = data["choices"][0]["message"]["content"]
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("Empty draft")
+            return {"draftText": text.strip()}
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as error:
+            logger.warning("AI reply suggestion failed (%s)", type(error).__name__)
+            raise _http_error(502, "AI_PROVIDER_ERROR", "Unable to generate a reply right now. Please try again.") from None
 
 
 _ai_provider: AiProvider | None = None

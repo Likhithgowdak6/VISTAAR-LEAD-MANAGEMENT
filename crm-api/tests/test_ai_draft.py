@@ -22,6 +22,16 @@ CONV = ObjectId()
 CONTACT = ObjectId()
 
 
+@pytest.fixture(autouse=True)
+def synthetic_provider():
+    class Provider:
+        async def generate_reply_draft(self, **kwargs):
+            return {"draftText": "Hello! Thank you for reaching out. What date is your event?"}
+    ai_draft.set_ai_provider(Provider())
+    yield
+    ai_draft.set_ai_provider(None)
+
+
 def token(*, role: str = "staff", perms: list[str] | None = None) -> str:
     return jwt.encode(
         {
