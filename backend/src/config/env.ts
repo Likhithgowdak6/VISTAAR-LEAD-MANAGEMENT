@@ -110,6 +110,24 @@ export const envSchema = z.object({
 
   WHATSAPP_ENABLED: booleanString.default(false),
 
+  // --- WhatsApp Cloud API (Meta's official API) ------------------------------------------
+  //
+  // The PROVIDER IS CHOSEN PER ACCOUNT, not here: an organisation can run one number on Baileys
+  // and another on the Cloud API at the same time, and `WHATSAPP_PROVIDER` above stays what it
+  // always was. This flag only decides whether the Cloud option is offered at all, so an
+  // installation with no Meta app never shows a connect form nobody can complete.
+  WHATSAPP_CLOUD_ENABLED: booleanString.default(false),
+
+  // The verify token typed into Meta's webhook console for the WhatsApp product. Deliberately
+  // separate from META_WEBHOOK_VERIFY_TOKEN: Meta stores one per product, and sharing a value
+  // means rotating it for WhatsApp silently unsubscribes Lead Ads.
+  WHATSAPP_CLOUD_WEBHOOK_VERIFY_TOKEN: z.string().default(''),
+
+  // The app secret the inbound webhook signature is verified against. Falls back to
+  // META_APP_SECRET when unset, which is right for the common case of one Meta app serving both
+  // products; set it only when WhatsApp lives in a different app than the lead forms.
+  WHATSAPP_CLOUD_APP_SECRET: z.string().default(''),
+
   WHATSAPP_POC_ACCOUNT_ID: z.string().optional(),
 
   WHATSAPP_QR_OUTPUT: z.enum(['terminal']).default('terminal'),

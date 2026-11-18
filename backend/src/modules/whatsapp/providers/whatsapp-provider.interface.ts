@@ -1,10 +1,15 @@
 import { type MessageType } from '../../../constants/message-types.js';
+import { WHATSAPP_PROVIDER_KINDS } from '../../../constants/whatsapp-providers.js';
 import { type ObjectIdLike } from '../../../types/common.js';
 import { InvalidWhatsAppProviderError } from '../whatsapp.errors.js';
 
-export const WHATSAPP_PROVIDER_NAMES = Object.freeze({
-  BAILEYS: 'baileys',
-} as const);
+/**
+ * Re-exported from constants/whatsapp-providers.ts rather than declared here, so there is exactly
+ * one list of provider names in the codebase. The constants module is the one the account MODEL
+ * can import: this file reaches into provider internals, and a schema that imported it would drag
+ * Baileys into every process that touches an account document.
+ */
+export const WHATSAPP_PROVIDER_NAMES = WHATSAPP_PROVIDER_KINDS;
 
 export type WhatsAppProviderName =
   (typeof WHATSAPP_PROVIDER_NAMES)[keyof typeof WHATSAPP_PROVIDER_NAMES];
