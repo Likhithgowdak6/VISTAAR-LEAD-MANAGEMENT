@@ -3,7 +3,9 @@ import { type QueryFilter, type UpdateQuery } from 'mongoose';
 import { type DatabaseSession } from '../../config/database.js';
 
 import { ACCOUNT_STATUSES, type AccountStatus } from '../../constants/account-statuses.js';
+import { WHATSAPP_PROVIDER_KINDS } from '../../constants/whatsapp-providers.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import { type EncryptedField } from '../security/encrypted-field.schema.js';
 import { ActivityLog } from '../activity/activity-log.model.js';
 import { AiBrainApproval } from '../ai-brain/ai-brain-approval.model.js';
 import { AiDraft } from '../ai/ai-draft.model.js';
@@ -148,10 +150,202 @@ export const findAccountById = ({
   let query = WhatsAppAccount.findOne(filter);
 
   if (includeEncrypted) {
-    query = query.select('+encryptedPhone +encryptedJid');
+    query = query.select('+encryptedPhone +encryptedJid +encryptedCloudToken');
   }
 
   return query.exec();
+};
+
+/**
+ * The webhook's only lookup: a Cloud delivery names a phone number id and nothing else that
+ * identifies a tenant, so this is what turns an anonymous POST into an organisation.
+ *
+ * Deliberately NOT scoped to an organisation - it is the thing that discovers one. The uniqueness
+ * of `cloud.phoneNumberId` is what makes that safe, and it is enforced by a unique sparse index on
+ * the model rather than by a check here, so two organisations cannot race the same number in.
+ *
+ * Removed accounts are excluded: a number somebody disconnected must stop ingesting, and silently
+ * continuing to file messages against a removed account is how deleted numbers come back to life.
+ */
+export const findCloudAccountByPhoneNumberId = ({
+  phoneNumberId,
+  includeEncrypted = false,
+}: {
+  phoneNumberId?: string;
+  includeEncrypted?: boolean;
+} = {}) => {
+  const id = typeof phoneNumberId === 'string' ? phoneNumberId.trim() : '';
+
+  if (id === '') {
+    return Promise.resolve(null);
+  }
+
+  let query = WhatsAppAccount.findOne({
+    'cloud.phoneNumberId': id,
+    status: { $ne: ACCOUNT_STATUSES.REMOVED },
+  });
+
+  if (includeEncrypted) {
+    query = query.select('+encryptedCloudToken');
+  }
+
+  return query.exec();
+};
+
+/**
+ * Cloud accounts the delivery runner should drain.
+ *
+ * Needed because the runner's other source - the session manager's runtime map - only ever knows
+ * about Baileys sockets. A Cloud account has no session to appear in it, so without this query its
+ * queued messages would sit untouched forever.
+ */
+export const findCloudAccountsByStatus = ({
+  status = ACCOUNT_STATUSES.ACTIVE,
+  limit = 200,
+}: {
+  status?: AccountStatus;
+  limit?: number;
+} = {}) =>
+  WhatsAppAccount.find({
+    provider: WHATSAPP_PROVIDER_KINDS.CLOUD,
+    status,
+    // A half-configured account would fail every send and burn its attempts. Requiring the
+    // number id here keeps it out of the queue until somebody finishes connecting it.
+    'cloud.phoneNumberId': { $ne: null },
+  })
+    .limit(limit)
+    .exec();
+
+export interface SaveCloudCredentialsOptions {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  phoneNumberId: string;
+  wabaId: string;
+  encryptedCloudToken: EncryptedField | null;
+  tokenLast4: string | null;
+  displayPhoneNumber?: string | null;
+  verifiedName?: string | null;
+  qualityRating?: string | null;
+  actorId?: ObjectIdLike;
+  now?: Date;
+}
+
+/**
+ * Writes a verified Cloud connection onto an account, and marks it active.
+ *
+ * Only ever called AFTER the credentials have been proven against Meta, which is why it sets
+ * `status: active` in the same write: an account whose token has been exchanged for a verified
+ * name is connected, and there is no intermediate handshake to wait for the way there is with a
+ * QR scan.
+ *
+ * The token arrives already encrypted. This function never sees plaintext, so a stray log of its
+ * arguments cannot leak one.
+ */
+export const saveCloudCredentials = ({
+  accountId,
+  organizationId,
+  phoneNumberId,
+  wabaId,
+  encryptedCloudToken,
+  tokenLast4,
+  displayPhoneNumber = null,
+  verifiedName = null,
+  qualityRating = null,
+  actorId,
+  now = new Date(),
+}: SaveCloudCredentialsOptions) => {
+  const updateData: UpdateQuery<WhatsAppAccountDocument> = {
+    provider: WHATSAPP_PROVIDER_KINDS.CLOUD,
+    status: ACCOUNT_STATUSES.ACTIVE,
+    encryptedCloudToken,
+    lastConnectedAt: now,
+    lastDisconnectedAt: null,
+    disconnectCode: null,
+    disconnectReason: null,
+    removedAt: null,
+    'cloud.phoneNumberId': phoneNumberId,
+    'cloud.wabaId': wabaId,
+    'cloud.tokenLast4': tokenLast4,
+    'cloud.displayPhoneNumber': displayPhoneNumber,
+    'cloud.verifiedName': verifiedName,
+    'cloud.qualityRating': qualityRating,
+    'cloud.verifiedAt': now,
+  };
+
+  if (actorId) {
+    updateData.updatedBy = actorId;
+  }
+
+  const filter: QueryFilter<WhatsAppAccountDocument> = { _id: accountId };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return WhatsAppAccount.findOneAndUpdate(filter, updateData, { new: true }).exec();
+};
+
+/** Clears a Cloud connection without touching the account's history. */
+export const clearCloudCredentials = ({
+  accountId,
+  organizationId,
+  status = ACCOUNT_STATUSES.DISCONNECTED,
+  disconnectCode = 'cloud_disconnected',
+  disconnectReason = 'WhatsApp Cloud API credentials were removed.',
+  now = new Date(),
+}: {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  status?: AccountStatus;
+  disconnectCode?: string;
+  disconnectReason?: string;
+  now?: Date;
+} = {}) => {
+  const filter: QueryFilter<WhatsAppAccountDocument> = { _id: accountId };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return WhatsAppAccount.findOneAndUpdate(
+    filter,
+    {
+      status,
+      disconnectCode,
+      disconnectReason,
+      lastDisconnectedAt: now,
+      encryptedCloudToken: null,
+      // The phone number id goes too, so a disconnected number stops matching inbound webhook
+      // deliveries. Leaving it would keep filing a stranger's messages into a dead account.
+      'cloud.phoneNumberId': null,
+      'cloud.tokenLast4': null,
+      'cloud.verifiedAt': null,
+    },
+    { new: true },
+  ).exec();
+};
+
+/** Stamps a successful template sync, so the UI can say how fresh the list is. */
+export const markCloudTemplatesSynced = ({
+  accountId,
+  organizationId,
+  now = new Date(),
+}: {
+  accountId?: ObjectIdLike;
+  organizationId?: ObjectIdLike;
+  now?: Date;
+}) => {
+  const filter: QueryFilter<WhatsAppAccountDocument> = { _id: accountId };
+
+  if (organizationId) {
+    filter.organizationId = organizationId;
+  }
+
+  return WhatsAppAccount.findOneAndUpdate(
+    filter,
+    { 'cloud.templatesSyncedAt': now },
+    { new: true },
+  ).exec();
 };
 
 export const findAccountByBrandKey = ({

@@ -15,6 +15,7 @@ import {
   createInboundMessageRouter as defaultCreateInboundMessageRouter,
   type InboundMessageRouter,
 } from '../automation/inbound-router.service.js';
+import { WHATSAPP_PROVIDER_KINDS } from '../../../constants/whatsapp-providers.js';
 import { createBaileysProvider } from '../providers/baileys.provider.js';
 import {
   type NormalizedInboundMessage,
@@ -404,6 +405,17 @@ export const createWhatsAppSessionManager = ({
       );
     }
 
+    // This manager is Baileys-only by construction: it holds QR strings, reconnect timers and
+    // logout handling, none of which exist on the Cloud API. The callers above already route
+    // Cloud accounts elsewhere; this is the invariant stated where it can actually be relied on,
+    // so a future caller cannot quietly open a socket for a number that has no session.
+    if (account.provider === WHATSAPP_PROVIDER_KINDS.CLOUD) {
+      throw new WhatsAppProviderError(
+        'This number uses the WhatsApp Cloud API, which has no session to connect.',
+        { code: 'WHATSAPP_ACCOUNT_IS_CLOUD' },
+      );
+    }
+
     const key = keyOf(account._id);
 
     if (!key) {
@@ -590,7 +602,13 @@ export const createWhatsAppSessionManager = ({
     }
 
     const restorable = accounts.filter(
-      (account) => account.disconnectCode !== CREDENTIALS_CLEARED_DISCONNECT_CODE,
+      (account) =>
+        account.disconnectCode !== CREDENTIALS_CLEARED_DISCONNECT_CODE &&
+        // Cloud API accounts have no socket to restore. Without this they would be handed to
+        // connectAccount on every boot, which would open a Baileys session against a number that
+        // has never been paired - burning a QR attempt, writing an auth-state row, and leaving
+        // the account flickering between CONNECTING and DISCONNECTED forever.
+        account.provider !== WHATSAPP_PROVIDER_KINDS.CLOUD,
     );
 
     let reconnected = 0;

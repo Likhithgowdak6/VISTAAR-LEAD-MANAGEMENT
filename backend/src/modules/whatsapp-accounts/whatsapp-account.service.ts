@@ -2,10 +2,22 @@ import { runInTransaction } from '../../config/database.js';
 import { admitWorkspaceResource } from '../organizations/workspace-limits.service.js';
 import { type HydratedDocument } from 'mongoose';
 
+import { env } from '../../config/env.js';
 import { ACCOUNT_REMOVAL_OUTCOMES } from '../../constants/account-removal-outcomes.js';
 import { ACCOUNT_STATUSES } from '../../constants/account-statuses.js';
 import { AUDIT_EVENTS } from '../../constants/audit-events.js';
+import {
+  WHATSAPP_PROVIDER_KINDS,
+  type WhatsAppProviderKind,
+} from '../../constants/whatsapp-providers.js';
 import { type ObjectIdLike } from '../../types/common.js';
+import {
+  cloudAccessTokenLast4,
+  encryptCloudAccessTokenForStorage,
+} from '../whatsapp/cloud/cloud-credentials.service.js';
+import { getCloudRuntime } from '../whatsapp/cloud/cloud-runtime.service.js';
+import { connectCloudWebhookSubscription, fetchCloudPhoneNumber } from '../whatsapp/cloud/whatsapp-cloud.client.js';
+import { deleteWhatsAppTemplatesForAccount } from '../whatsapp-templates/whatsapp-template.repository.js';
 import { createAuditLog } from '../audit/audit.repository.js';
 import {
   filterAccessibleAccounts,
@@ -15,9 +27,11 @@ import { type UserDocument } from '../users/user.model.js';
 import { deleteAuthStateForAccount } from '../whatsapp-auth-states/whatsapp-auth-state.repository.js';
 import { getSessionManager } from '../whatsapp/sessions/session-manager.instance.js';
 import {
+  clearCloudCredentials,
   countAccountReferences,
   createAccountRecord,
   findAccountByBrandKey,
+  saveCloudCredentials,
   findAccountById,
   findAccountsByOrganization,
   hardDeleteAccount,
@@ -57,7 +71,10 @@ export interface CreateAccountForActorOptions {
   name?: string;
   brandKey?: string;
   description?: string;
+  provider?: WhatsAppProviderKind;
 }
+
+const asBoolean = (value: unknown): boolean => value === true || value === 'true';
 
 export interface ConnectAccountForActorOptions {
   organizationId?: ObjectIdLike;
@@ -82,8 +99,32 @@ export interface RemoveAccountForActorOptions {
   purgeHistory?: boolean;
 }
 
+/**
+ * The live state of a number, which means two different things depending on how it connects.
+ *
+ * A Baileys account is running when its socket is in the session manager's map. A Cloud account
+ * has no socket and nothing to restore after a restart: it is running when it is active and its
+ * credentials are present, which is a property of the DOCUMENT rather than of this process. That
+ * distinction is why Cloud accounts are kept out of the session manager entirely - asking it
+ * about one would always answer "not running", and every Cloud number would look broken after
+ * every deploy.
+ */
 const withRuntime = (account: WhatsAppAccountDocument) => {
   const serialized = serializeWhatsAppAccount(account);
+
+  if (account.provider === WHATSAPP_PROVIDER_KINDS.CLOUD) {
+    return {
+      ...serialized,
+      runtime: {
+        running:
+          account.status === ACCOUNT_STATUSES.ACTIVE && Boolean(account.cloud?.phoneNumberId),
+        // There is no QR on the Cloud API, and never will be. Reported explicitly so the UI can
+        // hide the Connect button rather than offering a modal that cannot work.
+        qrAvailable: false,
+      },
+    };
+  }
+
   const runtime = getSessionManager().getSessionState(account._id);
 
   return {
@@ -93,6 +134,13 @@ const withRuntime = (account: WhatsAppAccountDocument) => {
       qrAvailable: Boolean(runtime.qrAvailable),
     },
   };
+};
+
+/** True when the account is a Cloud account, used to refuse Baileys-only operations on one. */
+const assertBaileysAccount = (account: WhatsAppAccountDocument, operation: string): void => {
+  if (account.provider === WHATSAPP_PROVIDER_KINDS.CLOUD) {
+    throw new Error(`CLOUD_ACCOUNT_CANNOT_${operation}`);
+  }
 };
 
 const loadAccount = async ({ organizationId, accountId }: LoadAccountOptions) => {
@@ -128,6 +176,12 @@ export interface SendableAccount {
   id: string;
   name: unknown;
   brandKey: unknown;
+  /**
+   * Which API this number sends through. Exposed on this deliberately narrow payload because the
+   * composer must know: a Cloud number cannot send free text outside the 24-hour window, and the
+   * only alternative to telling the UI is letting agents discover it from a bounced message.
+   */
+  provider: WhatsAppProviderKind;
 }
 
 export interface ListSendableAccountsForActorOptions {
@@ -157,11 +211,19 @@ export const listSendableAccountsForActor = async ({
   const sessionManager = getSessionManager();
 
   return filterAccessibleAccounts({ user: actor, accounts })
-    .filter((account) => sessionManager.getSessionState(account._id).running === true)
+    .filter((account) =>
+      // A Cloud account's readiness is the document, not a socket. Asking the session manager
+      // about one would always answer "not running", which would hide every Cloud number from
+      // the composer's picker - the bug this branch exists to prevent.
+      account.provider === WHATSAPP_PROVIDER_KINDS.CLOUD
+        ? Boolean(account.cloud?.phoneNumberId)
+        : sessionManager.getSessionState(account._id).running === true,
+    )
     .map((account) => ({
       id: account._id.toString(),
       name: account.name,
       brandKey: account.brandKey,
+      provider: account.provider ?? WHATSAPP_PROVIDER_KINDS.BAILEYS,
     }));
 };
 
@@ -171,11 +233,18 @@ export const createAccountForActor = async ({
   name,
   brandKey,
   description,
+  provider = WHATSAPP_PROVIDER_KINDS.BAILEYS,
 }: CreateAccountForActorOptions) => {
   const existing = await findAccountByBrandKey({ organizationId, brandKey });
 
   if (existing) {
     throw new Error('ACCOUNT_BRAND_KEY_EXISTS');
+  }
+
+  // Checked at creation rather than at connect time, so an admin who cannot complete a Cloud
+  // connection is told before they have an empty account sitting in the list.
+  if (provider === WHATSAPP_PROVIDER_KINDS.CLOUD && !asBoolean(env.WHATSAPP_CLOUD_ENABLED)) {
+    throw new Error('WHATSAPP_CLOUD_DISABLED');
   }
 
   const account = await runInTransaction(async (session) => {
@@ -185,6 +254,7 @@ export const createAccountForActor = async ({
     name: name as string,
     brandKey: brandKey as string,
     description,
+    provider,
     ownerUserId: actor._id as WhatsAppAccountDocument['ownerUserId'],
     createdBy: actor._id as WhatsAppAccountDocument['createdBy'],
     }, session);
@@ -199,13 +269,138 @@ export const connectAccountForActor = async ({
   pairingPhoneNumber,
 }: ConnectAccountForActorOptions) => {
   const account = await loadAccount({ organizationId, accountId });
+
+  // A Cloud number connects by pasting credentials, not by scanning a QR. Refused explicitly
+  // rather than handed to the session manager, which would try to open a Baileys socket under a
+  // Cloud account's auth-state key and leave a half-live session behind.
+  assertBaileysAccount(account, 'CONNECT');
+
   await getSessionManager().connectAccount({ account, pairingPhoneNumber });
   const refreshed = await loadAccount({ organizationId, accountId });
   return withRuntime(refreshed);
 };
 
+export interface ConnectCloudAccountOptions {
+  organizationId?: ObjectIdLike;
+  accountId?: ObjectIdLike;
+  actor: ActorUser;
+  phoneNumberId: string;
+  wabaId: string;
+  accessToken: string;
+}
+
+/**
+ * Connects a number through the WhatsApp Cloud API.
+ *
+ * VERIFIES BEFORE IT SAVES. The credentials are spent on a real Graph call first, and only a
+ * success is persisted. The alternative - store, then discover on the first customer message that
+ * the token was pasted with a trailing newline - turns a typo into a silently broken number, and
+ * nothing in the product would say so until a lead went unanswered.
+ *
+ * What comes back from that call is worth as much as the verification: the verified name and
+ * display number let an admin see WHICH number they just connected, which is the only practical
+ * defence against pasting the right token with the wrong phone number id.
+ */
+export const connectCloudAccountForActor = async ({
+  organizationId,
+  accountId,
+  actor,
+  phoneNumberId,
+  wabaId,
+  accessToken,
+}: ConnectCloudAccountOptions) => {
+  const account = await loadAccount({ organizationId, accountId });
+
+  if (account.provider !== WHATSAPP_PROVIDER_KINDS.CLOUD) {
+    throw new Error('ACCOUNT_NOT_CLOUD');
+  }
+
+  if (!asBoolean(env.WHATSAPP_CLOUD_ENABLED)) {
+    throw new Error('WHATSAPP_CLOUD_DISABLED');
+  }
+
+  // Throws a WhatsAppCloudError the controller maps straight to a message an admin can act on -
+  // an expired token, a number id that is not theirs, a missing permission.
+  const summary = await fetchCloudPhoneNumber({ phoneNumberId, accessToken });
+  await connectCloudWebhookSubscription({ wabaId, phoneNumberId, accessToken });
+
+  const saved = await saveCloudCredentials({
+    accountId,
+    organizationId,
+    phoneNumberId,
+    wabaId,
+    // Encrypted here, at the last moment before storage, so no layer below this one ever holds
+    // the plaintext and no repository test can accidentally assert on it.
+    encryptedCloudToken: encryptCloudAccessTokenForStorage(accessToken),
+    tokenLast4: cloudAccessTokenLast4(accessToken),
+    displayPhoneNumber: summary.displayPhoneNumber,
+    verifiedName: summary.verifiedName,
+    qualityRating: summary.qualityRating,
+    actorId: actor._id,
+  });
+
+  return withRuntime(saved as WhatsAppAccountDocument);
+};
+
+/**
+ * Re-checks stored credentials against Meta without changing them.
+ *
+ * The "is this still working?" button. Refreshes the quality rating at the same time, because a
+ * number sliding to RED is the earliest warning that Meta is about to limit it, and there is
+ * nowhere else in this product that number would surface.
+ */
+export const testCloudAccountForActor = async ({
+  organizationId,
+  accountId,
+}: AccountActorOptions) => {
+  const runtime = getCloudRuntime();
+  const credentials = await runtime.resolveCredentials({ accountId, organizationId });
+
+  const summary = await fetchCloudPhoneNumber({
+    phoneNumberId: credentials.phoneNumberId,
+    accessToken: credentials.accessToken,
+  });
+
+  return {
+    ok: true,
+    displayPhoneNumber: summary.displayPhoneNumber,
+    verifiedName: summary.verifiedName,
+    qualityRating: summary.qualityRating,
+  };
+};
+
+/**
+ * Removes a Cloud connection, leaving the account and its history in place.
+ *
+ * The cached templates go with it: they are Meta's, they were readable only through the token
+ * being revoked here, and leaving them would offer an agent a picker full of templates that can
+ * no longer be sent.
+ */
+export const disconnectCloudAccountForActor = async ({
+  organizationId,
+  accountId,
+}: AccountActorOptions) => {
+  const account = await loadAccount({ organizationId, accountId });
+
+  if (account.provider !== WHATSAPP_PROVIDER_KINDS.CLOUD) {
+    throw new Error('ACCOUNT_NOT_CLOUD');
+  }
+
+  const cleared = await clearCloudCredentials({ accountId, organizationId });
+
+  await deleteWhatsAppTemplatesForAccount({ whatsappAccountId: accountId, organizationId });
+
+  return withRuntime(cleared as WhatsAppAccountDocument);
+};
+
 export const getAccountQrForActor = async ({ organizationId, accountId }: AccountActorOptions) => {
-  await loadAccount({ organizationId, accountId });
+  const account = await loadAccount({ organizationId, accountId });
+
+  // Returning `{ qrDataUrl: null }` here would be indistinguishable from "the QR has not arrived
+  // yet", and the dashboard polls that case - so a Cloud account would spin forever on a modal
+  // waiting for a code that cannot exist.
+  assertBaileysAccount(account, 'QR');
+
   const manager = getSessionManager();
   const qrDataUrl = await manager.getQrDataUrl(accountId);
   const pairingCode = manager.getPairingCode ? manager.getPairingCode(accountId) : null;
@@ -238,7 +433,13 @@ export const resumeAccountForActor = async ({ organizationId, accountId }: Accou
 };
 
 export const resetAccountForActor = async ({ organizationId, accountId }: AccountActorOptions) => {
-  await loadAccount({ organizationId, accountId });
+  const account = await loadAccount({ organizationId, accountId });
+
+  // Reset means "clear the stored WhatsApp Web login and pair again". A Cloud account has no
+  // stored login - deleting its auth state would be a no-op that leaves it disconnected with no
+  // way back except re-pasting credentials, which is what the Cloud disconnect endpoint is for.
+  assertBaileysAccount(account, 'RESET');
+
   await getSessionManager().disconnectAccount({
     accountId,
     organizationId,
