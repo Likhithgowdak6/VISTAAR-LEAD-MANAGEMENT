@@ -404,6 +404,15 @@ class OutboundDeliveryService:
         if authored_by == AUTHOR_AI:
             conv = await self.find_conversation_fn(conversation_id=conv_id, organization_id=org_id)
 
+            if message.get("paymentContext"):
+                from app.invoice_payment_chase import delivery_reason
+                payment_reason = await delivery_reason(message, conv, now)
+                if payment_reason:
+                    await self.mark_failed_fn(message_id=msg_id, organization_id=org_id,
+                        error=payment_reason, permanent=True, now=now)
+                    await self._publish_status_change(org_id, conv_id)
+                    return {"delivered": False, "failed": True, "permanent": True, "reason": payment_reason}
+
             if conv and conv.get("optedOutAt"):
                 await self.mark_failed_fn(
                     message_id=msg_id,
@@ -503,6 +512,16 @@ class OutboundDeliveryService:
                 )
                 await self._publish_status_change(org_id, conv_id)
                 return {"delivered": False, "failed": True, "permanent": True, "reason": "media_missing"}
+
+        if message.get("paymentContext"):
+            from app.invoice_payment_chase import delivery_reason
+            latest = await self.find_conversation_fn(conversation_id=conv_id, organization_id=org_id)
+            payment_reason = await delivery_reason(message, latest, self.now_fn())
+            if payment_reason:
+                await self.mark_failed_fn(message_id=msg_id, organization_id=org_id,
+                    error=payment_reason, permanent=True, now=self.now_fn())
+                await self._publish_status_change(org_id, conv_id)
+                return {"delivered": False, "failed": True, "permanent": True, "reason": payment_reason}
 
         try:
             if media_payload:

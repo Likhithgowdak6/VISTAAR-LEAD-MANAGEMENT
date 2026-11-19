@@ -1,4 +1,5 @@
 import { env, type Env } from '../../../config/env.js';
+import { paymentMessageStopReason } from './payment-message.guard.js';
 import { MESSAGE_AUTHORS } from '../../../constants/message-authors.js';
 import {
   createPipelineTrace,
@@ -399,6 +400,14 @@ export const createOutboundDeliveryService = ({
         organizationId,
       });
 
+      const paymentReason = await paymentMessageStopReason(message, conversation, now());
+      if (paymentReason) {
+        await messageRepository.markOutboundMessageFailed({ messageId: message._id, organizationId,
+          error: paymentReason, permanent: true, now: now() });
+        await publishStatusChange({ organizationId, message });
+        return { delivered: false, failed: true, permanent: true, reason: paymentReason };
+      }
+
       // Checked before the automation flag so the recorded reason says what actually happened.
       // An opted-out conversation always has automation off too, and "automation_paused" would
       // hide the one fact anybody auditing a complaint needs to see. This is the last line of
@@ -656,6 +665,17 @@ export const createOutboundDeliveryService = ({
           permanent: true,
           reason: 'media_missing',
         };
+      }
+    }
+
+    if (message.paymentContext) {
+      const latestConversation = await findConversationById({ conversationId: message.conversationId, organizationId });
+      const paymentReason = await paymentMessageStopReason(message, latestConversation, now());
+      if (paymentReason) {
+        await messageRepository.markOutboundMessageFailed({ messageId: message._id, organizationId,
+          error: paymentReason, permanent: true, now: now() });
+        await publishStatusChange({ organizationId, message });
+        return { delivered: false, failed: true, permanent: true, reason: paymentReason };
       }
     }
 
