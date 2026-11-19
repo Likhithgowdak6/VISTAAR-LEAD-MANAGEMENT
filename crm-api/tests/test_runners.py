@@ -269,6 +269,10 @@ class TestTheRegistry:
             "event_reminder",
             "owner_call_escalation",
             "google_calendar_sync",
+            "razorpay_reconciliation",
+            # Generates invoices from recurring templates. Writes rows and sends nothing, which
+            # is why it is the one daily job not gated on WHATSAPP_ENABLED.
+            "recurring_invoices",
         }
 
     def test_EVERY_RUNNER_NAME_IS_snake_case(self):

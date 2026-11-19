@@ -28,6 +28,8 @@ from fastapi.responses import JSONResponse
 from app import cache, db
 from app.errors import install_error_handlers
 from app.request_context import RequestContextMiddleware
+from app.routers import razorpay as razorpay_routes
+from app.routers import payment_gateway
 from app.routers import settings as settings_router
 from app.routers import (
     ai_brain,
@@ -40,12 +42,14 @@ from app.routers import (
     conversation_tags,
     conversations,
     followups,
+    invoices,
     lead_sources,
     media,
     meta,
     notes,
     auth as auth_router,
     push,
+    recurring_invoices,
     realtime,
     stages,
     starred_messages,
@@ -93,6 +97,13 @@ async def lifespan(_: FastAPI):
     if settings.node_env != "test":
         from app.saas import ensure_indexes
         await ensure_indexes()
+
+    # The unique index on (organizationId, invoiceNumber) is what makes it impossible for two
+    # invoices to carry one number - the counter only guarantees a number is handed out once.
+    if settings.node_env != "test":
+        from app.billing_indexes import ensure_billing_indexes
+        # Financial idempotency depends on these indexes. Refuse startup if unavailable.
+        await ensure_billing_indexes()
 
     runners = None
     if settings.node_env != "test" and settings.enable_background_runners:
@@ -191,6 +202,18 @@ app.include_router(tags.router, prefix=f"{API_PREFIX}/tags", tags=["tags"])
 # verbatim under the studio's name. The gates are per route, as they are in Node.
 app.include_router(settings_router.router, prefix=f"{API_PREFIX}/settings", tags=["settings"])
 app.include_router(templates.router, prefix=f"{API_PREFIX}/templates", tags=["templates"])
+# Invoicing. Three permissions across these routes - read, manage, and (from Phase 3) recording a
+# payment - because the three acts differ in what they can do to a client's debt.
+app.include_router(invoices.router, prefix=f"{API_PREFIX}/invoices", tags=["invoices"])
+# Recurring templates. A sibling of /invoices rather than nested under it: a template is not
+# an invoice, and nesting would put it behind an invoice id it does not have.
+app.include_router(
+    recurring_invoices.router, prefix=f"{API_PREFIX}/recurring-invoices", tags=["invoices"]
+)
+app.include_router(razorpay_routes.settings_router, prefix=f"{API_PREFIX}/settings", tags=["razorpay"])
+app.include_router(razorpay_routes.invoice_router, prefix=f"{API_PREFIX}/invoices", tags=["razorpay"])
+app.include_router(razorpay_routes.public_router, prefix=f"{API_PREFIX}/payments/razorpay", tags=["razorpay-webhook"])
+app.include_router(payment_gateway.router, prefix="/internal/v1/payments", tags=["internal-payments"])
 
 # Phase 4. `/contacts` is the only path by which a customer's phone number leaves this backend.
 # Reading a contact needs conversations.read and returns NO phone at all; revealing one needs

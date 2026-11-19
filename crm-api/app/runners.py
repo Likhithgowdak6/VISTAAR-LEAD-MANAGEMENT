@@ -225,7 +225,7 @@ class RunnerRegistry:
 
 def create_all_runners() -> RunnerRegistry:
     """
-    Factory creating and registering all 13 background runners in the CRM application.
+    Factory creating and registering background runners in the CRM application.
     Mirrors backend/src/server-lifecycle.ts.
     """
     from app.auto_greet_runner import create_auto_greet_runner
@@ -244,6 +244,8 @@ def create_all_runners() -> RunnerRegistry:
     from app.realtime_outbox import create_realtime_outbox_runner
     from app.reminder_runner import create_reminder_runner
     from app.google_calendar_runner import create_google_calendar_runner
+    from app.razorpay_reconciliation import create_razorpay_reconciliation_runner
+    from app.recurring_invoice_runner import create_recurring_invoice_runner
 
     registry = RunnerRegistry()
     registry.register(create_delivery_runner())
@@ -260,6 +262,8 @@ def create_all_runners() -> RunnerRegistry:
     registry.register(create_event_reminder_runner())
     registry.register(create_owner_call_escalation_runner())
     registry.register(create_google_calendar_runner())
+    registry.register(create_razorpay_reconciliation_runner())
+    registry.register(create_recurring_invoice_runner())
 
     return registry
 

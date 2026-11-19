@@ -1,7 +1,7 @@
 """
 Dedicated Background Worker Process for Vistaar CRM.
 
-Runs all 13 background runners in an isolated Python process.
+Runs background runners in an isolated Python process.
 In production with multi-worker Uvicorn (e.g., uvicorn --workers 4), HTTP web workers
 serve API requests exclusively without running background sweep loops.
 This dedicated worker process runs as a single instance (`replicas: 1` in Docker Compose or
@@ -35,6 +35,8 @@ async def run_worker() -> None:
     # Ensure database indexes - fail fast if safety index cannot be ensured
     try:
         await ensure_daily_jobs_indexes()
+        from app.billing_indexes import ensure_billing_indexes
+        await ensure_billing_indexes()
         logger.info("Verified MongoDB unique compound index `uniq_daily_job_run`.")
         from app.google_calendar_models import ensure_google_calendar_indexes
         await ensure_google_calendar_indexes()
@@ -52,7 +54,7 @@ async def run_worker() -> None:
         )
         raise RuntimeError(f"Database index initialization failed: {exc}") from exc
 
-    # Instantiate all 13 runners
+    # Instantiate the registered runners.
     runners = create_all_runners()
     started_names = await runners.start_all()
     logger.info(
