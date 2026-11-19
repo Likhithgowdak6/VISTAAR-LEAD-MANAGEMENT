@@ -19,3 +19,11 @@ pytest-asyncio==0.25.0
 # The in-memory MongoDB the test suite runs against. Mocked repositories would let every
 # tenancy test pass against a filter that ignored organizationId; this runs the real filter.
 mongomock-motor==0.0.36
+
+# Reads text back out of a generated invoice PDF.
+#
+# Test-only on purpose: nothing in the service ever parses a PDF, it only writes them. Without
+# it an invoice test can assert the bytes are a valid PDF and nothing about what the client
+# would actually read - and the fields that matter here (GSTIN, place of supply, the tax split)
+# are exactly the ones CGST Rule 46 requires to be present.
+pypdf==5.1.0

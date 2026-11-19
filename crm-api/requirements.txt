@@ -35,3 +35,9 @@ bcrypt==4.2.1
 # fails outright or - worse, if a fallback were ever added - silently reports UTC days and shifts
 # every number by 5.5 hours.
 tzdata==2024.2
+
+# Invoice PDFs. Pinned to the version vistaar-payment-bot rendered with, because the invoice
+# layout in app/invoice_pdf.py is tuned to millimetre positions and font metrics - a minor
+# reportlab release that nudges text measurement reflows a document a client's accounts team
+# reconciles against. Only `app/invoice_pdf.py` imports it.
+reportlab==4.5.1
