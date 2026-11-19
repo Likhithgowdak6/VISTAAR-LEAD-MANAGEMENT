@@ -31,7 +31,7 @@ vi.mock('./conversation.model.js', () => ({
   },
 }));
 
-const { claimPromisedFollowUp, findDuePromisedFollowUps, setPromisedFollowUp, updateConversationPreview } =
+const { claimPromisedFollowUp, findDuePromisedFollowUps, setPromisedFollowUp, updateConversationPreview, bumpNurtureStep, markConversationCold } =
   await import('./conversation.repository.js');
 
 const organizationId = 'org-1';
@@ -300,5 +300,27 @@ describe('cancellation when the lead replies', () => {
     });
 
     expect(recordedSet()).toMatchObject({ nurtureStep: 0, promisedFollowUpAt: null });
+  });
+});
+
+
+describe('silence-cycle guarded writes', () => {
+  it('guards late step updates and cold pauses with the same reply/resume snapshot', async () => {
+    mockUpdateResult(null);
+    const expectedCycle = { lastInboundAt: DUE, nurtureResumedAt: null };
+    await bumpNurtureStep({ conversationId: 'conv-1', organizationId, step: 5, expectedCycle });
+    expect(recordedFilter()).toMatchObject({ _id: 'conv-1', organizationId, ...expectedCycle });
+    await markConversationCold({ conversationId: 'conv-1', organizationId,
+      pausedReason: 'Old cycle exhausted', expectedCycle });
+    expect(recordedFilter()).toMatchObject({ _id: 'conv-1', organizationId, ...expectedCycle });
+  });
+
+  it('prevents a late draft from stamping a new reply as answered', async () => {
+    mockUpdateResult(null);
+    const expectedCycle = { lastInboundAt: DUE, nurtureResumedAt: null };
+    await updateConversationPreview({ conversationId: 'conv-1', organizationId,
+      lastOutboundAt: new Date(DUE.getTime()+1000), expectedCycle });
+    expect(recordedFilter()).toMatchObject({ _id: 'conv-1', organizationId, ...expectedCycle });
+    expect(recordedSet()).not.toHaveProperty('nurtureStep');
   });
 });

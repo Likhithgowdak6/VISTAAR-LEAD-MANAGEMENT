@@ -256,6 +256,7 @@ export interface UpdateConversationPreviewParams {
   lastInboundAt?: Date | null;
   /** Set by outbound enqueue only (Phase 1's existing timing: at enqueue, not at delivery). */
   lastOutboundAt?: Date | null;
+  expectedCycle?: { lastInboundAt: Date | null; nurtureResumedAt: Date | null };
   session?: DatabaseSession;
 }
 
@@ -268,6 +269,7 @@ export const updateConversationPreview = ({
   nextFollowUpAt,
   lastInboundAt,
   lastOutboundAt,
+  expectedCycle,
   session,
 }: UpdateConversationPreviewParams = {}) => {
   const update: UpdateQuery<ConversationDocument> = {
@@ -328,6 +330,7 @@ export const updateConversationPreview = ({
     {
       _id: conversationId,
       organizationId,
+      ...expectedCycle,
     },
     update,
     {
@@ -1365,6 +1368,7 @@ export interface BumpNurtureStepParams {
   conversationId?: ObjectIdLike;
   organizationId?: ObjectIdLike;
   step: number;
+  expectedCycle?: { lastInboundAt: Date | null; nurtureResumedAt: Date | null };
   session?: DatabaseSession;
 }
 
@@ -1372,12 +1376,14 @@ export const bumpNurtureStep = ({
   conversationId,
   organizationId,
   step,
+  expectedCycle,
   session,
 }: BumpNurtureStepParams) =>
   Conversation.findOneAndUpdate(
     {
       _id: conversationId,
       organizationId,
+      ...expectedCycle,
     },
     {
       $set: {
@@ -1639,6 +1645,7 @@ export interface MarkConversationColdParams {
   conversationId?: ObjectIdLike;
   organizationId?: ObjectIdLike;
   pausedReason: string;
+  expectedCycle?: { lastInboundAt: Date | null; nurtureResumedAt: Date | null };
   session?: DatabaseSession;
 }
 
@@ -1651,12 +1658,14 @@ export const markConversationCold = ({
   conversationId,
   organizationId,
   pausedReason,
+  expectedCycle,
   session,
 }: MarkConversationColdParams) =>
   Conversation.findOneAndUpdate(
     {
       _id: conversationId,
       organizationId,
+      ...expectedCycle,
     },
     {
       $set: {
