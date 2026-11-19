@@ -120,6 +120,7 @@ export interface MessageDocument {
    * Null on every Baileys message and on any Cloud message sent inside the window.
    */
   cloudTemplate: MessageCloudTemplate | null;
+  paymentContext?: { invoiceId: Types.ObjectId | string; generation: string; amountDuePaise: number; commitmentKey?: string | null; providerLinkId?: string | null } | null;
   /** Not claimable for delivery before this time; null means eligible as soon as claimed. */
   scheduledAt: Date | null;
   createdAt: Date;
@@ -310,6 +311,7 @@ const messageSchema = new mongoose.Schema<MessageDocument>(
       type: messageCloudTemplateSchema,
       default: null,
     },
+    paymentContext: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

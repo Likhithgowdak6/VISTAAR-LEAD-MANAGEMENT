@@ -83,6 +83,13 @@ describe('setPromisedFollowUp', () => {
       promisedFollowUpKey: 'lead-commit:msg-9',
       promisedFollowUpDirection: 'await_lead',
       promisedFollowUpQuote: 'I will confirm by Friday',
+      lastLeadCommitment: {
+        dueAt: DUE,
+        key: 'lead-commit:msg-9',
+        direction: 'await_lead',
+        quote: 'I will confirm by Friday',
+        updatedAt: expect.any(Date),
+      },
     });
   });
 

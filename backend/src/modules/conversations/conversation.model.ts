@@ -187,6 +187,8 @@ export interface ConversationDocument {
    * at most one message. See followups/promise-follow-up.service.ts.
    */
   promisedFollowUpAt: Date | null;
+  lastLeadCommitment?: { dueAt: Date; key: string; direction: string; quote: string | null; updatedAt: Date } | null;
+  paymentInvoiceApproval?: { invoiceId: Types.ObjectId; generation: string; approvedAt: Date } | null;
   /** Identity of the promise, seeding the outbound idempotency key so a retry cannot double-send. */
   promisedFollowUpKey: string | null;
   /** Who owed whom: `contact_lead` = we promised to reach out, `await_lead` = they promised to. */
@@ -566,6 +568,8 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       type: Date,
       default: null,
     },
+    lastLeadCommitment: { type: mongoose.Schema.Types.Mixed, default: null },
+    paymentInvoiceApproval: { type: mongoose.Schema.Types.Mixed, default: null },
 
     promisedFollowUpKey: {
       type: String,

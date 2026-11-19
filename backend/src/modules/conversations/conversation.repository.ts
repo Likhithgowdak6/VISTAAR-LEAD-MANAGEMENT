@@ -1429,6 +1429,7 @@ export const setPromisedFollowUp = ({
         promisedFollowUpKey: key,
         promisedFollowUpDirection: direction,
         promisedFollowUpQuote: quote ? quote.slice(0, 300) : null,
+        lastLeadCommitment: { dueAt, key, direction, quote: quote ? quote.slice(0, 300) : null, updatedAt: new Date() },
       },
     } as UpdateQuery<ConversationDocument>,
     {
