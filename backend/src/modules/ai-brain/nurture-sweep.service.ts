@@ -278,6 +278,8 @@ export const createNurtureSweepService = ({
     reference: Date,
   ): Promise<'nudged' | 'cold' | 'skipped'> => {
     const organizationId = conversation.organizationId;
+    const expectedCycle = { lastInboundAt: conversation.lastInboundAt ?? null,
+      nurtureResumedAt: conversation.nurtureResumedAt ?? null };
 
     // A LEAD WHO SAID NO IS NEVER NUDGED AGAIN. `findNurturableConversations` already excludes
     // them, so this is the belt-and-braces check for a conversation handed in by a caller with
@@ -341,11 +343,13 @@ export const createNurtureSweepService = ({
     // send. Stopped the same way any other dead lead is stopped - markConversationCold, with the
     // reason naming the date - rather than through a state of its own.
     if (eventDate && daysUntilEvent !== null && daysUntilEvent < 0) {
-      await conversationRepository.markConversationCold({
+      const marked = await conversationRepository.markConversationCold({
         conversationId: conversation._id,
         organizationId,
         pausedReason: eventPassedPausedReason(eventDate),
+        expectedCycle,
       });
+      if (marked === null) return 'skipped';
 
       await createActivity({
         organizationId,
@@ -376,11 +380,13 @@ export const createNurtureSweepService = ({
     // function of the anchor alone and not of when a sweep happened to run. This replaces the
     // old `daysSilent >= coldAfterDays` cold rule for the silence path.
     if (!decision.send && decision.reason === 'window_expired') {
-      await conversationRepository.markConversationCold({
+      const marked = await conversationRepository.markConversationCold({
         conversationId: conversation._id,
         organizationId,
         pausedReason: COLD_PAUSED_REASON,
+        expectedCycle,
       });
+      if (marked === null) return 'skipped';
 
       await createActivity({
         organizationId,
@@ -456,11 +462,13 @@ export const createNurtureSweepService = ({
       authoredBy: MESSAGE_AUTHORS.AI,
     });
 
-    await conversationRepository.bumpNurtureStep({
+    const updated = await conversationRepository.bumpNurtureStep({
       conversationId: conversation._id,
       organizationId,
       step: earnedStep,
+      expectedCycle,
     });
+    if (updated === null) return 'skipped';
 
     await createActivity({
       organizationId,

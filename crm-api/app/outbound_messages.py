@@ -110,8 +110,12 @@ async def enqueue_outbound_message(
 
     # Update conversation preview and assignment
     preview = caption.strip() if caption.strip() else (media.get("mimeType", "Media") if media else "")
+    preview_filter = {"_id": conv_id, "organizationId": org_id}
+    if authored_by == "ai" and idempotency_key.startswith("nurture:"):
+        preview_filter.update({"lastInboundAt": conversation.get("lastInboundAt"),
+                               "nurtureResumedAt": conversation.get("nurtureResumedAt")})
     await database["conversations"].update_one(
-        {"_id": conv_id, "organizationId": org_id},
+        preview_filter,
         {
             "$set": {
                 "lastMessageAt": sent_at,
@@ -142,7 +146,7 @@ async def enqueue_outbound_message(
         organization_id=org_id,
         conversation_id=conv_id,
         assigned_to=conversation.get("assignedTo"),
-        reason=REALTIME_REASONS["MESSAGE"],
+        reason=REALTIME_REASONS["OUTBOUND"],
         session=session,
     )
 

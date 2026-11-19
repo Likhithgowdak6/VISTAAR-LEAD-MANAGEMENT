@@ -164,6 +164,8 @@ class NurtureSweepService:
         """
         conv_id = conversation["_id"]
         org_id = conversation.get("organizationId")
+        cycle = {"lastInboundAt": conversation.get("lastInboundAt"),
+                 "nurtureResumedAt": conversation.get("nurtureResumedAt")}
 
         # 1. A LEAD WHO SAID NO IS NEVER NUDGED AGAIN
         if conversation.get("salesRejectedAt"):
@@ -197,11 +199,14 @@ class NurtureSweepService:
         # Event has passed -> mark cold
         if event_date and days_until_event is not None and days_until_event < 0:
             mark_fn = getattr(self.conversation_repo, "mark_conversation_cold", default_mark_conversation_cold)
-            await mark_fn(
+            marked = await mark_fn(
                 conversation_id=conv_id,
                 organization_id=org_id,
                 paused_reason=event_passed_paused_reason(event_date),
+                expected_cycle=cycle,
             )
+            if marked is None:
+                return "skipped"
             await self.create_activity_fn(
                 organization_id=org_id,
                 whatsapp_account_id=conversation.get("whatsappAccountId"),
@@ -224,11 +229,14 @@ class NurtureSweepService:
         # Sequence expired without event date -> mark cold
         if not decision.send and decision.reason == "window_expired":
             mark_fn = getattr(self.conversation_repo, "mark_conversation_cold", default_mark_conversation_cold)
-            await mark_fn(
+            marked = await mark_fn(
                 conversation_id=conv_id,
                 organization_id=org_id,
                 paused_reason=COLD_PAUSED_REASON,
+                expected_cycle=cycle,
             )
+            if marked is None:
+                return "skipped"
             await self.create_activity_fn(
                 organization_id=org_id,
                 whatsapp_account_id=conversation.get("whatsappAccountId"),
@@ -301,11 +309,15 @@ class NurtureSweepService:
         )
 
         bump_fn = getattr(self.conversation_repo, "bump_nurture_step", default_bump_nurture_step)
-        await bump_fn(
+        updated = await bump_fn(
             conversation_id=conv_id,
             organization_id=org_id,
             step=earned_step,
+            expected_cycle=cycle,
         )
+        if updated is None:
+            # A reply/resume superseded this draft. Delivery rejects its old-cycle key.
+            return "skipped"
 
         await self.create_activity_fn(
             organization_id=org_id,

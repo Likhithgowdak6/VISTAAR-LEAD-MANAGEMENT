@@ -198,6 +198,9 @@ export const createOutboundMessageService = ({
           // Set at enqueue time, same as `lastMessageAt` above and Phase 1's existing timing for
           // this call site - not deferred to actual delivery.
           lastOutboundAt: sentAt,
+          ...(authoredBy === MESSAGE_AUTHORS.AI && idempotencyKey?.startsWith('nurture:')
+            ? { expectedCycle: { lastInboundAt: conversation.lastInboundAt ?? null,
+                nurtureResumedAt: conversation.nurtureResumedAt ?? null } } : {}),
           session,
         });
 

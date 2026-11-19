@@ -430,3 +430,28 @@ describe('a rejected lead is never nurtured', () => {
     expect(outboundMessageService.enqueueOutboundMessage).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('reply versus an in-flight sweep', () => {
+  it('does not report or advance a superseded cycle as sent', async () => {
+    const { service, conversationRepository, createActivity } = createHarness();
+    const conversation = conversationFixture();
+    withOneBatch(conversationRepository.findNurturableConversations, [conversation]);
+    conversationRepository.bumpNurtureStep.mockResolvedValue(null);
+    expect(await service.sweepOnce({})).toMatchObject({ skipped: 1, nudged: 0 });
+    expect(conversationRepository.bumpNurtureStep).toHaveBeenCalledWith(expect.objectContaining({
+      expectedCycle: { lastInboundAt: conversation.lastInboundAt, nurtureResumedAt: null },
+    }));
+    expect(createActivity).not.toHaveBeenCalled();
+  });
+
+  it('does not pause a restarted conversation from an expired-cycle snapshot', async () => {
+    const { service, conversationRepository, createActivity } = createHarness();
+    withOneBatch(conversationRepository.findNurturableConversations, [
+      conversationFixture({ nurtureStep: SILENCE_MAX_FOLLOW_UPS }),
+    ]);
+    conversationRepository.markConversationCold.mockResolvedValue(null);
+    expect(await service.sweepOnce({})).toMatchObject({ skipped: 1, markedCold: 0 });
+    expect(createActivity).not.toHaveBeenCalled();
+  });
+});
