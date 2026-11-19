@@ -48,6 +48,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app import db
+from app.billing_profile import billing_profile_dto, normalize_billing_profile
 from app.deps import AuthContext, require_permission
 from app.permissions import SETTINGS_MANAGE
 
@@ -167,3 +168,88 @@ async def update_settings(
         )
 
     return {"data": _settings_dto(updated)}
+
+
+# ----------------------------------------------------------------------------------------------
+# Billing identity — GSTIN, state, bank and UPI, printed on every invoice this org issues.
+#
+# ON ITS OWN SUB-PATH RATHER THAN FOLDED INTO THE PAYLOAD ABOVE, and that is not tidiness. The
+# PATCH above `$set`s `ownerWhatsappNumber` unconditionally from a REQUIRED field, so a combined
+# payload would mean every billing save also rewrote the owner's number - and a client that
+# omitted it would clear it, silently redirecting every owner notification. Separate routes make
+# that impossible rather than merely unlikely.
+#
+# Gated on SETTINGS_MANAGE, exactly like the owner number: this is organisation configuration, and
+# the bank account an invoice tells clients to pay into is not something the whole team edits.
+# ----------------------------------------------------------------------------------------------
+
+
+class UpdateBillingProfile(BaseModel):
+    """
+    A WHOLE-PROFILE REPLACE, not a patch.
+
+    Every field is optional and defaults to None, and None means "clear it". Sending just
+    `companyName` therefore clears the GSTIN - which is why the UI must always submit the whole
+    form. The alternative, merging with whatever is stored, makes clearing a field impossible to
+    express and leaves an invoice printing a GSTIN the admin believed they had removed.
+    """
+
+    companyName: str | None = None
+    gstin: str | None = None
+    state: str | None = None
+    address: str | None = None
+    bankName: str | None = None
+    bankAccountName: str | None = None
+    bankAccountNumber: str | None = None
+    bankIfsc: str | None = None
+    upiId: str | None = None
+    invoicePrefix: str | None = None
+
+
+@router.get("/billing")
+async def get_billing_profile(auth: AuthContext = Depends(_require_settings_manage)):
+    organization = await db.get_database().organizations.find_one({"_id": auth.organization_id})
+
+    return {"data": billing_profile_dto(organization)}
+
+
+@router.put("/billing")
+async def update_billing_profile(
+    payload: UpdateBillingProfile,
+    auth: AuthContext = Depends(_require_settings_manage),
+):
+    # Normalisation raises ValueError with a message written for the admin reading the screen;
+    # FastAPI would render that as a 500, so it is converted to the API's own 400 shape here.
+    try:
+        profile = normalize_billing_profile(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "BILLING_PROFILE_INVALID", "message": str(exc)}},
+        ) from None
+
+    updated = await db.get_database().organizations.find_one_and_update(
+        {"_id": auth.organization_id},
+        {"$set": {"billingProfile": profile, "updatedAt": db.utc_now()}},
+        return_document=True,
+    )
+
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "ORGANIZATION_NOT_FOUND",
+                    "message": "Organization not found.",
+                }
+            },
+        )
+
+    return {"data": billing_profile_dto(updated)}
+
+# Razorpay connection settings are NOT served from this router.
+#
+# `routers/razorpay.py` exposes `GET|PUT /api/v1/settings/razorpay` on its own `settings_router`,
+# which main.py mounts on this same `/settings` prefix. A second copy briefly lived here and
+# duplicated those two routes exactly - two handlers on one path, with the registration order
+# silently deciding which one answered. See RAZORPAY.md for the documented surface.

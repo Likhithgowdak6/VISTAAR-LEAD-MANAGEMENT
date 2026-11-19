@@ -38,6 +38,23 @@ export const PERMISSIONS = Object.freeze({
 
   AUDIT_READ: 'audit.read',
   SETTINGS_MANAGE: 'settings.manage',
+
+  /**
+   * Invoicing and payments.
+   *
+   * Three, not one, because the three acts have genuinely different blast radius. Reading an
+   * invoice shows what a client was billed; raising or editing one changes what they owe; and
+   * recording a payment says money arrived, which stops the chase and is the one a bad actor
+   * would reach for to make a debt disappear.
+   *
+   * Defined here even though every invoice route lives in the Python crm-api, because this file
+   * is the source of truth that `crm-api/app/permissions.py` is a verbatim port of. A permission
+   * known to Python and not to Node is stripped from a user's overrides by Node's resolver and
+   * kept by Python's - the two then disagree about what the same user may do.
+   */
+  INVOICES_READ: 'invoices.read',
+  INVOICES_MANAGE: 'invoices.manage',
+  PAYMENTS_RECORD: 'payments.record',
 } as const);
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -76,6 +93,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.LEAD_SOURCES_MANAGE,
       PERMISSIONS.AUDIT_READ,
       PERMISSIONS.SETTINGS_MANAGE,
+      PERMISSIONS.INVOICES_READ,
+      PERMISSIONS.INVOICES_MANAGE,
+      PERMISSIONS.PAYMENTS_RECORD,
     ]),
 
     manager: Object.freeze([
@@ -90,6 +110,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission
       PERMISSIONS.AI_GENERATE,
       PERMISSIONS.AI_AUTOMATION_MANAGE,
       PERMISSIONS.TEMPLATES_MANAGE,
+      // Read only. A manager talking to a client needs to know what they owe; raising an
+      // invoice and declaring money received are the owner's acts, and both are grantable
+      // per-user through overrides when a business wants that.
+      PERMISSIONS.INVOICES_READ,
     ]),
 
     staff: Object.freeze([

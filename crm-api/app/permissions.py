@@ -38,6 +38,16 @@ LEAD_SOURCES_MANAGE = "lead_sources.manage"
 AUDIT_READ = "audit.read"
 SETTINGS_MANAGE = "settings.manage"
 
+# Invoicing and payments. Split three ways because the acts differ in blast radius: reading shows
+# what a client was billed, managing changes what they owe, and recording a payment declares that
+# money arrived - which stops the chase, and is the one a bad actor would reach for to make a debt
+# disappear. Every invoice route lives in this service, but the vocabulary is still mirrored in
+# constants/permissions.ts: Node's resolver strips any permission it does not know from a user's
+# overrides, so a name defined only here would be honoured by Python and dropped by Node.
+INVOICES_READ = "invoices.read"
+INVOICES_MANAGE = "invoices.manage"
+PAYMENTS_RECORD = "payments.record"
+
 PERMISSION_VALUES: tuple[str, ...] = (
     ACCOUNTS_READ,
     ACCOUNTS_MANAGE,
@@ -61,6 +71,9 @@ PERMISSION_VALUES: tuple[str, ...] = (
     LEAD_SOURCES_MANAGE,
     AUDIT_READ,
     SETTINGS_MANAGE,
+    INVOICES_READ,
+    INVOICES_MANAGE,
+    PAYMENTS_RECORD,
 )
 
 # --- role defaults, verbatim from DEFAULT_ROLE_PERMISSIONS -------------------------------
@@ -91,6 +104,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         LEAD_SOURCES_MANAGE,
         AUDIT_READ,
         SETTINGS_MANAGE,
+        INVOICES_READ,
+        INVOICES_MANAGE,
+        PAYMENTS_RECORD,
     ),
     "manager": (
         USERS_READ,
@@ -104,6 +120,8 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
         AI_GENERATE,
         AI_AUTOMATION_MANAGE,
         TEMPLATES_MANAGE,
+        # Read only - see the note in constants/permissions.ts.
+        INVOICES_READ,
     ),
     "staff": (
         CONVERSATIONS_READ_ASSIGNED,

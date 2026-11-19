@@ -19,6 +19,11 @@ export const PERMISSIONS = {
   TEMPLATES_MANAGE: 'templates.manage',
   LEAD_SOURCES_MANAGE: 'lead_sources.manage',
   SETTINGS_MANAGE: 'settings.manage',
+  // Invoicing. Read shows what a client owes; manage raises and edits invoices; record declares
+  // money arrived and stops the chase.
+  INVOICES_READ: 'invoices.read',
+  INVOICES_MANAGE: 'invoices.manage',
+  PAYMENTS_RECORD: 'payments.record',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
