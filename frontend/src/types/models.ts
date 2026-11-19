@@ -166,6 +166,202 @@ export interface Contact {
   updatedAt: string | null;
 }
 
+// --- Billing -----------------------------------------------------------------------------
+//
+// MONEY ARRIVES TWICE ON EVERY FIGURE: `somethingPaise` as an integer, and `something` as a
+// formatted decimal string. The integer is authoritative - compare, sum and decide with it.
+// The string is for rendering. Dividing paise by 100 in JavaScript reintroduces exactly the
+// floating-point drift the backend's integer arithmetic exists to remove, so nothing in the UI
+// ever does.
+
+export type InvoiceStatus = 'draft' | 'issued' | 'sent' | 'paid' | 'cancelled';
+
+export interface InvoiceBillTo {
+  name: string | null;
+  state: string | null;
+  gstin: string | null;
+  address: string | null;
+}
+
+export interface InvoiceItem {
+  description: string | null;
+  hsnSacCode: string | null;
+  quantity: string | null;
+  unit: string | null;
+  ratePaise: number;
+  rate: string;
+  discountPercent: string | null;
+  taxRate: string | null;
+  subtotalPaise: number;
+  subtotal: string;
+  taxPaise: number;
+  tax: string;
+  totalPaise: number;
+  total: string;
+}
+
+/** Where the automated chase has got to. Read-only: the UI never starts or advances it. */
+export interface InvoicePaymentFollowUp {
+  state: string | null;
+  remindersSent: number;
+  nextAt: string | null;
+}
+
+export interface Invoice {
+  id: string;
+  organizationId: string | null;
+  contactId: string | null;
+  conversationId: string | null;
+  invoiceNumber: string | null;
+  status: InvoiceStatus;
+  /** Derived server-side from the due date and the balance, never stored. */
+  isOverdue: boolean;
+  billTo: InvoiceBillTo;
+  items: InvoiceItem[];
+  subtotalPaise: number;
+  subtotal: string;
+  discountPaise: number;
+  discount: string;
+  taxablePaise: number;
+  taxable: string;
+  taxPaise: number;
+  tax: string;
+  cgstPaise: number;
+  cgst: string;
+  sgstPaise: number;
+  sgst: string;
+  igstPaise: number;
+  igst: string;
+  /** Signed; negative when the total rounded down. Shown so the figures visibly add up. */
+  roundOffPaise: number;
+  roundOff: string;
+  totalPaise: number;
+  total: string;
+  amountPaidPaise: number;
+  amountPaid: string;
+  balancePaise: number;
+  balance: string;
+  isInterstate: boolean;
+  dueDate: string | null;
+  /** A date the client promised to pay, extracted from the conversation. Not set by this UI. */
+  promiseDate: string | null;
+  paymentFollowUp: InvoicePaymentFollowUp;
+  issuedAt: string | null;
+  paidAt: string | null;
+  notes: string | null;
+  terms: string | null;
+  remindersSentCount: number;
+  lastReminderAt: string | null;
+  razorpayLinkUrl: string | null;
+  hasPdf: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type PaymentMode = 'online' | 'cash' | 'bank_transfer' | 'upi' | 'cheque' | 'other';
+
+export interface Payment {
+  id: string;
+  invoiceId: string | null;
+  contactId: string | null;
+  amountPaise: number;
+  amount: string;
+  mode: PaymentMode | null;
+  paidAt: string | null;
+  reference: string | null;
+  notes: string | null;
+  /** A voided row stays in the ledger and is shown struck through, not hidden. */
+  isVoided: boolean;
+  voidedAt: string | null;
+  voidReason: string | null;
+  isProviderPayment: boolean;
+  recordedBy: string | null;
+  createdAt: string | null;
+}
+
+export interface InvoiceReconciliation {
+  invoiceId: string;
+  ledgerPaise: number;
+  storedPaise: number;
+  driftPaise: number;
+  consistent: boolean;
+  repaired: boolean;
+}
+
+export interface BillingProfile {
+  companyName: string | null;
+  gstin: string | null;
+  /** Decides CGST+SGST versus IGST on every invoice. Not cosmetic. */
+  state: string | null;
+  address: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankIfsc: string | null;
+  upiId: string | null;
+  invoicePrefix: string | null;
+}
+
+/**
+ * The Razorpay connection as the browser may see it.
+ *
+ * NEITHER SECRET IS PRESENT IN ANY FORM - not even a last-four. A key secret can move money,
+ * and rotating one means pasting a new pair anyway.
+ */
+export interface RazorpayConnection {
+  connected: boolean;
+  keyId: string | null;
+  isLive: boolean;
+  webhookUrl: string | null;
+  webhookPath: string | null;
+  connectedAt: string | null;
+}
+
+export type PaymentLinkState = string;
+
+export interface PaymentLink {
+  id: string;
+  invoiceId: string;
+  amountPaise: number;
+  currency: string;
+  state: PaymentLinkState;
+  url: string | null;
+  providerLinkId: string | null;
+  isLive: boolean;
+  lastError: string | null;
+  createdAt: string | null;
+}
+
+export interface RecurringTemplate {
+  id: string;
+  contactId: string | null;
+  conversationId: string | null;
+  name: string | null;
+  items: unknown[];
+  discountPaise: number;
+  discount: string;
+  billTo: InvoiceBillTo;
+  intervalMonths: number;
+  intervalLabel: string;
+  dayOfMonth: number;
+  dueInDays: number;
+  /** `draft` means a human issues each generated invoice; `issued` is unattended. */
+  generateAs: 'draft' | 'issued';
+  active: boolean;
+  nextRunAt: string | null;
+  nextPeriod: string | null;
+  lastGeneratedAt: string | null;
+  lastInvoiceId: string | null;
+  lastPeriod: string | null;
+  generatedCount: number;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  notes: string | null;
+  terms: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface Conversation {
   id: string;
   organizationId: string | null;
