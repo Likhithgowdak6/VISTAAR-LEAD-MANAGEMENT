@@ -1,5 +1,6 @@
 import { env, type Env } from '../../../config/env.js';
 import { paymentMessageStopReason } from './payment-message.guard.js';
+import { nurtureMessageStopReason } from '../../ai-brain/silence-schedule.js';
 import { MESSAGE_AUTHORS } from '../../../constants/message-authors.js';
 import {
   createPipelineTrace,
@@ -399,6 +400,13 @@ export const createOutboundDeliveryService = ({
         conversationId: message.conversationId,
         organizationId,
       });
+      const nurtureReason = nurtureMessageStopReason(message.idempotencyKey, conversation);
+      if (nurtureReason) {
+        await messageRepository.markOutboundMessageFailed({ messageId: message._id, organizationId,
+          error: nurtureReason, permanent: true, now: now() });
+        await publishStatusChange({ organizationId, message });
+        return { delivered: false, failed: true, permanent: true, reason: nurtureReason };
+      }
 
       const paymentReason = await paymentMessageStopReason(message, conversation, now());
       if (paymentReason) {
@@ -665,6 +673,17 @@ export const createOutboundDeliveryService = ({
           permanent: true,
           reason: 'media_missing',
         };
+      }
+    }
+
+    if (message.authoredBy === MESSAGE_AUTHORS.AI && message.idempotencyKey?.startsWith('nurture:')) {
+      const latestConversation = await findConversationById({ conversationId: message.conversationId, organizationId });
+      const nurtureReason = nurtureMessageStopReason(message.idempotencyKey, latestConversation);
+      if (nurtureReason) {
+        await messageRepository.markOutboundMessageFailed({ messageId: message._id, organizationId,
+          error: nurtureReason, permanent: true, now: now() });
+        await publishStatusChange({ organizationId, message });
+        return { delivered: false, failed: true, permanent: true, reason: nurtureReason };
       }
     }
 

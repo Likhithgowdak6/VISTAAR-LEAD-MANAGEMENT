@@ -132,6 +132,29 @@ export const silenceAnchor = (input: SilenceScheduleInput): Date | null => {
   return candidates.reduce((latest, value) => (value.getTime() > latest.getTime() ? value : latest));
 };
 
+/** Queue timestamps alone cannot detect a draft that completed after the customer replied. */
+export const nurtureMessageStopReason = (
+  key: string | null | undefined,
+  conversation: {
+    lastInboundAt?: Date | null; nurtureResumedAt?: Date | null; createdAt?: Date | null;
+    nurtureEnabled?: boolean; promisedFollowUpAt?: Date | null; optedOutAt?: Date | null;
+    salesRejectedAt?: Date | null; aiAutomationEnabled?: boolean;
+  } | null | undefined,
+): string | null => {
+  if (!key?.startsWith('nurture:')) return null;
+  if (!conversation) return 'superseded_by_inbound';
+  const parts = key.split(':');
+  const anchor = silenceAnchor({ ...conversation, now: new Date(0) });
+  if (parts.length !== 4 || !/^\d+$/.test(parts[2] ?? '') || !/^\d+$/.test(parts[3] ?? '') ||
+      !anchor || Number(parts[2]) !== anchor.getTime()) return 'superseded_by_inbound';
+  if (conversation.nurtureEnabled === false) return 'nurture_disabled';
+  if (conversation.promisedFollowUpAt) return 'promised_follow_up_pending';
+  if (conversation.optedOutAt) return 'recipient_opted_out';
+  if (conversation.salesRejectedAt) return 'lead_rejected_service';
+  if (conversation.aiAutomationEnabled !== true) return 'automation_paused_before_send';
+  return null;
+};
+
 /**
  * The first local slot strictly after `after`.
  *

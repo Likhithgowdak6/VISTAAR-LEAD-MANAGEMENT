@@ -403,6 +403,13 @@ class OutboundDeliveryService:
 
         if authored_by == AUTHOR_AI:
             conv = await self.find_conversation_fn(conversation_id=conv_id, organization_id=org_id)
+            from app.silence_schedule import nurture_message_stop_reason
+            nurture_reason = nurture_message_stop_reason(message.get("idempotencyKey"), conv)
+            if nurture_reason:
+                await self.mark_failed_fn(message_id=msg_id, organization_id=org_id,
+                    error=nurture_reason, permanent=True, now=now)
+                await self._publish_status_change(org_id, conv_id)
+                return {"delivered": False, "failed": True, "permanent": True, "reason": nurture_reason}
 
             if message.get("paymentContext"):
                 from app.invoice_payment_chase import delivery_reason
@@ -512,6 +519,16 @@ class OutboundDeliveryService:
                 )
                 await self._publish_status_change(org_id, conv_id)
                 return {"delivered": False, "failed": True, "permanent": True, "reason": "media_missing"}
+
+        if authored_by == AUTHOR_AI and str(message.get("idempotencyKey") or "").startswith("nurture:"):
+            from app.silence_schedule import nurture_message_stop_reason
+            latest = await self.find_conversation_fn(conversation_id=conv_id, organization_id=org_id)
+            nurture_reason = nurture_message_stop_reason(message.get("idempotencyKey"), latest)
+            if nurture_reason:
+                await self.mark_failed_fn(message_id=msg_id, organization_id=org_id,
+                    error=nurture_reason, permanent=True, now=self.now_fn())
+                await self._publish_status_change(org_id, conv_id)
+                return {"delivered": False, "failed": True, "permanent": True, "reason": nurture_reason}
 
         if message.get("paymentContext"):
             from app.invoice_payment_chase import delivery_reason
