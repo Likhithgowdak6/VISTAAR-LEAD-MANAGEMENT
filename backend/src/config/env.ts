@@ -38,6 +38,7 @@ export const envSchema = z.object({
 
   PORT: z.coerce.number().int().positive().default(5001),
   WHATSAPP_GATEWAY_ONLY: booleanString.default(false),
+  CRM_API_URL: z.string().url().default('http://127.0.0.1:5002'),
   WHATSAPP_GATEWAY_SERVICE_KEY: z.string().default(''),
 
   /**

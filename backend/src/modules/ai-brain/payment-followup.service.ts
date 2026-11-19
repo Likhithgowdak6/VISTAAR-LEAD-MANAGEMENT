@@ -22,6 +22,8 @@
  * keyword, so it can never be parsed as an approval choice like "A7 1".
  */
 import { type HydratedDocument } from 'mongoose';
+import { env } from '../../config/env.js';
+import { forwardOwnerPaymentReply } from './payment-followup.client.js';
 
 import { ACTIVITY_EVENTS } from '../../constants/activity-events.js';
 import { MESSAGE_AUTHORS } from '../../constants/message-authors.js';
@@ -125,6 +127,8 @@ export const buildPaymentChaseMessage = (displayName: string): string =>
   `the shoot is still pending. Let us know if you need any details from our side 😊`;
 
 export interface CreatePaymentFollowUpServiceOptions {
+  gatewayOnly?: boolean;
+  forwardPaymentReply?: typeof forwardOwnerPaymentReply;
   findBookingsAwaitingPaymentPrompt?: typeof defaultFindBookingsAwaitingPaymentPrompt;
   claimPaymentPrompt?: typeof defaultClaimPaymentPrompt;
   releasePaymentPromptClaim?: typeof defaultReleasePaymentPromptClaim;
@@ -154,6 +158,8 @@ export interface CreatePaymentFollowUpServiceOptions {
 }
 
 export const createPaymentFollowUpService = ({
+  gatewayOnly = env.WHATSAPP_GATEWAY_ONLY,
+  forwardPaymentReply = forwardOwnerPaymentReply,
   findBookingsAwaitingPaymentPrompt = defaultFindBookingsAwaitingPaymentPrompt,
   claimPaymentPrompt = defaultClaimPaymentPrompt,
   releasePaymentPromptClaim = defaultReleasePaymentPromptClaim,
@@ -251,6 +257,15 @@ export const createPaymentFollowUpService = ({
 
     if (!parsed) {
       return false;
+    }
+
+    if (gatewayOnly) {
+      try {
+        await forwardPaymentReply({ organizationId, text });
+      } catch {
+        await notify({ organizationId, text: 'I could not process that payment confirmation. Please retry the same code shortly.' }).catch(() => {});
+      }
+      return true;
     }
 
     const conversation = await findConversationByPaymentCode({
