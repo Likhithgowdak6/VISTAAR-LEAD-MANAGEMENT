@@ -32,12 +32,12 @@ interface Props<TView extends string> {
  *
  * WHY THIS EXISTS. The masthead nav is a single scrolling strip of nine letterspaced labels. It
  * needs about 790px; a 360px phone shows four of them and hides Lead sources, Knowledge and
- * Settings behind a sideways scroll nobody discovers. The account row above it - W-Staff, the
+ * Settings behind a sideways scroll nobody discovers. The account row above it - the
  * avatar, Password, Sign out - costs a second line for controls used once a week. Together they
  * took a sixth of the screen before a single lead was visible.
  *
  * So on a phone the bottom bar carries the two sections used all day, and everything else -
- * the other seven, plus W-Staff, the password change and sign-out - lives in here. Desktop
+ * the other seven, plus the password change and sign-out - lives in here. Desktop
  * keeps the full masthead strip exactly as it was and never renders this.
  *
  * CONTROLLED, NOT SELF-OPENING. It used to own both a trigger button and its open state, which
@@ -228,12 +228,6 @@ const MobileSectionMenu = <TView extends string>({
                 showLabel
                 className="m-sheet-item min-h-12 w-full justify-start rounded-xl border-none px-3.5 text-sm font-medium shadow-none"
               />
-              <a
-                href="whatsapp-admin://open"
-                className="m-sheet-item flex min-h-12 items-center rounded-xl px-3.5 text-sm font-medium"
-              >
-                W-Staff
-              </a>
               <button
                 type="button"
                 onClick={() => {

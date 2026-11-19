@@ -711,12 +711,6 @@ const AppShell = () => {
             </nav>
             <div className="order-2 ml-auto flex shrink-0 items-center gap-2.5 lg:order-3">
               <ThemeToggle />
-              <a
-                href="whatsapp-admin://open"
-                className="rounded-full bg-[#7676801f] px-3 py-1.5 text-[13px] font-semibold text-blue-600 transition hover:bg-[#76768033] active:scale-95 dark:bg-[#76768033] dark:text-blue-400"
-              >
-                W-Staff
-              </a>
               <div className="flex items-center gap-2 pl-1">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-[11px] font-semibold text-white shadow-xs">
                   {getInitials(user?.name)}
