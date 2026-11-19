@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from bson import ObjectId
+from pymongo import ReturnDocument
 
 from app import db
 from app.classification_filters import (
@@ -670,6 +671,11 @@ async def update_conversation_preview(
         set_fields["lastMessagePreview"] = last_message_preview[:500]
     if last_inbound_at is not None:
         set_fields["lastInboundAt"] = last_inbound_at
+        # Match gateway ingestion: a customer reply starts a fresh silence cycle, without
+        # overriding the owner's automation/nurture switches or an opt-out.
+        set_fields.update({"nurtureStep": 0, "promisedFollowUpAt": None,
+            "promisedFollowUpKey": None, "promisedFollowUpDirection": None,
+            "promisedFollowUpQuote": None})
 
     update: dict[str, Any] = {"$set": set_fields}
     if unread_count_increment:
@@ -1006,11 +1012,11 @@ async def find_nurturable_conversations(
     db_override: Any = None,
 ) -> list[dict[str, Any]]:
     """Conversations eligible for silence nurture sweep."""
-    database = db_override or db.get_database()
+    database = db_override if db_override is not None else db.get_database()
     now_dt = now or datetime.now(timezone.utc)
     query: dict[str, Any] = {
         "isDeleted": {"$ne": True},
-        "stage": {"$in": ["new", "contacted", "qualified", "proposal_sent", "negotiation"]},
+        "stage": {"$in": ACTIVE_PIPELINE_STAGES},
         "aiAutomationEnabled": True,
         "nurtureEnabled": {"$ne": False},
         "lastOutboundAt": {"$ne": None},
@@ -1033,17 +1039,18 @@ async def bump_nurture_step(
     conversation_id: Any,
     organization_id: Any,
     step: int,
+    expected_cycle: dict[str, Any] | None = None,
     session: Any = None,
     db_override: Any = None,
 ) -> dict[str, Any] | None:
     """Bumps or resets nurture step on conversation."""
-    database = db_override or db.get_database()
+    database = db_override if db_override is not None else db.get_database()
     cid = _to_object_id(conversation_id) or conversation_id
     oid = _to_object_id(organization_id) or organization_id
     now_dt = datetime.now(timezone.utc)
 
     return await database[CONVERSATIONS].find_one_and_update(
-        {"_id": cid, "organizationId": oid},
+        {"_id": cid, "organizationId": oid, **(expected_cycle or {})},
         {"$set": {"nurtureStep": step, "updatedAt": now_dt}},
         return_document=True,
         session=session,
@@ -1378,18 +1385,19 @@ async def mark_conversation_cold(
     paused_reason: str,
     session: Any = None,
     db_override: Any = None,
+    expected_cycle: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Marks a conversation cold by pausing AI automation with the given reason.
 
     A direct port of markConversationCold in conversation.repository.ts.
     """
-    return await update_automation_state(
-        conversation_id=conversation_id,
-        organization_id=organization_id,
-        ai_automation_enabled=False,
-        ai_automation_paused_reason=paused_reason,
-        session=session,
-        db_override=db_override,
+    database = db_override if db_override is not None else db.get_database()
+    return await database[CONVERSATIONS].find_one_and_update(
+        {"_id": _to_object_id(conversation_id), "organizationId": _to_object_id(organization_id),
+         **(expected_cycle or {})},
+        {"$set": {"aiAutomationEnabled": False, "aiAutomationPausedReason": paused_reason,
+                  "updatedAt": datetime.now(timezone.utc)}},
+        return_document=ReturnDocument.AFTER, session=session,
     )
 
 

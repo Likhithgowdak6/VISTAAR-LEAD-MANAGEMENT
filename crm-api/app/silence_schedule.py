@@ -20,7 +20,7 @@ Stop conditions:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from app.zoned_time import (
     ZonedDateParts,
@@ -57,11 +57,16 @@ class SilenceDecision(NamedTuple):
     reason: str | None = None
 
 
+def _utc(value: datetime | None) -> datetime | None:
+    # PyMongo's default is naive UTC, never the worker machine's local timezone.
+    return value.replace(tzinfo=timezone.utc) if isinstance(value, datetime) and value.tzinfo is None else value
+
+
 def silence_anchor(input_data: SilenceScheduleInput) -> datetime | None:
     """The latest of nurtureResumedAt and lastInboundAt, falling back to createdAt."""
-    candidates = [d for d in (input_data.nurture_resumed_at, input_data.last_inbound_at) if isinstance(d, datetime)]
+    candidates = [_utc(d) for d in (input_data.nurture_resumed_at, input_data.last_inbound_at) if isinstance(d, datetime)]
     if not candidates:
-        return input_data.created_at
+        return _utc(input_data.created_at)
 
     return max(candidates)
 
@@ -120,6 +125,10 @@ def has_reached_event_day(event_date: datetime | None, now: datetime) -> bool:
 
 def decide_silence_follow_up(input_data: SilenceScheduleInput) -> SilenceDecision:
     """Decides whether a silence follow-up is due right now, and which step it would be."""
+    input_data = input_data._replace(last_inbound_at=_utc(input_data.last_inbound_at),
+        last_outbound_at=_utc(input_data.last_outbound_at), created_at=_utc(input_data.created_at),
+        nurture_resumed_at=_utc(input_data.nurture_resumed_at), event_date=_utc(input_data.event_date),
+        now=_utc(input_data.now))
     anchor = silence_anchor(input_data)
     if not anchor:
         return SilenceDecision(send=False, reason="no_anchor")
@@ -152,4 +161,29 @@ def decide_silence_follow_up(input_data: SilenceScheduleInput) -> SilenceDecisio
         return SilenceDecision(send=False, reason="not_due")
 
     return SilenceDecision(send=True, step=step + 1, due_at=effective_due_at)
+
+
+def nurture_message_stop_reason(key: str | None, conversation: dict[str, Any] | None) -> str | None:
+    """An LLM draft can finish after a reply: its queue time cannot identify the old cycle."""
+    if not isinstance(key, str) or not key.startswith("nurture:"):
+        return None
+    if not conversation:
+        return "superseded_by_inbound"
+    parts = key.split(":")
+    anchor = silence_anchor(SilenceScheduleInput(last_inbound_at=conversation.get("lastInboundAt"),
+        nurture_resumed_at=conversation.get("nurtureResumedAt"), created_at=conversation.get("createdAt")))
+    if (len(parts) != 4 or not parts[2].isdigit() or not parts[3].isdigit()
+            or not anchor or int(parts[2]) != int(anchor.timestamp()*1000)):
+        return "superseded_by_inbound"
+    if conversation.get("nurtureEnabled") is False:
+        return "nurture_disabled"
+    if conversation.get("promisedFollowUpAt"):
+        return "promised_follow_up_pending"
+    if conversation.get("optedOutAt"):
+        return "recipient_opted_out"
+    if conversation.get("salesRejectedAt"):
+        return "lead_rejected_service"
+    if conversation.get("aiAutomationEnabled") is not True:
+        return "automation_paused_before_send"
+    return None
 
