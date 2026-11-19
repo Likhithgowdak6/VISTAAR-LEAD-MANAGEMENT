@@ -27,6 +27,7 @@ import { hasPermission, PERMISSIONS } from '../lib/permissions';
 import AiKnowledgePage from './AiKnowledgePage';
 import CalendarPage from './CalendarPage';
 import LeadSourcesPage from './LeadSourcesPage';
+import BillingPage from './BillingPage';
 import SettingsPage from './SettingsPage';
 import StagesAndTagsPage from './StagesAndTagsPage';
 import TasksPage from './TasksPage';
@@ -51,6 +52,7 @@ type AppView =
   | 'tags'
   | 'ai-knowledge'
   | 'lead-sources'
+  | 'billing'
   | 'settings';
 
 type AuthUser = {
@@ -513,6 +515,9 @@ const AppShell = () => {
   const canManageAiKnowledge = hasPermission(permissions, PERMISSIONS.AI_KNOWLEDGE_MANAGE);
   const canManageLeadSources = hasPermission(permissions, PERMISSIONS.LEAD_SOURCES_MANAGE);
   const canManageSettings = hasPermission(permissions, PERMISSIONS.SETTINGS_MANAGE);
+  // Billing appears for anyone who may READ an invoice. The page itself filters its own
+  // tabs further - raising invoices and connecting a provider are separate permissions.
+  const canReadInvoices = hasPermission(permissions, PERMISSIONS.INVOICES_READ);
   // The same permission the lead panel's reminder section gates on, so Tasks appears for
   // exactly the people who can already see and act on reminders.
   const canManageTasks = hasPermission(permissions, PERMISSIONS.CRM_TASKS_MANAGE);
@@ -600,6 +605,7 @@ const AppShell = () => {
     ...(canManageStages || canManageTags ? ([{ view: 'stages-and-tags', label: 'Stages & Tags' }] as const) : []),
     ...(canManageLeadSources ? ([{ view: 'lead-sources', label: 'Lead sources' }] as const) : []),
     ...(canManageAiKnowledge ? ([{ view: 'ai-knowledge', label: 'Knowledge' }] as const) : []),
+    ...(canReadInvoices ? ([{ view: 'billing', label: 'Billing' }] as const) : []),
     ...(canManageSettings ? ([{ view: 'settings', label: 'Settings' }] as const) : []),
   ];
 
@@ -690,6 +696,11 @@ const AppShell = () => {
               {canManageAiKnowledge ? (
                 <NavButton active={view === 'ai-knowledge'} onClick={() => setView('ai-knowledge')}>
                   Knowledge
+                </NavButton>
+              ) : null}
+              {canReadInvoices ? (
+                <NavButton active={view === 'billing'} onClick={() => setView('billing')}>
+                  Billing
                 </NavButton>
               ) : null}
               {canManageSettings ? (
@@ -787,6 +798,10 @@ const AppShell = () => {
       ) : view === 'analytics' ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Dashboard" isTab>
           <AnalyticsPage onOpenConversation={openConversation} onDrillDown={openInboxWithFilters} />
+        </SectionScreen>
+      ) : view === 'billing' && canReadInvoices ? (
+        <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Billing">
+          <BillingPage />
         </SectionScreen>
       ) : view === 'settings' && canManageSettings ? (
         <SectionScreen mobile={isMobileViewport} onBack={goToInbox} title="Settings">
