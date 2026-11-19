@@ -40,6 +40,7 @@ async def enqueue_outbound_message(
     idempotency_key: str,
     authored_by: str = "human",
     media: Optional[dict[str, Any]] = None,
+    payment_context: Optional[dict[str, Any]] = None,
     session: Any = None,
 ) -> dict[str, Any]:
     """
@@ -89,6 +90,9 @@ async def enqueue_outbound_message(
         "createdAt": sent_at,
         "updatedAt": sent_at,
     }
+
+    if payment_context:
+        msg_doc["paymentContext"] = payment_context
 
     if media:
         msg_doc["type"] = media.get("type", "image")

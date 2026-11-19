@@ -428,12 +428,19 @@ async def handle_owner_approval_reply(
     raw_text = text.strip()
 
     # 1. Payment answers checked first
+    if handle_payment_reply is None:
+        from app.payment_followup import get_payment_follow_up_service
+        handle_payment_reply = get_payment_follow_up_service().handle_owner_reply
     if handle_payment_reply:
         try:
             if await handle_payment_reply(organization_id=org_id, text=raw_text):
                 return
         except Exception as error:
             logger.error("Owner payment reply handling failed safely.", exc_info=error)
+            from app.payment_followup import parse_payment_reply
+            if parse_payment_reply(raw_text):
+                await svc.notify_owner(organization_id=org_id, text="I could not process that payment confirmation. Please retry the same code shortly.")
+                return
 
     # 2. Look up pending approvals
     from app.ai_brain_approval import list_pending_approvals

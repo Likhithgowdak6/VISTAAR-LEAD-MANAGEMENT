@@ -140,6 +140,8 @@ class PaymentFollowUpService:
 
     async def run_for_organization(self, organization_id: Any) -> None:
         """Asks owner about finished bookings."""
+        from app.invoice_payment_chase import InvoicePaymentChase
+        await InvoicePaymentChase(notify=self.notify_fn, now=self.now_fn).run_for_organization(organization_id)
         ended_before = self.now_fn() - timedelta(days=1)
         bookings = await self.find_awaiting_fn(
             organization_id=organization_id,
@@ -149,6 +151,19 @@ class PaymentFollowUpService:
         for booking in bookings:
             code = generate_approval_code()
             conv_id = booking["_id"]
+
+            # The daily job is already single-claimed, but open questions from prior days
+            # may still use a generated code. Never intentionally reuse one.
+            for attempt in range(20):
+                occupied = await db.get_database().conversations.find_one({
+                    "organizationId": organization_id, "paymentPromptCode": code,
+                    "paymentSettledAt": None, "isDeleted": {"$ne": True}})
+                if not occupied:
+                    break
+                code = generate_approval_code()
+            else:
+                logger.warning("No free payment approval code found; booking left unprompted.")
+                continue
 
             claimed = await self.claim_prompt_fn(
                 conversation_id=conv_id,
@@ -197,6 +212,17 @@ class PaymentFollowUpService:
         code = parsed["code"]
         collected = parsed["collected"]
 
+        # Historical duplicate codes, or a rare concurrent allocation, must not select an
+        # arbitrary customer's invoice. Keep custom test/adapter finders compatible.
+        if self.find_by_code_fn is default_find_conversation_by_payment_code:
+            matches = await db.get_database().conversations.count_documents({
+                "organizationId": organization_id, "paymentPromptCode": code,
+                "paymentSettledAt": None, "isDeleted": {"$ne": True}})
+            if matches > 1:
+                await self._notify_owner(organization_id=organization_id,
+                    text="No payment reminder sent: that code matches more than one booking. Please review the bookings manually.")
+                return True
+
         conv = await self.find_by_code_fn(
             organization_id=organization_id,
             code=code,
@@ -227,7 +253,12 @@ class PaymentFollowUpService:
             logger.info("Payment for %s marked collected by owner with code %s.", conv_id, code)
             return True
 
-        # Owner said pending -> client chase
+        # Invoice-backed collections use the same owner gate and outbound queue.
+        from app.invoice_payment_chase import InvoicePaymentChase
+        if await InvoicePaymentChase(notify=self.notify_fn, now=self.now_fn).approve(conv, code):
+            return True
+
+        # A booking without an invoice retains its original one-shot reminder.
         claimed = await self.claim_chase_fn(
             conversation_id=conv_id,
             organization_id=organization_id,

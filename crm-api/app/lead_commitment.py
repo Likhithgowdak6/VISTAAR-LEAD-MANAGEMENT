@@ -98,7 +98,13 @@ async def default_set_promised_follow_up(
                     "direction": direction,
                     "quote": quote,
                     "updatedAt": now_dt,
-                }
+                },
+                "promisedFollowUpAt": due_at,
+                "promisedFollowUpKey": key,
+                "promisedFollowUpDirection": direction,
+                "promisedFollowUpQuote": quote[:300],
+                "lastLeadCommitment": {"dueAt": due_at, "key": key, "direction": direction,
+                                       "quote": quote[:300], "updatedAt": now_dt},
             }
         },
     )
