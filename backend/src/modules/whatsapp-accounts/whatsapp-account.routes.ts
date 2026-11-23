@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import {
+  getEmbeddedSignupConfig, startEmbeddedSignup, exchangeEmbeddedSignup, completeEmbeddedSignup,
+} from './embedded-signup.controller.js';
 
 import {
   authenticateRequest,
@@ -44,6 +47,10 @@ whatsappAccountRouter.post('/:accountId/connect', requireAccountsManage, connect
 // Cloud API connection management. Gated on accounts.manage like every other credential
 // operation: pasting a token is how a number starts sending, and it is not a staff action.
 whatsappAccountRouter.post('/:accountId/cloud', requireAccountsManage, connectCloudAccount);
+whatsappAccountRouter.get('/:accountId/cloud/signup', requireAccountsManage, getEmbeddedSignupConfig);
+whatsappAccountRouter.post('/:accountId/cloud/signup/start', requireAccountsManage, startEmbeddedSignup);
+whatsappAccountRouter.post('/:accountId/cloud/signup/exchange', requireAccountsManage, exchangeEmbeddedSignup);
+whatsappAccountRouter.post('/:accountId/cloud/signup/complete', requireAccountsManage, completeEmbeddedSignup);
 whatsappAccountRouter.post('/:accountId/cloud/test', requireAccountsManage, testCloudAccount);
 whatsappAccountRouter.delete('/:accountId/cloud', requireAccountsManage, disconnectCloudAccount);
 // Reading templates is gated on messages.send, not accounts.manage: staff hold no accounts

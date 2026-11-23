@@ -16,6 +16,7 @@ import {
   encryptCloudAccessTokenForStorage,
 } from '../whatsapp/cloud/cloud-credentials.service.js';
 import { getCloudRuntime } from '../whatsapp/cloud/cloud-runtime.service.js';
+import { registerSignupPhone } from '../whatsapp/cloud/embedded-signup.client.js';
 import { connectCloudWebhookSubscription, fetchCloudPhoneNumber } from '../whatsapp/cloud/whatsapp-cloud.client.js';
 import { deleteWhatsAppTemplatesForAccount } from '../whatsapp-templates/whatsapp-template.repository.js';
 import { createAuditLog } from '../audit/audit.repository.js';
@@ -33,6 +34,7 @@ import {
   findAccountByBrandKey,
   saveCloudCredentials,
   findAccountById,
+  findCloudAccountByPhoneNumberId,
   findAccountsByOrganization,
   hardDeleteAccount,
   purgeAccountData,
@@ -287,6 +289,7 @@ export interface ConnectCloudAccountOptions {
   phoneNumberId: string;
   wabaId: string;
   accessToken: string;
+  registrationPin?: string;
 }
 
 /**
@@ -308,6 +311,7 @@ export const connectCloudAccountForActor = async ({
   phoneNumberId,
   wabaId,
   accessToken,
+  registrationPin,
 }: ConnectCloudAccountOptions) => {
   const account = await loadAccount({ organizationId, accountId });
 
@@ -319,10 +323,20 @@ export const connectCloudAccountForActor = async ({
     throw new Error('WHATSAPP_CLOUD_DISABLED');
   }
 
+  if (registrationPin) {
+    const existing = await findCloudAccountByPhoneNumberId({ phoneNumberId });
+    if (existing && String(existing._id) !== String(account._id)) {
+      throw new Error('CLOUD_PHONE_ALREADY_CONNECTED');
+    }
+  }
+
   // Throws a WhatsAppCloudError the controller maps straight to a message an admin can act on -
   // an expired token, a number id that is not theirs, a missing permission.
   const summary = await fetchCloudPhoneNumber({ phoneNumberId, accessToken });
   await connectCloudWebhookSubscription({ wabaId, phoneNumberId, accessToken });
+  // Only Embedded Signup registers a newly onboarded number. Manual connections retain their
+  // existing behaviour. Ownership is checked before registration or any credential write.
+  if (registrationPin) await registerSignupPhone(phoneNumberId, accessToken, registrationPin);
 
   const saved = await saveCloudCredentials({
     accountId,

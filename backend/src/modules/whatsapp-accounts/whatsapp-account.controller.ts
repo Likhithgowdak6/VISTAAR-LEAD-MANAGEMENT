@@ -53,7 +53,7 @@ interface AccountActionInput {
   actor: Express.AuthContext['user'];
 }
 
-const mapAccountError = (error: unknown): never => {
+export const mapAccountError = (error: unknown): never => {
   /**
    * Cloud errors already carry a message written for the person reading the screen - "paste a new
    * token", "this number is not registered" - so they are surfaced as-is rather than flattened
@@ -80,6 +80,9 @@ const mapAccountError = (error: unknown): never => {
         : undefined;
 
   const errorMap: Record<string, MappedHttpError> = {
+    CLOUD_PHONE_ALREADY_CONNECTED: {
+      statusCode: 409, message: 'That phone number is already connected to another CRM account.',
+    },
     ACCOUNT_NOT_FOUND: { statusCode: 404, message: 'WhatsApp account not found.' },
     ACCOUNT_BRAND_KEY_EXISTS: {
       statusCode: 409,
