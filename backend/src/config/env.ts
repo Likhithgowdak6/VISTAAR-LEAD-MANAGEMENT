@@ -118,6 +118,8 @@ export const envSchema = z.object({
   // always was. This flag only decides whether the Cloud option is offered at all, so an
   // installation with no Meta app never shows a connect form nobody can complete.
   WHATSAPP_CLOUD_ENABLED: booleanString.default(false),
+  WHATSAPP_EMBEDDED_SIGNUP_APP_ID: z.string().default(''),
+  WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID: z.string().default(''),
 
   // The verify token typed into Meta's webhook console for the WhatsApp product. Deliberately
   // separate from META_WEBHOOK_VERIFY_TOKEN: Meta stores one per product, and sharing a value

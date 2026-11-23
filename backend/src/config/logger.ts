@@ -20,6 +20,7 @@ const REDACTED_PATHS = [
   'authorization',
   'cookie',
   'apiKey',
+  'pin',
   'phone',
   'phoneNumber',
   'email',
@@ -32,11 +33,15 @@ const REDACTED_PATHS = [
   '*.refreshToken',
   '*.refreshTokenHash',
   '*.apiKey',
+  '*.pin',
   '*.phone',
   '*.phoneNumber',
   '*.email',
   'req.headers.authorization',
   'req.headers.cookie',
+  'req.body.code',
+  'req.body.state',
+  'req.body.pin',
 ];
 
 export const logger = pino({
