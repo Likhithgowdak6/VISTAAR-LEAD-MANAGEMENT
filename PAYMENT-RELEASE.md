@@ -54,6 +54,30 @@ The merge remains local, uncommitted and undeployed. No real payment or WhatsApp
   PDF renderer; invoice-PDF Python tests cover the renderer separately.
 - Frontend bundle-size warning remains. Skipped Python tests are not counted as verified behavior.
 
+### Superseding full runs — second pass, 19 November 2026
+
+Every suite was re-run in full after further fixes (two browser-only layout defects, the
+recurring edit/history endpoints, and an index-specification guard). These numbers describe the
+CURRENT source and supersede the counts above, including the caveat about the Python run
+predating the last changes:
+
+- Python `crm-api`: **14,571 passed / 28 skipped / 0 failed**, 520s. A genuine full run of the
+  final source.
+- Node `backend`: **3,510 passed across 150 files**; `npm run build` passed.
+- Frontend: **1,015 passed across 84 files**; `tsc --noEmit` clean; `npm run build` passed.
+- Billing tests: **169 across 9 files** (money 30, recurring 28, razorpay 27, invoice-form 20,
+  invoice-detail 18, payments 17, permissions 14, invoice-list 12, modal 3). An earlier summary
+  claimed 113; that was stale by three files and should not be quoted.
+- Real MongoDB **8.2.12**, disposable container, removed afterwards: the extended
+  `crm-api/tools/check_billing_mongo.py` passes all four checks, now including recurring
+  concurrency, crash-retry number preservation, tenant/template/period independence, backlog
+  pacing, failed-template limits, no-message/no-link generation, and per-tenant manual payment
+  attempt keys.
+- A second browser pass drove the **real** `crm-api` against a disposable replica-set MongoDB
+  with `crm-api/tools/seed_billing_demo.py` — so the PDF check exercised the production renderer
+  end to end, returning a real `%PDF-1.4` headed TAX INVOICE with the seeded tenant's own name
+  and both GSTINs. This complements, rather than replaces, the synthetic-response run above.
+
 ## Source-data assessment and migration plan
 
 Read-only inspection found the source backup:
@@ -67,6 +91,42 @@ This proves historical records exist, not that they are current, real rather tha
 complete live database. No remote source database was contacted. Before migration, the owner
 must select the authoritative export and destination workspace and decide whether historical
 records should be imported. Never assume this July backup is today's ledger.
+
+### Second-pass read-only evidence, 19 November 2026
+
+A later pass over the same file counted aggregate properties only — no names, numbers, emails,
+tokens or amounts per client were read out. Every signal points the same way: **this export
+looks like development data, not a live book of business.**
+
+- **6 of the 8 clients** carry `test`, `demo`, `sample` or `dummy` in their name, company or
+  email; 8 clients share only **6 distinct phone numbers**.
+- **Not one client has a GSTIN**, which an Indian B2B book billing GST would not look like.
+- Invoice amounts run from **₹1.00** to ₹50,000 across 27 invoices totalling ₹1,75,539.
+- Invoice numbers are inconsistent in a telling way: 19 well-formed, but also `VIS-TEST-###`
+  and four carrying random hex tails (`VIS-####-#A#CD#`). Those tails are the source project's
+  own give-up fallback, which `invoice_numbering.py` documents and this CRM deliberately
+  replaced — a real issued invoice should never look like that.
+- **The payments table is empty (0 rows)** even though 3 invoices are marked paid, and there
+  are only 2 line items for 27 invoices. There is no payment history to migrate.
+- Records span **3 June – 27 July 2026**, about eight weeks, and the repository's last commit is
+  **19 August 2026** — three months before this assessment.
+
+**What remains unknown, and cannot be resolved locally.** The project's `DATABASE_URL` points at
+a hosted Supabase Postgres pooler (endpoint deliberately not reproduced here; read it from that
+project's own `.env` if it is ever needed), not a local database. There is no local volume or
+container for it: its Compose project (`vistaar`,
+`pgvector/pgvector:pg16`) has no container and no `vistaar_*` volume on this machine, and the
+running `vistaar-agent-*` Postgres is a different application entirely (its tables are `leads`,
+`proposals`, `service_plans`, `wa_lines` — no `invoices` or `clients`). So the July backup is
+the only local evidence, and whatever the hosted database holds today is unknown. That question
+can only be answered by a read-only query against that hosted instance, which this assessment
+deliberately did not run: it would mean using live credentials against a remote service.
+
+**Note a possible conflict.** The section at the end of this document records a user decision to
+exclude historical migration entirely. The assessment above was produced because a later
+instruction asked for a read-only Phase 8 assessment. Both are satisfied — nothing was migrated
+and no remote database was contacted — but if the standing decision holds, the dry-run plan
+below stays unbuilt. Confirm with the owner before treating either as current.
 
 If migration is wanted, implement a dry-run-first importer:
 
@@ -138,6 +198,57 @@ the previously deployed Node process is the `vistaar` systemd service.
 6. Check service readiness, authenticated tenant/permission behavior, PDF storage mount
    (`./var/media:/app/var/media` on API/worker), browser/APK API origin and the acceptance cases
    above. Rebuild the APK after the web/backend release if requested. No APK was built here.
+
+### Verifying the financial indexes actually exist after deploy
+
+Step 4's "verify financial index creation succeeds" is the single most important post-deploy
+check, and it is cheap. `ensure_billing_indexes` is called without a `try` in `app/main.py`, so
+the API refuses to start if any index fails — but confirm the indexes are *present*, not merely
+that the process came up, because a pre-existing deployment may have started before that guard
+was added:
+
+```
+db.invoices.getIndexes()   // expect organizationId_1_invoiceNumber_1 (unique, partial on $type string)
+                           // and organizationId_1_recurringTemplateId_1_recurringPeriod_1 (unique)
+db.payments.getIndexes()   // expect unique partial indexes on providerPaymentId, providerLinkId
+                           // and idempotencyKey
+```
+
+If the recurring index is missing on a database that already holds generated invoices, creating
+it can fail on existing duplicates. Resolve those deliberately — decide which invoice is real —
+rather than dropping the index to make startup pass. Without it the only thing standing between
+a retried sweep and a double-billed client is the lease, which is exactly the fail-open lock
+this design was built to avoid.
+
+### Reproducing the local verification stack
+
+Both tools refuse anything but an explicit `mongodb://127.0.0.1:PORT` and never read
+`MONGODB_URI`, so neither can be pointed at a real tenant by accident.
+
+```
+docker run -d --name vistaar-mongo-check -p 127.0.0.1:27117:27117 mongo:8 --port 27117 --bind_ip_all
+cd crm-api && ./venv/Scripts/python.exe -m tools.check_billing_mongo --uri mongodb://127.0.0.1:27117
+```
+
+For the UI, a replica set is required (`crm-api` expects `replicaSet=rs0`):
+
+```
+docker run -d --name vistaar-mongo-rs -p 127.0.0.1:27118:27118 mongo:8 --replSet rs0 --port 27118 --bind_ip_all
+docker exec vistaar-mongo-rs mongosh --port 27118 --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27118"}]})'
+cd crm-api && ./venv/Scripts/python.exe -m tools.seed_billing_demo --uri mongodb://127.0.0.1:27118
+```
+
+Then run `crm-api` against it and point Vite's proxy at it with an environment variable, so
+`frontend/vite.config.ts` is never edited:
+
+```
+cd crm-api && MONGODB_URI="mongodb://127.0.0.1:27118/vistaar_billing_demo?replicaSet=rs0" JWT_ACCESS_SECRET=local-only ./venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 5099
+cd frontend && VITE_API_PROXY_TARGET="http://127.0.0.1:5099" npx vite --port 5174
+```
+
+Sign in at `http://localhost:5174` as `admin@demo.test` or `manager@demo.test` (read-only),
+password `DemoPassword123!`. Razorpay is deliberately left unconnected: proving a connection
+means calling Razorpay. Remove both containers when finished.
 
 ## Rollback
 

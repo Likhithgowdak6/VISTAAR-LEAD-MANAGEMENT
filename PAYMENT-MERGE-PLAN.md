@@ -372,8 +372,17 @@ empty on a connected workspace and are cleared from component state the moment a
 accepted. Test and live connections are badged, as are test-mode payment links — the two look
 identical in a URL, and chasing a client with a link that cannot take money is a real mistake.
 
-145 tests originally covered this (the earlier narrative incorrectly said 113): permissions and role-dependent empty states, money formatting, the payments
-ledger, the invoice list and detail, the invoice form, recurring schedules, and Razorpay.
+**169 tests across 9 files** cover this: money 30, recurring 28, razorpay 27, invoice-form 20,
+invoice-detail 18, payments 17, permissions 14, invoice-list 12, modal 3 — permissions and
+role-dependent empty states, money formatting, the payments ledger, the invoice list and detail,
+the invoice form, recurring schedules, Razorpay, and dialog focus handling. (An early narrative
+said 113; that was stale by three files, and the per-file counts at the time totalled 145. The
+figure moved to 169 as release verification added cases. Quote 169.)
+
+Two things these tests could NOT catch were found by driving the real app in a browser, and are
+worth remembering before trusting a green suite about anything visual: an expanded panel
+competing for width inside a flex row, and a line total clipped off the edge of a phone by
+`overflow-hidden`. jsdom has no layout.
 
 **Phase 8 — Data migration**
 Only if the payment bot holds real data. A one-shot script: clients matched onto existing CRM
@@ -414,9 +423,19 @@ checked index legality and concurrent generation on real MongoDB 8, fenced stale
 preserved recurring data during edits, corrected payment-link state contracts, and corrected
 billing-dialog stacking and keyboard handling in an actual desktop/mobile browser.
 
-Final frontend validation is 1,014 tests (168 billing tests), with build, scoped lint and local
-synthetic browser journey passing. Node: 3,510 tests and build passing. Python: full regression
-14,568 passed / 28 skipped, followed by 197 focused tests covering the final startup/payment fixes.
+A second verification pass then re-ran everything in full against the final source, and these
+are the figures to quote: **Python 14,571 passed / 28 skipped / 0 failed** (a genuine full run,
+not a focused subset), **Node 3,510 across 150 files**, **frontend 1,015 across 84 files with
+169 billing tests**, both production builds green, `tsc --noEmit` clean.
+
+That pass also reproduced both headline defects from scratch on real MongoDB 8.2.12 before
+trusting their fixes — `$ne` in a partial filter is rejected outright, so the recurring
+uniqueness index did not exist at all; and an interrupted generation spent an invoice number per
+retry, leaving holes in a GST sequence. It added a unit-level guard
+(`crm-api/tests/test_billing_index_specs.py`) so a partial filter using an operator MongoDB
+forbids now fails in CI rather than only on a real server, closed two gaps against the Phase 7
+brief (`PUT /recurring-invoices/{id}` and a `recurringTemplateId` filter on the invoice list),
+and fixed two layout defects that only appeared in a real browser.
 See `PAYMENT-RELEASE.md` and the latest `CLAUDE-HANDOVER.md` update for snapshot boundaries.
 
 Phase 8 assessment found historical source data; migration is conditional on choosing the

@@ -287,6 +287,194 @@ or concurrent issued allocation, the compact first-line recurring editor, loaded
 search and absence of automatic refunds. Local tests do not replace real provider acceptance.
 
 
+## Independent release verification — 19 November 2026 (second pass)
+
+A separate pass over the same working tree, run against real infrastructure rather than mocks.
+It reaches the same two conclusions as the section above about the index and the retry, and
+adds independent evidence, two browser-only defects, and a CI guard. Nothing was committed,
+pushed or deployed; `frontend/vite.config.ts` was not touched.
+
+### Confirmed against MongoDB 8.2.12, not mongomock
+
+A disposable `mongo:8` container (8.2.12) was used throughout, and removed afterwards. Two
+defects were reproduced from first principles before being fixed, so the fixes are evidenced
+rather than assumed:
+
+- **`$ne` in a partial filter is rejected outright.** `create_index` raises
+  `OperationFailure: Expression not supported in partial index`, which means the index does not
+  exist — and neither does any index created after it in the same function. It hit
+  `invoices.razorpayLinkId` AND the recurring uniqueness index, i.e. the one its own module
+  docstring calls "the one that actually guarantees it". mongomock accepts `$ne`, so a fully
+  green unit suite proved nothing here. Both now use `$type` (`"string"` / `"objectId"`), and
+  all five billing index builders were re-probed against the real server and create cleanly.
+- **A retry burned an invoice number.** `next_invoice_number` is an atomic `$inc`, so a number
+  allocated before an insert that then hits the duplicate key is spent. Three retries produced
+  three holes in a GST sequence. `generate_from_template` now checks for the period's existing
+  invoice *before* allocating. This is not the uniqueness guarantee — the index still decides,
+  and two genuinely simultaneous callers can still spend one number between them — it removes
+  the gaps from the sequential retry path, which is the one that actually happens.
+
+`crm-api/tools/check_billing_mongo.py` was extended to cover, on the real server: the unique
+index existing and being unique (asserted by name, because `create_index` raising is the exact
+failure being guarded); 20 concurrent generations producing exactly one invoice; crash-retry
+duplicating neither invoice nor number; independence across tenants, templates and periods, with
+ordinary null-template invoices coexisting; a three-month backlog billing one period per sweep;
+a failing template claimed once per sweep rather than retried to the limit; generation queuing no
+message and creating no payment link; and concurrent same-key manual payments crediting once,
+with the key scoped per tenant.
+
+### A CI guard, so this class of bug cannot return silently
+
+`crm-api/tests/test_billing_index_specs.py` records the index specifications each builder would
+send and asserts every `partialFilterExpression` uses only operators MongoDB permits
+(`$eq $exists $gt $gte $lt $lte $type $and $or $in`). It also asserts the two load-bearing
+unique indexes are requested at all, on the right collection, and partial rather than sparse.
+The real-Mongo tool catches this only when somebody runs it with a database to hand; this runs
+every time.
+
+Not covered: `ensure_assistant_thread_indexes`, `ensure_assistant_usage_indexes` and
+`ensure_google_calendar_indexes` take no database override, so they could not be probed. They
+are pre-existing CRM code untouched by this merge and use no partial filters.
+
+### Browser verification found two defects tests could not
+
+Run against a real local stack — disposable replica-set MongoDB on 27118, `crm-api` on 5099,
+Vite on 5174 with `VITE_API_PROXY_TARGET` (an env var, so `vite.config.ts` stayed untouched) —
+seeded by the new `crm-api/tools/seed_billing_demo.py`. Both defects were invisible to jsdom,
+which has no layout:
+
+- **The recurring billing history squashed its own row.** The expanded panel was a third child
+  of the row's `sm:flex-row`, so it competed for width and crushed "Monthly on day 5 · Sharma
+  Weddings" into a two-word column on a 1440px screen. Row and history are now siblings in a
+  column.
+- **A line total was clipped on a phone.** The item table sat in `overflow-hidden`; at 375px the
+  four columns overflow and the right edge of the figure was simply cut off. Now `overflow-x-auto`
+  with `min-w-[22rem]` and non-wrapping amounts, and the summary below still repeats every total.
+
+Verified working in the browser: desktop and mobile layouts; Billing in both navs; tabs with
+correct `role="tablist"`/`aria-selected`; invoice list with en-IN grouping, status badges,
+overpayment shown as overpaid rather than clamped, and Settled; detail with CGST+SGST on an
+intra-state invoice; PDF download returning a real `%PDF-1.4` headed TAX INVOICE carrying the
+*seeded tenant's* name and both GSTINs (so the multi-tenancy leak stays fixed); payment
+recording including the server's own over-balance refusal and a clean retry afterwards; a voided
+payment struck through with its reason; recurring list, expandable history, and an edit saving
+through `PUT /recurring-invoices/{id}` without rewriting invoices already generated; Razorpay
+settings disconnected with `Connect` disabled and both secret fields `type=password` and empty;
+Escape closing a dialog; invoice rows being real buttons, so Enter activates them. A `manager`
+(read-only) session showed no tab strip at all, no New invoice, and a detail dialog whose only
+buttons were `×`, `View PDF` and `Close`.
+
+### Two gaps against the Phase 7 brief, now closed
+
+- **Recurring template editing** had no route. Added `PUT /api/v1/recurring-invoices/{id}`
+  (`invoices.manage`, tenant-scoped) and `update_template_contents`. The client is deliberately
+  NOT editable: a template owns a billing history and repointing it would reattribute one
+  client's invoices to another. Moving the billing day recomputes from the PENDING occurrence,
+  not from today — recomputing from today silently drops a period an overdue template was about
+  to bill.
+- **Generated-invoice history** had no way to be read. Added a `recurringTemplateId` filter to
+  the existing invoice list rather than a second endpoint, so there is one place the organisation
+  scope is applied. Verified a cross-tenant template id returns nothing.
+
+### Validation (full runs, after every change above)
+
+- Python `crm-api`: **14,571 passed, 28 skipped, 0 failed** (520s) — a genuine full run on the
+  combined tree, superseding the partial claim in the previous section.
+- Node `backend`: **3,510 passed across 150 files**; `npm run build` passed.
+- Frontend: **1,015 passed across 84 files**; `tsc --noEmit` clean; `npm run build` passed with
+  only the pre-existing bundle-size warning.
+- Billing tests now number **169 across 9 files**: money 30, recurring 28, razorpay 27,
+  invoice-form 20, invoice-detail 18, payments 17, permissions 14, invoice-list 12, modal 3.
+- Real-MongoDB tool: all four PASS lines, disposable databases and both containers removed.
+
+**Test-count correction.** The original Phase 7 summary said 113. That figure was stale — it
+predated the last three test files. Its own listed per-file counts totalled 145 at the time, and
+the current figure is 169. The 113 should not be quoted again.
+
+## Billing UI fixes — 23 November 2026
+
+### Status, by the only four words that matter
+
+| | |
+|---|---|
+| **Implemented** | The three billing UI fixes below, with tests. |
+| **Published** | Committed and pushed to `origin/main`. |
+| **Deployed** | NOT YET at the time of writing. The previous deployment shipped `faa219b`, which predates these commits — so until a new frontend build is published to `/srv/vistaar`, production still has all three defects. |
+| **Unverified** | Everything about the live system. No production host was contacted during this work: no SSH, no live database, no provider call. Any claim about what production is doing needs evidence gathered on the box. |
+
+This is frontend-only. No backend application code changed, so the Python and Node results
+below are reused unchanged from 19 November on the same HEAD.
+
+### What was wrong, and what each fix actually does
+
+**1. A refused payment locked somebody out of correcting it.**
+The retry guard holds an idempotency key whenever an attempt's outcome is unknown, which is
+right — hand-recorded money has no provider id, so a lost response plus a second press is how a
+client gets credited twice. But the first cut released that key on *any* 4xx, and the version
+before it released on none, so an ordinary over-the-balance typo left the person being told
+"the previous payment may already have been recorded" when the server had just told them the
+opposite.
+
+The rule is now: a 4xx **except 408 and 429** proves the application answered and wrote nothing,
+so the key is released and the figure can be corrected. A 408 is a timeout and a 429 may come
+from a proxy in front of the app — in both cases an earlier attempt may still be in flight, so
+the key is held. Everything else (no response, 5xx) is unknown by definition and holds.
+
+That left one honesty problem: the message told people to reopen the form, and reopening did
+nothing, because discarding a held attempt on a toggle is exactly how the double-credit gets
+back in. So there is now a deliberate escape hatch — *Reload ledger and start a new payment* —
+which fetches the ledger first, so the decision is made against evidence rather than a guess,
+and only then releases the key. It says plainly that anything recorded afterwards is a separate
+payment.
+
+A `PAYMENT_ATTEMPT_CONFLICT` now also reloads the ledger (awaited before the message is set, or
+`load` would clear the error off the screen) so the conflicting payment is visible rather than
+merely described.
+
+**2. A line total was clipped off the edge of a phone.**
+The item table lived inside `overflow-hidden`, and at 375px four money columns do not fit, so
+the right-hand edge of the figure was silently cut. The first attempt made it scrollable, which
+is technically reachable and a poor way to show money — a scrollbar somebody has to discover.
+Below `sm` each line is now stacked (description, `qty × rate`, total) so every column is on
+screen at once; the table is kept for `sm:` and up. Rupee figures carry `whitespace-nowrap`
+throughout, including the summary rows, because a figure broken across two lines reads as two
+different numbers. Measured in a browser at 375px: zero horizontally-scrollable elements.
+
+**3. The expanded invoice history crushed the schedule it belonged to.**
+The history was a third child of the row's `sm:flex-row` line and competed for width, squashing
+"Monthly on day 5 · Sharma Weddings" into a two-word column on a 1440px screen. Fixed with
+`sm:flex-wrap` on the row plus `w-full` on the history, so it cannot fit beside its siblings and
+takes a line of its own. Deliberately not an extra wrapper element — that would have re-indented
+a hundred lines for a layout change.
+
+### Validation
+
+- Frontend: **1,031 passed across 84 files** (was 1,015), `tsc --noEmit` clean, `npm run build`
+  passed with only the pre-existing bundle-size warning.
+- Billing tests now **185 across 9 files**: money 30, recurring 31, razorpay 27, payments 26,
+  invoice-detail 22, invoice-form 20, invoice-list 12, permissions 14, modal 3.
+- Browser, at 375px and 1440px, against a synthetic mock API (no database, no provider, and the
+  fixture deliberately lives outside the repository): the stacked line items show the full
+  ₹1,77,000.00 with no overflow anywhere; the uncertain-outcome path shows the escape hatch,
+  refuses a changed amount while the outcome is unknown, and after *Reload ledger* records the
+  new payment under a fresh key; the recurring history spans its own full-width line with the
+  schedule text intact.
+- Backend reused, unchanged: Python **14,581 passed / 28 skipped**, Node **3,525 across 152
+  files**. No backend code was touched.
+
+### Tests worth not deleting
+
+The layout tests assert structure, not pixels — jsdom has no layout, which is precisely why both
+defects survived a green suite. They pin the two-variant item list and the full-width history on
+a wrapping row, so collapsing either back to its broken shape fails. The payment tests cover
+408/429/5xx holding the key, a definitive 4xx releasing it, the form toggle NOT releasing it,
+and the reload-then-release path.
+
+### Generated artifacts
+
+`release-*.log` and `release-*.json` are now gitignored at the repository root, including one
+level down. They are regenerated on every run and large enough to bury a real diff.
+
 ## User decision ? historical migration excluded
 
 The user explicitly decided not to migrate the old payment project's historical data.
