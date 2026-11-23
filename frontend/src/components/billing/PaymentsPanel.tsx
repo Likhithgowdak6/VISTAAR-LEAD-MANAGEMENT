@@ -5,6 +5,7 @@ import {
   recordInvoicePayment,
   voidInvoicePayment,
 } from '../../api/billing';
+import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { formatDate, formatRupees, toAmountString } from '../../lib/money';
 import { hasPermission, PERMISSIONS } from '../../lib/permissions';
@@ -53,7 +54,21 @@ const PaymentsPanel = ({ invoice, onChanged }: Props) => {
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState<PaymentMode>('cash');
   const [reference, setReference] = useState('');
+
+  /**
+   * The attempt whose outcome we do not know.
+   *
+   * The ref is the source of truth - it must survive a render without causing one, and two
+   * submits must never read a stale copy. `held` mirrors it purely so the escape hatch below
+   * can be rendered, because a ref change does not re-render.
+   */
   const attempt = useRef<{ key: string; fingerprint: string } | null>(null);
+  const [held, setHeld] = useState(false);
+
+  const holdAttempt = (value: { key: string; fingerprint: string } | null) => {
+    attempt.current = value;
+    setHeld(value !== null);
+  };
 
   const newAttemptKey = () => crypto.randomUUID();
 
@@ -97,12 +112,21 @@ const PaymentsPanel = ({ invoice, onChanged }: Props) => {
      * changes on every render defeats the guarantee entirely.
      */
     const fingerprint = JSON.stringify([invoice.id, parsed, mode, reference.trim() || null]);
+
+    // A HELD KEY BELONGS TO THE DETAILS IT WAS MINTED FOR. Reusing it for a different amount
+    // would ask the server to deduplicate two genuinely different payments against one key,
+    // which it refuses - so the ambiguity is explained here instead, where the ledger is on
+    // screen. Only an attempt whose outcome is UNKNOWN is ever held; see the catch below.
     if (attempt.current && attempt.current.fingerprint !== fingerprint) {
-      setError('The previous payment may have been recorded. Retry with the original details or check the ledger before recording a different payment.');
+      setError(
+        'The last attempt may already have been recorded - we never got an answer. Retry it ' +
+          'exactly as it was, or use the button below to check the ledger and start again.',
+      );
       return;
     }
+
     const key = attempt.current?.key ?? newAttemptKey();
-    attempt.current = { key, fingerprint };
+    holdAttempt({ key, fingerprint });
 
     setBusy(true);
     setError(null);
@@ -120,14 +144,50 @@ const PaymentsPanel = ({ invoice, onChanged }: Props) => {
       );
 
       onChanged(payload.data.invoice);
-      attempt.current = null;
+      holdAttempt(null);
       setAmount('');
       setReference('');
       setAdding(false);
       await load();
     } catch (saveError: unknown) {
-      // The server refuses more than the outstanding balance on this path, and its message
-      // already says so - surfaced as written rather than replaced with a generic failure.
+      /**
+       * WHICH FAILURES PROVE NOTHING WAS RECORDED - and the two 4xx codes that do not.
+       *
+       * "More than the balance outstanding" is the application answering: the request arrived,
+       * was rejected before any insert, and wrote nothing. Releasing the key there lets someone
+       * correct their own typo instead of being locked out of it.
+       *
+       * But a 4xx is NOT automatically the application's answer. A 408 says the request timed
+       * out, and a 429 may come from a proxy in front of the app - in both cases an EARLIER
+       * attempt may still be in flight or already committed, so the key must be held. Treating
+       * every 4xx as proof of no write is exactly the assumption that double-credits a client.
+       *
+       * Anything else - a dropped connection, a 502, no response at all - is unknown by
+       * definition and holds the key.
+       */
+      const AMBIGUOUS_STATUSES = [408, 429];
+
+      const definitivelyRefused =
+        saveError instanceof ApiError &&
+        saveError.status >= 400 &&
+        saveError.status < 500 &&
+        !AMBIGUOUS_STATUSES.includes(saveError.status);
+
+      if (definitivelyRefused) {
+        holdAttempt(null);
+      }
+
+      // A conflict means a payment for this attempt ALREADY EXISTS with different details.
+      // Reload so the person can see it rather than being told about it in the abstract.
+      //
+      // AWAITED BEFORE THE MESSAGE IS SET, not fired off: `load` clears the error on success,
+      // so letting it settle afterwards would wipe the explanation off the screen.
+      if (saveError instanceof ApiError && saveError.code === 'PAYMENT_ATTEMPT_CONFLICT') {
+        await load();
+      }
+
+      // The server's own message already explains the refusal - surfaced as written rather
+      // than replaced with a generic failure.
       setError(errorMessage(saveError, 'Unable to record that payment.'));
     } finally {
       setBusy(false);
@@ -188,6 +248,36 @@ const PaymentsPanel = ({ invoice, onChanged }: Props) => {
         <p role="alert" className="mb-2 text-xs text-red-600">
           {error}
         </p>
+      ) : null}
+
+      {/*
+        THE WAY OUT OF AN UNKNOWN OUTCOME, and the only one offered.
+
+        Closing and reopening the form deliberately does NOT discard a held attempt - that would
+        silently hand back a fresh key and let the same money be recorded twice. So the escape
+        has to be explicit, and it has to show the evidence first: reloading the ledger answers
+        whether the payment actually landed, and only then is the key released.
+      */}
+      {held ? (
+        <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 p-2 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <button
+            type="button"
+            onClick={() => {
+              holdAttempt(null);
+              setError(null);
+              void load();
+            }}
+            disabled={busy}
+            className="rounded-lg border border-amber-400 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/50 dark:text-amber-200 dark:hover:bg-amber-500/20"
+          >
+            Reload ledger and start a new payment
+          </button>
+          <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+            Reloading shows whether that payment landed. If it is listed below, it is already
+            recorded — do not enter it again. Anything you record after this is a separate
+            payment.
+          </p>
+        </div>
       ) : null}
 
       {adding ? (

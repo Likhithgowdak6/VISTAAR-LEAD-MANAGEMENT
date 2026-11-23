@@ -33,6 +33,7 @@ vi.mock('../api/billing', () => ({
 vi.mock('../auth/AuthContext', () => ({ useAuth: mocks.useAuth }));
 vi.mock('../hooks/useMobileBackLayer', () => ({ useMobileBackLayer: () => undefined }));
 
+const { ApiError } = await import('../api/client');
 const PaymentsPanel = (await import('../components/billing/PaymentsPanel')).default;
 
 const invoice = (overrides: Record<string, unknown> = {}) =>
@@ -292,7 +293,247 @@ describe('payment attempt recovery', () => {
     await screen.findByRole('alert');
     fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '700' } });
     fireEvent.click(screen.getByRole('button', { name: 'Record' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/previous payment may have been recorded/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /last attempt may already have been recorded/i,
+    );
     expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * THE 4xx CODES THAT ARE NOT THE APPLICATION'S ANSWER.
+   *
+   * It is tempting to read "4xx" as "the server rejected it, so nothing was written". A 408 says
+   * the request timed out and a 429 can come from a proxy in front of the app — in both cases an
+   * earlier attempt may still be in flight or already committed. Releasing the key on those is
+   * precisely the assumption that credits a client twice.
+   */
+  it.each([
+    [408, 'REQUEST_TIMEOUT', 'The request timed out.'],
+    [429, 'RATE_LIMITED', 'Too many requests.'],
+  ])('holds the key on %i, which does not prove nothing was recorded', async (status, code, message) => {
+    mocks.recordInvoicePayment.mockRejectedValue(new ApiError({ status, code, message }));
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    await screen.findByRole('alert');
+
+    // Changing the amount is refused, because the earlier outcome is still unknown.
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '700' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /last attempt may already have been recorded/i,
+    );
+    expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the key on a 5xx, which says nothing about whether the write landed', async () => {
+    mocks.recordInvoicePayment.mockRejectedValue(
+      new ApiError({ status: 502, code: 'BAD_GATEWAY', message: 'Bad gateway.' }),
+    );
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await screen.findByRole('alert');
+
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '700' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /last attempt may already have been recorded/i,
+    );
+    expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries an uncertain attempt under the same key when the details are unchanged', async () => {
+    mocks.recordInvoicePayment.mockRejectedValue(
+      new ApiError({ status: 408, code: 'REQUEST_TIMEOUT', message: 'The request timed out.' }),
+    );
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Reference'), { target: { value: 'UTR1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await screen.findByRole('alert');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await waitFor(() => expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(2));
+
+    const [first, second] = mocks.recordInvoicePayment.mock.calls.map((call) => call[0]);
+    expect(second.idempotencyKey).toBe(first.idempotencyKey);
+    expect(second.amount).toBe('500');
+    expect(second.reference).toBe('UTR1');
+  });
+});
+
+describe('getting out of an unknown outcome', () => {
+  const stall = () =>
+    mocks.recordInvoicePayment.mockRejectedValue(
+      new ApiError({ status: 408, code: 'REQUEST_TIMEOUT', message: 'The request timed out.' }),
+    );
+
+  /** Opens the form (if closed) and leaves one attempt with an unknown outcome. */
+  const leaveAttemptUncertain = async () => {
+    const opener = screen.queryByRole('button', { name: 'Record payment' });
+
+    if (opener) {
+      fireEvent.click(opener);
+    }
+
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await screen.findByRole('alert');
+  };
+
+  it('offers a way out only once an outcome is actually unknown', async () => {
+    stall();
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    expect(
+      screen.queryByRole('button', { name: /Reload ledger and start a new payment/i }),
+    ).not.toBeInTheDocument();
+
+    await leaveAttemptUncertain();
+
+    expect(
+      await screen.findByRole('button', { name: /Reload ledger and start a new payment/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('closing and reopening the form does NOT hand back a fresh key', async () => {
+    /**
+     * The quiet way to double-record money: let a toggle discard the held attempt, and the next
+     * submit mints a new key for a payment that may already exist. The escape has to be
+     * deliberate, so toggling the form leaves the attempt exactly where it was.
+     */
+    stall();
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+    await leaveAttemptUncertain();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '700' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /last attempt may already have been recorded/i,
+    );
+    expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the ledger and releases the key, so the truth is seen before recording again', async () => {
+    stall();
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+    await leaveAttemptUncertain();
+
+    const loadsBefore = mocks.listInvoicePayments.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reload ledger and start a new payment/i }),
+    );
+
+    // The evidence is fetched, not merely promised.
+    await waitFor(() =>
+      expect(mocks.listInvoicePayments.mock.calls.length).toBeGreaterThan(loadsBefore),
+    );
+
+    mocks.recordInvoicePayment.mockResolvedValue({
+      data: { payment: payment(), invoice: invoice() },
+    });
+
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '700' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    await waitFor(() => expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(2));
+
+    // A different payment, so a different key - the server must not deduplicate it against the
+    // attempt whose fate is now known.
+    const [first, second] = mocks.recordInvoicePayment.mock.calls.map((call) => call[0]);
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
+  });
+
+  it('says plainly that anything recorded afterwards is a separate payment', async () => {
+    stall();
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+    await leaveAttemptUncertain();
+
+    expect(await screen.findByText(/is a separate payment/i)).toBeInTheDocument();
+    expect(screen.getByText(/do not enter it again/i)).toBeInTheDocument();
+  });
+
+  it('shows the conflicting payment rather than only describing it', async () => {
+    // The server says a payment already exists for this attempt with different details. The
+    // useful response is to put it on screen.
+    mocks.recordInvoicePayment.mockRejectedValue(
+      new ApiError({
+        status: 409,
+        code: 'PAYMENT_ATTEMPT_CONFLICT',
+        message: 'A different payment was already recorded for this attempt.',
+      }),
+    );
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    const loadsBefore = mocks.listInvoicePayments.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    await waitFor(() =>
+      expect(mocks.listInvoicePayments.mock.calls.length).toBeGreaterThan(loadsBefore),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already recorded/i);
+  });
+
+  it('releases the key when the server definitively refused, so a typo can be corrected', async () => {
+    /**
+     * A 400 means the request arrived and nothing was written. Holding the attempt key then
+     * would lock somebody out of fixing their own typo: they would be told the previous payment
+     * might have been recorded when the server had just told them it was not.
+     */
+    mocks.recordInvoicePayment.mockRejectedValueOnce(
+      new ApiError({
+        status: 400,
+        code: 'PAYMENT_AMOUNT_INVALID',
+        message: 'That is more than the ₹1,180.00 still outstanding on this invoice.',
+      }),
+    );
+    mocks.recordInvoicePayment.mockResolvedValue({
+      data: { payment: payment(), invoice: invoice() },
+    });
+
+    render(<PaymentsPanel invoice={invoice()} onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '99999' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/still outstanding/i);
+
+    // Corrected figure, accepted without the ambiguity warning, under a fresh key.
+    fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    await waitFor(() => expect(mocks.recordInvoicePayment).toHaveBeenCalledTimes(2));
+
+    expect(mocks.recordInvoicePayment.mock.calls[1]![0].idempotencyKey).not.toBe(
+      mocks.recordInvoicePayment.mock.calls[0]![0].idempotencyKey,
+    );
   });
 });
