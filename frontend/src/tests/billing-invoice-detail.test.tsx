@@ -289,6 +289,76 @@ describe('reminder state is reported, never controlled', () => {
   });
 });
 
+describe('line items on a narrow screen', () => {
+  /**
+   * jsdom has no layout, so none of this measures anything — and that is exactly why the
+   * original bug survived a green suite. What CAN be pinned is the structure that caused it:
+   * a single four-column table inside `overflow-hidden`, whose right-hand edge (the line total)
+   * was silently cut off at 375px.
+   *
+   * These assert the two-variant structure instead. They fail the moment somebody collapses it
+   * back to one clipped table. The visual result was confirmed in a real browser.
+   */
+  const itemsRegion = () => {
+    const total = screen.getAllByText('₹1,77,000.00')[0]!;
+    return total.closest('ul, table');
+  };
+
+  it('renders a stacked variant for phones and a table for wider screens', async () => {
+    open();
+
+    await screen.findByText('VIS-2026-0007');
+
+    const stacked = document.querySelector('ul.sm\\:hidden');
+    const table = document.querySelector('table');
+
+    expect(stacked).not.toBeNull();
+    expect(table).not.toBeNull();
+
+    // The table is the one that hides on phones, not the other way round.
+    expect(table!.closest('div')!.className).toContain('hidden');
+    expect(table!.closest('div')!.className).toContain('sm:block');
+  });
+
+  it('puts every column of a line on screen in the stacked variant', async () => {
+    open();
+
+    await screen.findByText('VIS-2026-0007');
+
+    const stacked = document.querySelector('ul.sm\\:hidden')!;
+
+    // Description, quantity × rate, and the line total — nothing left to a scrollbar.
+    expect(stacked.textContent).toContain('Wedding shoot');
+    expect(stacked.textContent).toContain('1 day');
+    expect(stacked.textContent).toContain('₹1,50,000.00');
+    expect(stacked.textContent).toContain('₹1,77,000.00');
+  });
+
+  it('never wraps a rupee figure across two lines', async () => {
+    // "₹1,77,000.00" broken over two lines reads as two different numbers.
+    open();
+
+    await screen.findByText('VIS-2026-0007');
+
+    for (const node of screen.getAllByText('₹1,77,000.00')) {
+      expect(node.className).toContain('whitespace-nowrap');
+    }
+  });
+
+  it('does not hide item overflow, which is what clipped the total', async () => {
+    open();
+
+    await screen.findByText('VIS-2026-0007');
+
+    const region = itemsRegion();
+    expect(region).not.toBeNull();
+
+    // The stacked variant wraps instead of overflowing, so nothing needs clipping.
+    expect(region!.tagName.toLowerCase()).toBe('ul');
+    expect(region!.className).not.toContain('overflow-hidden');
+  });
+});
+
 describe('loading and failure', () => {
   it('shows a spinner while loading', () => {
     mocks.getInvoice.mockReturnValue(new Promise(() => {}));

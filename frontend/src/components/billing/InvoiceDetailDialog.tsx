@@ -110,11 +110,13 @@ const InvoiceDetailDialog = ({ invoiceId, onClose, onChanged }: Props) => {
   const row = (label: string, value: string, emphasis = false) => (
     <div className="flex items-center justify-between gap-4 py-1">
       <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
+      {/* `whitespace-nowrap` for the same reason as the line totals: a rupee figure broken
+          across two lines reads as two different numbers. */}
       <span
         className={
           emphasis
-            ? 'text-sm font-semibold text-slate-900 dark:text-slate-100'
-            : 'text-sm text-slate-700 dark:text-slate-300'
+            ? 'whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-slate-100'
+            : 'whitespace-nowrap text-sm text-slate-700 dark:text-slate-300'
         }
       >
         {value}
@@ -191,33 +193,71 @@ const InvoiceDetailDialog = ({ invoiceId, onClose, onChanged }: Props) => {
               ) : null}
             </div>
 
-            <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+            {/*
+              TWO LAYOUTS, BECAUSE FOUR MONEY COLUMNS DO NOT FIT A PHONE.
+
+              The table was previously inside `overflow-hidden`, and at 375px the right-hand edge
+              of the line total was simply cut off - a clipped figure on an invoice, which is the
+              one thing this screen must never do. A horizontal scrollbar would technically
+              expose it, but a scroll somebody has to discover is a poor way to show money, so
+              below `sm` each line is stacked instead and every column is on screen at once.
+
+              `whitespace-nowrap` on the amounts is what stops "₹1,77,000.00" being broken across
+              two lines, which reads as two different numbers.
+            */}
+            <ul className="mb-4 rounded-xl border border-slate-200 dark:border-slate-800 sm:hidden">
+              {invoice.items.map((item, index) => (
+                <li
+                  key={index}
+                  className="border-b border-slate-100 p-3 last:border-b-0 dark:border-slate-800"
+                >
+                  <p className="break-words text-xs font-medium text-slate-900 dark:text-slate-100">
+                    {item.description}
+                    {item.hsnSacCode ? (
+                      <span className="ml-1 font-normal text-slate-400">· {item.hsnSacCode}</span>
+                    ) : null}
+                  </p>
+
+                  <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {item.quantity}
+                      {item.unit ? ` ${item.unit}` : ''} × {formatRupees(item.rate)}
+                    </span>
+                    <span className="whitespace-nowrap text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {formatRupees(item.total)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mb-4 hidden overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 sm:block">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
                     <th className="px-3 py-2 font-medium">Description</th>
                     <th className="px-3 py-2 text-right font-medium">Qty</th>
                     <th className="px-3 py-2 text-right font-medium">Rate</th>
-                    <th className="px-3 py-2 text-right font-medium">Total</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right font-medium">Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoice.items.map((item, index) => (
                     <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                      <td className="break-words px-3 py-2 text-slate-700 dark:text-slate-300">
                         {item.description}
                         {item.hsnSacCode ? (
                           <span className="ml-1 text-slate-400">· {item.hsnSacCode}</span>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-400">
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600 dark:text-slate-400">
                         {item.quantity}
                         {item.unit ? ` ${item.unit}` : ''}
                       </td>
-                      <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-400">
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-slate-600 dark:text-slate-400">
                         {formatRupees(item.rate)}
                       </td>
-                      <td className="px-3 py-2 text-right font-medium text-slate-900 dark:text-slate-100">
+                      <td className="whitespace-nowrap px-3 py-2 text-right font-medium text-slate-900 dark:text-slate-100">
                         {formatRupees(item.total)}
                       </td>
                     </tr>
