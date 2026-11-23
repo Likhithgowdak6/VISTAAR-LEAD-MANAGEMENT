@@ -16,6 +16,7 @@ import { connectCloudAccount } from '../../api/endpoints';
 import { useAuth } from '../../auth/AuthContext';
 import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { type AuthValue, errorMessage, type WhatsAppAccount } from '../types';
+import ConnectMetaButton from './ConnectMetaButton';
 
 type Props = {
   account: WhatsAppAccount;
@@ -99,7 +100,7 @@ const ConnectCloudModal = ({ account, onClose, onConnected }: Props) => {
             </p>
           ) : null}
           <p className="mt-3 text-xs text-slate-500">
-            If that is not the right number, disconnect it and paste the correct phone number ID.
+            Check that this is the number you intended to connect. Add a payment method in WhatsApp Manager if Meta requests one.
           </p>
         </div>
       );
@@ -208,7 +209,13 @@ const ConnectCloudModal = ({ account, onClose, onConnected }: Props) => {
           </button>
         </div>
 
-        {renderBody()}
+        {!connected ? <ConnectMetaButton accountId={account.id} onConnected={(result) => {
+          setForm(EMPTY);
+          setConnected(result);
+          onConnected?.();
+        }} /> : null}
+        {!connected ? <details><summary className="mb-3 cursor-pointer text-sm text-slate-600">Connect manually with API credentials</summary>
+          {renderBody()}</details> : renderBody()}
 
         <button
           type="button"

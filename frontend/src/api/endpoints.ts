@@ -835,6 +835,23 @@ export interface ConnectCloudAccountParams extends AccountIdParams {
   accessToken: string;
 }
 
+export interface EmbeddedSignupConfig {
+  available: boolean;
+  appId?: string;
+  configId?: string;
+  graphVersion?: string;
+}
+export const getEmbeddedSignupConfig = ({ token, accountId }: AccountIdParams): Promise<ApiSuccessResponse<EmbeddedSignupConfig>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud/signup`, { token });
+export const startEmbeddedSignup = ({ token, accountId }: AccountIdParams): Promise<ApiSuccessResponse<{ state: string }>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud/signup/start`, { method: 'POST', token });
+export const exchangeEmbeddedSignup = ({ token, accountId, state, code }: AccountIdParams & { state: string; code: string }): Promise<ApiSuccessResponse<{ exchanged: boolean }>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud/signup/exchange`, { method: 'POST', token, body: { state, code } });
+export const completeEmbeddedSignup = ({ token, accountId, ...body }: AccountIdParams & {
+  state: string; phoneNumberId: string; wabaId: string; pin: string;
+}): Promise<ApiSuccessResponse<WhatsAppAccount>> =>
+  apiFetch(`/whatsapp-accounts/${accountId}/cloud/signup/complete`, { method: 'POST', token, body });
+
 /**
  * Connects a number through Meta's official Cloud API.
  *

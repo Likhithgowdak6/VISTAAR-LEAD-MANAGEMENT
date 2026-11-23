@@ -42,9 +42,9 @@ const PROVIDER_CHOICES = [
   {
     value: 'cloud' as const,
     title: 'Official WhatsApp API',
-    summary: "Meta's own API. Nothing to keep online, and the number cannot be banned for using it.",
+    summary: "Connect through Meta's hosted API. No phone session to keep connected.",
     caveat:
-      'Meta charges per conversation, and after 24 hours of silence you can only send an approved template.',
+      'Meta applies messaging policies and usage charges. Approved templates are required outside the 24-hour customer service window.',
   },
 ];
 
