@@ -238,6 +238,22 @@ async def check(uri):
         await asyncio.gather(*(record_payment(organization_id=org, invoice_id=invoice,
             amount_paise=1000, mode="cash", db_override=database) for _ in range(2)))
         assert (await database.invoices.find_one({"_id": invoice}))["amountPaidPaise"] == 9000
+        # A HAND-RECORDED ATTEMPT IS DEDUPLICATED BY ITS OWN KEY. Money entered by a person
+        # carries no provider id, so this index is the only thing standing between a lost
+        # response and a client being credited twice. Asserted under real concurrency.
+        attempt = await asyncio.gather(*(record_payment(organization_id=org, invoice_id=invoice,
+            amount_paise=1500, mode="cash", idempotency_key="attempt-one",
+            enforce_balance=False, db_override=database) for _ in range(12)))
+        assert sum(o["outcome"] == "recorded" for o in attempt) == 1
+        assert await database.payments.count_documents({"idempotencyKey": "attempt-one"}) == 1
+        assert (await database.invoices.find_one({"_id": invoice}))["amountPaidPaise"] == 10500
+        # And the key is scoped to the tenant: another organisation may reuse the same string.
+        other_invoice = ObjectId()
+        await database.invoices.insert_one({"_id": other_invoice, "organizationId": other,
+            "status": "issued", "deletedAt": None, "totalPaise": 5000, "amountPaidPaise": 0})
+        assert (await record_payment(organization_id=other, invoice_id=other_invoice,
+            amount_paise=1500, mode="cash", idempotency_key="attempt-one",
+            db_override=database))["outcome"] == "recorded"
         # The active-link uniqueness guard is enforced by Mongo, including concurrent requests.
         await database.payment_links.insert_one({"organizationId": org, "invoiceId": invoice,
             "activeInvoiceId": invoice, "idempotencyKey": "one", "referenceId": "one"})
