@@ -94,3 +94,11 @@ google-services.json
 # the next `git add` ships them. The directory is recreated on demand; nothing here is state
 # worth keeping.
 crm-api/var/
+
+# Test-suite and release-check artifacts. Written by `vitest --reporter=json` and the
+# release scripts, regenerated on every run, and large enough to bury a real diff. They are
+# evidence for a report, not source - keep them out of commits.
+release-*.log
+release-*.json
+*/release-*.log
+*/release-*.json
