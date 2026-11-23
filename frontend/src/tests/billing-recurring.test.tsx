@@ -308,6 +308,55 @@ describe('what a schedule has actually billed', () => {
   });
 });
 
+describe('the expanded history does not crush the row it belongs to', () => {
+  /**
+   * The original bug: the history panel was a third child of the row's `sm:flex-row` line, so
+   * it competed for width with the schedule's own text and squashed "Monthly on day 5 · Sharma
+   * Weddings" into a column two words wide on a 1440px screen.
+   *
+   * jsdom measures nothing, so these pin the structural cause instead — a full-width child on a
+   * wrapping row, which can only land on a line of its own. The visual result was confirmed in
+   * a real browser.
+   */
+  /** Expands the history and returns the SCHEDULE's row, not the invoice's own list item. */
+  const expandHistory = async () => {
+    mocks.listRecurringTemplates.mockResolvedValue({ data: [template({ generatedCount: 2 })] });
+    mocks.listInvoices.mockResolvedValue({ data: [generatedInvoice()] });
+
+    render(<RecurringPanel />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Invoices' }));
+    await screen.findByText('VIS-2026-0004');
+
+    return screen.getByText('Studio retainer').closest('li')!;
+  };
+
+  it('keeps the history inside the row it describes', async () => {
+    const row = await expandHistory();
+
+    expect(within(row).getByText('VIS-2026-0004')).toBeInTheDocument();
+  });
+
+  it('gives the history a line of its own instead of a share of the row', async () => {
+    const row = await expandHistory();
+
+    const history = within(row).getByText('VIS-2026-0004').closest('div.w-full');
+
+    // Full width on a wrapping row: it cannot sit beside the schedule text.
+    expect(history).not.toBeNull();
+    expect(row.className).toContain('sm:flex-wrap');
+  });
+
+  it('leaves the schedule text readable while the history is open', async () => {
+    const row = await expandHistory();
+
+    // The details that were being squashed are still rendered in full.
+    expect(row.textContent).toContain('Monthly on day 5');
+    expect(row.textContent).toContain('Riya Sharma');
+    expect(row.textContent).toContain('2 generated');
+  });
+});
+
 describe('editing a schedule', () => {
   it('is offered to somebody who may manage billing', async () => {
     mocks.listRecurringTemplates.mockResolvedValue({ data: [template()] });

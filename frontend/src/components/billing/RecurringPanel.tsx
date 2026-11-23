@@ -159,10 +159,18 @@ const RecurringPanel = () => {
           />
         ) : (
           <ul>
+            {/*
+              `sm:flex-wrap` on each row IS WHAT KEEPS THE HISTORY OFF THE ROW'S OWN LINE.
+
+              Without it the expanded history was a third item on a `flex-row` line, competing
+              for width with the schedule's own text and squashing "Monthly on day 5 · Riya
+              Sharma" into a column two words wide on a full desktop screen. With wrapping, the
+              `w-full` history cannot fit beside its siblings and takes a line of its own.
+            */}
             {templates.map((template) => (
               <li
                 key={template.id}
-                className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -269,7 +277,7 @@ const RecurringPanel = () => {
                 </div>
 
                 {historyFor === template.id ? (
-                  <div className="w-full rounded-lg border border-slate-200 p-2 dark:border-slate-800 sm:order-last">
+                  <div className="w-full rounded-lg border border-slate-200 p-2 dark:border-slate-800">
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       Invoices from this schedule
                     </p>
