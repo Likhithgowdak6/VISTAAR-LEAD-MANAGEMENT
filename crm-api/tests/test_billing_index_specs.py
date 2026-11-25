@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 
+from app.capi_events_repository import ensure_capi_indexes
 from app.invoices_repository import ensure_invoice_indexes
 from app.payment_links_repository import ensure_razorpay_indexes
 from app.payments_repository import ensure_payment_indexes
@@ -85,6 +86,9 @@ INDEX_BUILDERS = [
     ("payments", ensure_payment_indexes),
     ("razorpay", ensure_razorpay_indexes),
     ("recurring", ensure_recurring_indexes),
+    # The Conversions API queue's unique index is the only thing standing between a retried
+    # sweep and a conversion counted twice in an ad account, so it is held to the same rule.
+    ("capi", ensure_capi_indexes),
 ]
 
 

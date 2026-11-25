@@ -246,6 +246,7 @@ def create_all_runners() -> RunnerRegistry:
     from app.google_calendar_runner import create_google_calendar_runner
     from app.razorpay_reconciliation import create_razorpay_reconciliation_runner
     from app.recurring_invoice_runner import create_recurring_invoice_runner
+    from app.capi_runner import create_capi_runner
 
     registry = RunnerRegistry()
     registry.register(create_delivery_runner())
@@ -264,6 +265,7 @@ def create_all_runners() -> RunnerRegistry:
     registry.register(create_google_calendar_runner())
     registry.register(create_razorpay_reconciliation_runner())
     registry.register(create_recurring_invoice_runner())
+    registry.register(create_capi_runner())
 
     return registry
 

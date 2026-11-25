@@ -273,6 +273,10 @@ class TestTheRegistry:
             # Generates invoices from recurring templates. Writes rows and sends nothing, which
             # is why it is the one daily job not gated on WHATSAPP_ENABLED.
             "recurring_invoices",
+            # Drains the Conversions API queue to Meta. An interval runner rather than a daily
+            # one, and also not gated on WHATSAPP_ENABLED: it posts to Meta's ads infrastructure,
+            # not to a customer.
+            "capi_delivery",
         }
 
     def test_EVERY_RUNNER_NAME_IS_snake_case(self):

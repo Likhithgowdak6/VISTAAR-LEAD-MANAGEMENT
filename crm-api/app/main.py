@@ -29,6 +29,7 @@ from app import cache, db
 from app.errors import install_error_handlers
 from app.request_context import RequestContextMiddleware
 from app.routers import razorpay as razorpay_routes
+from app.routers import capi as capi_routes
 from app.routers import payment_gateway
 from app.routers import settings as settings_router
 from app.routers import (
@@ -211,6 +212,7 @@ app.include_router(
     recurring_invoices.router, prefix=f"{API_PREFIX}/recurring-invoices", tags=["invoices"]
 )
 app.include_router(razorpay_routes.settings_router, prefix=f"{API_PREFIX}/settings", tags=["razorpay"])
+app.include_router(capi_routes.settings_router, prefix=f"{API_PREFIX}/settings", tags=["capi"])
 app.include_router(razorpay_routes.invoice_router, prefix=f"{API_PREFIX}/invoices", tags=["razorpay"])
 app.include_router(razorpay_routes.public_router, prefix=f"{API_PREFIX}/payments/razorpay", tags=["razorpay-webhook"])
 app.include_router(payment_gateway.router, prefix="/internal/v1/payments", tags=["internal-payments"])
