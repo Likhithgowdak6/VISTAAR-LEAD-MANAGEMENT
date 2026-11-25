@@ -126,6 +126,7 @@ export interface TokenParams {
 
 export interface ListConversationsParams extends TokenParams {
   kind?: 'lead' | 'owner_assistant';
+  channel?: 'whatsapp' | 'instagram';
   stage?: StageKey | null;
   tagIds?: readonly string[] | null;
   status?: string | null;
@@ -158,6 +159,7 @@ export interface ListConversationsParams extends TokenParams {
 export const listConversations = ({
   token,
   kind,
+  channel,
   stage,
   tagIds,
   status,
@@ -171,6 +173,7 @@ export const listConversations = ({
   apiFetch(
     `/conversations${buildQuery({
       kind,
+      channel,
       stage,
       // Match-ALL on the server; omitted entirely when nothing is selected.
       tagIds: tagIds?.length ? tagIds.join(',') : undefined,

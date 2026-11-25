@@ -126,6 +126,7 @@ async def get_ai_categories(_: AuthContext = Depends(_require_read)) -> dict[str
 async def get_conversations(
     whatsappAccountId: Optional[str] = None,
     kind: Literal["lead", "owner_assistant"] | None = None,
+    channel: Literal["whatsapp", "instagram"] | None = None,
     stage: Optional[str] = None,
     tagIds: Optional[str] = None,
     status: Optional[str] = None,
@@ -150,6 +151,7 @@ async def get_conversations(
     convs = await list_conversations(
         organization_id=org_id,
         kind=kind,
+        channel=channel,
         whatsapp_account_id=whatsappAccountId,
         assigned_to=assigned_to,
         stage=stage,

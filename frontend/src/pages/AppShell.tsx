@@ -220,6 +220,7 @@ const AppShell = () => {
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [changingPassword, setChangingPassword] = useState(false);
   const [inboxFolder, setInboxFolder] = useState<InboxFolder>('all');
+  const [inboxChannel, setInboxChannel] = useState<'whatsapp' | 'instagram'>('whatsapp');
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
 
@@ -814,7 +815,7 @@ const AppShell = () => {
                   setDrillDown({ seq: Date.now(), filters: {} });
                 }
               }}
-              channels={accounts.map((a) => ({ id: a.id, name: a.name, status: a.status }))}
+              channels={inboxChannel === 'whatsapp' ? accounts.map((a) => ({ id: a.id, name: a.name, status: a.status })) : []}
               selectedChannelId={selectedChannelId}
               onSelectChannel={setSelectedChannelId}
               className="hidden lg:flex"
@@ -834,7 +835,13 @@ const AppShell = () => {
           >
             <div className="min-h-0 flex-1 overflow-hidden">
               <ConversationList
-                key={`list-${listRefreshKey}-${drillDown?.seq ?? 0}`}
+                key={`list-${inboxChannel}-${listRefreshKey}-${drillDown?.seq ?? 0}`}
+                channel={inboxChannel}
+                onChannelChange={(channel) => {
+                  if (channel === inboxChannel) return;
+                  setInboxChannel(channel);
+                  setSelectedId(null);
+                }}
                 selectedId={selectedId}
                 onSelect={selectConversation}
                 initialFilters={

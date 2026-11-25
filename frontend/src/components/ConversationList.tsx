@@ -46,6 +46,8 @@ type ClassifiedConversation = ConversationSummary & {
 
 type Props = {
   selectedId?: string | null;
+  channel?: 'whatsapp' | 'instagram';
+  onChannelChange?: (channel: 'whatsapp' | 'instagram') => void;
   onSelect: (conversationId: string) => void;
   /**
    * Filters to open with, used by the analytics drill-down so a metric card lands on exactly
@@ -62,12 +64,12 @@ type Props = {
   };
 };
 
-const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
+const ConversationList = ({ selectedId, onSelect, initialFilters, channel, onChannelChange }: Props) => {
   const { authedRequest, permissions } = useAuth() as AuthValue;
   const { subscribe } = useRealtime() as RealtimeValue;
   // Same gate as the route: adding a lead creates a contact and can send an unsolicited opening
   // message, so it belongs with the permissions that reach a customer, not with reading.
-  const canAddLead = hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
+  const canAddLead = channel !== 'instagram' && hasPermission(permissions, PERMISSIONS.MESSAGES_SEND);
   const [addingLead, setAddingLead] = useState(false);
   const [conversations, setConversations] = useState<ClassifiedConversation[]>([]);
   const [ownerAssistant, setOwnerAssistant] = useState<ClassifiedConversation | null>(null);
@@ -112,6 +114,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
         listConversations({
           token,
           kind: 'lead',
+          ...(channel ? { channel } : {}),
           limit: 50,
           /**
            * PAGE ONE, ALWAYS - and this is where the classification filters differ from the
@@ -140,6 +143,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
     }
   }, [
     authedRequest,
+    channel,
     stageFilter,
     tagFilterIds,
     enquiryClassFilter,
@@ -397,7 +401,27 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
         </header>
       )}
 
-      <section aria-label="Owner Assistant" className="shrink-0 border-b border-hairline p-3">
+      {onChannelChange && (
+        <div role="group" aria-label="Inbox channel" className="grid shrink-0 grid-cols-2 gap-2 border-b border-hairline p-3">
+          {(['whatsapp', 'instagram'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={channel === option}
+              onClick={() => onChannelChange(option)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                channel === option
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+              }`}
+            >
+              {option === 'whatsapp' ? 'WhatsApp' : 'Instagram'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {channel !== 'instagram' && <section aria-label="Owner Assistant" className="shrink-0 border-b border-hairline p-3">
         <button
           type="button"
           aria-label="Open Owner Assistant"
@@ -421,7 +445,7 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
           <UnreadBadge count={ownerAssistant?.unreadCount ?? 0} />
           <span aria-hidden="true" className="lead-list-meta text-lg">&rsaquo;</span>
         </button>
-      </section>
+      </section>}
 
       {addingLead ? (
         <AddLeadDialog

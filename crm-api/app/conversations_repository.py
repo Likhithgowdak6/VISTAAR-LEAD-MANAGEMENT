@@ -58,6 +58,7 @@ async def list_conversations(
     *,
     organization_id: Any,
     kind: str | None = None,
+    channel: str | None = None,
     whatsapp_account_id: Any = None,
     assigned_to: Any = None,
     stage: str | None = None,
@@ -90,6 +91,11 @@ async def list_conversations(
         filter_query["kind"] = "owner_assistant"
     elif kind == "lead":
         filter_query["kind"] = {"$ne": "owner_assistant"}
+
+    if channel == "instagram":
+        filter_query["channel"] = "instagram"
+    elif channel == "whatsapp":
+        filter_query["channel"] = {"$ne": "instagram"}
 
     if whatsapp_account_id:
         acc_id = _to_object_id(whatsapp_account_id)
