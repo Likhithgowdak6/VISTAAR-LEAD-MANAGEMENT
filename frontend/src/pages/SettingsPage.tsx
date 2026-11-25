@@ -1,4 +1,6 @@
 import WorkspaceSettings from '../components/WorkspaceSettings';
+import ConversionsApiPanel from '../components/settings/ConversionsApiPanel';
+import InstagramPanel from '../components/settings/InstagramPanel';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 
 import {
@@ -14,7 +16,14 @@ import Spinner from '../components/Spinner';
 import { errorMessage } from '../components/types';
 import { hasPermission, PERMISSIONS } from '../lib/permissions';
 
-const SettingsPage = ({ onNavigate }: { onNavigate?: (view: 'team-and-accounts' | 'ai-knowledge') => void }) => {
+const SettingsPage = ({
+  onNavigate,
+}: {
+  // 'lead-sources' is here because the Instagram panel sends an admin there to reconnect
+  // Facebook - Instagram reuses that one authorisation, so that screen is the only place
+  // that can fix a missing or under-scoped grant.
+  onNavigate?: (view: 'team-and-accounts' | 'ai-knowledge' | 'lead-sources') => void;
+}) => {
   const { authedRequest, permissions } = useAuth();
   const [ownerWhatsappNumber, setOwnerWhatsappNumber] = useState('');
   const [loading, setLoading] = useState(true);
@@ -185,6 +194,12 @@ const SettingsPage = ({ onNavigate }: { onNavigate?: (view: 'team-and-accounts' 
       </div>
 
       {canManage ? <WorkspaceSettings onNavigate={onNavigate} /> : null}
+
+      {/* Gated on the same permission as the rest of this page's workspace configuration:
+          connecting a dataset decides where a business's conversion data is reported. */}
+      {canManage ? <ConversionsApiPanel /> : null}
+
+      {canManage ? <InstagramPanel onNavigate={onNavigate} /> : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {loading ? (

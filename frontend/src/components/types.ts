@@ -90,6 +90,10 @@ export type ConversationSummary = Pick<
       // Partial, not required: the field is absent on every customer thread and is never
       // backfilled, so a required `kind` would make the type a lie about existing data.
       | 'kind'
+      // Same reasoning: a build talking to a server that predates channels gets rows without
+      // one, and ChannelBadge renders nothing for undefined - which reads as WhatsApp, which is
+      // what such a thread is.
+      | 'channel'
       | 'lastMessageAt'
       | 'lastMessagePreview'
       | 'unreadCount'

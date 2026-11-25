@@ -39,6 +39,7 @@ export type {
   CallStatus,
   Contact,
   Conversation,
+  ConversationChannel,
   ConversationAccountSummary,
   ConversationAiSummary,
   ConversationDetail,

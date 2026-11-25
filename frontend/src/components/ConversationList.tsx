@@ -20,6 +20,7 @@ import LeadScoreBadge from './LeadScoreBadge';
 import LeadTemperatureBadge from './LeadTemperatureBadge';
 import RelativeTime from './RelativeTime';
 import Spinner from './Spinner';
+import ChannelBadge from './ChannelBadge';
 import StageBadge from './StageBadge';
 import ToggleSwitch from './ToggleSwitch';
 import { type AuthValue, type ConversationSummary, errorMessage, type RealtimeValue, type StageOption, type Tag } from './types';
@@ -552,6 +553,10 @@ const ConversationList = ({ selectedId, onSelect, initialFilters }: Props) => {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 pl-11 pr-[4.5rem]">
+                    {/* First in the row, because which surface a thread arrived on changes how
+                        staff may reply to it - Instagram has a hard 24-hour window with no
+                        template to reopen it. Renders nothing for WhatsApp. */}
+                    <ChannelBadge channel={conversation.channel} />
                     <StageBadge
                       stage={conversation.stage}
                       label={findStageByKey(stages, conversation.stage)?.label}

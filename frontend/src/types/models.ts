@@ -362,7 +362,19 @@ export interface RecurringTemplate {
   updatedAt: string | null;
 }
 
+/**
+ * Which messaging surface a thread lives on.
+ *
+ * The SERVER resolves this, including for the many conversations written before the field
+ * existed — it reports `whatsapp` for those rather than null. So this is never optional here, and
+ * the dashboard never has to decide what a missing channel means.
+ */
+export type ConversationChannel = 'whatsapp' | 'instagram';
+
 export interface Conversation {
+  channel: ConversationChannel;
+  /** Set only on Instagram threads. */
+  instagramAccountId: string | null;
   id: string;
   organizationId: string | null;
   whatsappAccountId: string | null;

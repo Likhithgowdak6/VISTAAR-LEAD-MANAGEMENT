@@ -11,6 +11,34 @@ const endpoints = endpointsApi as any;
 
 vi.mock('../api/endpoints');
 
+/**
+ * Two panels share this page and neither is what these tests are about.
+ *
+ * Left unmocked they make real fetches, fail, and render their own `role="alert"` — which then
+ * shadows the alert each assertion below is actually looking for. Their own behaviour lives in
+ * `instagram-settings.test.tsx` and `capi-settings.test.tsx`.
+ */
+vi.mock('../api/instagram', () => ({
+  listInstagramAccounts: vi.fn().mockResolvedValue({ data: [] }),
+  listInstagramCandidates: vi.fn().mockResolvedValue({ data: [] }),
+  connectInstagramAccount: vi.fn(),
+  updateInstagramAutomation: vi.fn(),
+  disconnectInstagramAccount: vi.fn(),
+  setInstagramTakeover: vi.fn(),
+}));
+
+vi.mock('../api/capi', () => ({
+  getCapiConnection: vi.fn().mockResolvedValue({
+    data: { connected: false, enabled: false, selectedEvents: [], availableEvents: [] },
+  }),
+  getCapiStatus: vi.fn().mockResolvedValue({
+    data: { counts: {}, maxAttempts: 6, recentFailures: [] },
+  }),
+  connectCapi: vi.fn(),
+  setCapiEnabled: vi.fn(),
+  setCapiEvents: vi.fn(),
+}));
+
 const OWNER_NUMBER_LABEL = 'Owner WhatsApp number';
 
 beforeEach(() => {
