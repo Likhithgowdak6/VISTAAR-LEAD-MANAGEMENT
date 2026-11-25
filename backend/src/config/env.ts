@@ -131,6 +131,16 @@ export const envSchema = z.object({
   // products; set it only when WhatsApp lives in a different app than the lead forms.
   WHATSAPP_CLOUD_APP_SECRET: z.string().default(''),
 
+  // Instagram DM automation. Both default to empty, so an installation that has not connected
+  // Instagram boots unchanged and its webhook refuses every delivery - which is the safe
+  // direction for a public endpoint that writes to the inbox.
+  //
+  // INSTAGRAM_APP_SECRET falls back to META_APP_SECRET, for the same reason the WhatsApp one
+  // does: one Meta app serving every product is the common case and should need no extra
+  // variable, while a separate app for Instagram must remain expressible.
+  INSTAGRAM_APP_SECRET: z.string().default(''),
+  INSTAGRAM_WEBHOOK_VERIFY_TOKEN: z.string().default(''),
+
   WHATSAPP_POC_ACCOUNT_ID: z.string().optional(),
 
   WHATSAPP_QR_OUTPUT: z.enum(['terminal']).default('terminal'),

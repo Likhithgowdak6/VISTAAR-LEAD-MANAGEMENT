@@ -11,6 +11,16 @@
         reverse_proxy 127.0.0.1:5001
     }
 
+    # Instagram DMs are owned by Node, for the same reason WhatsApp Cloud is: the Meta webhook,
+    # the Page tokens and the Send API all live beside the existing Meta integration.
+    #
+    # THIS ROUTE IS LOAD-BEARING, NOT TIDINESS. The `/api/*` rule below sends everything else to
+    # Python, so without this block Meta's deliveries reach a service that has never heard of
+    # Instagram and every DM is silently lost behind a 404 nobody is watching for.
+    handle /api/v1/instagram/* {
+        reverse_proxy 127.0.0.1:5001
+    }
+
     # Includes signup, workspace, all CRM routes and the realtime SSE stream.
     handle /api/* {
         reverse_proxy 127.0.0.1:5002 {

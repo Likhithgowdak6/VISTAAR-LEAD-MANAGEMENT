@@ -20,6 +20,8 @@ import healthRouter from './modules/health/health.routes.js';
 import leadSourceRouter from './modules/lead-sources/lead-source.routes.js';
 import metaPublicRouter from './modules/lead-sources/meta-public.routes.js';
 import cloudPublicRouter from './modules/whatsapp/cloud/cloud-public.routes.js';
+import instagramPublicRouter from './modules/instagram/instagram-public.routes.js';
+import instagramRouter from './modules/instagram/instagram.routes.js';
 import messageTemplateRouter from './modules/message-templates/message-template.routes.js';
 import starredMessageRouter from './modules/starred-messages/starred-message.routes.js';
 import organizationSettingsRouter from './modules/organizations/organization-settings.routes.js';
@@ -30,6 +32,7 @@ import userRouter from './modules/users/user.routes.js';
 import whatsappAccountRouter from './modules/whatsapp-accounts/whatsapp-account.routes.js';
 
 import { createGatewayRouter } from './modules/whatsapp/gateway.routes.js';
+import { createInstagramGatewayRouter } from './modules/instagram/instagram-gateway.routes.js';
 
 const app = express();
 
@@ -90,6 +93,9 @@ app.use(requestContextMiddleware);
 app.use(rateLimitMiddleware);
 
 app.use('/internal/v1/whatsapp', createGatewayRouter());
+// Python's composer calls this to spend the Instagram Page token, which lives here. Internal
+// only, same service-key compare as above - keep /internal/* off public ingress.
+app.use('/internal/v1/instagram', createInstagramGatewayRouter());
 
 app.use('/api/v1/health', healthRouter);
 app.use('/api/v1/auth', authRouter);
@@ -115,6 +121,13 @@ app.use('/api/v1/meta', metaPublicRouter);
 // The same arrangement for WhatsApp, on its own path and its own verify token - see
 // whatsapp/cloud/cloud-public.routes.ts for why it is not folded into the router above.
 app.use('/api/v1/whatsapp/cloud', cloudPublicRouter);
+// And the same again for Instagram DMs, on its own path, its own verify token and its own
+// app secret - so rotating any one of the three cannot silence the other two.
+app.use('/api/v1/instagram', instagramPublicRouter);
+// The authenticated settings routes share the path but not the file, so the webhook above can
+// never end up behind authenticateRequest. Express matches in order, and the public router
+// only claims /webhook.
+app.use('/api/v1/instagram', instagramRouter);
 app.use('/api/v1/whatsapp-accounts', whatsappAccountRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/settings', organizationSettingsRouter);
