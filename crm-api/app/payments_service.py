@@ -300,6 +300,21 @@ async def record_payment(
         database=database,
     )
 
+    # MONEY ARRIVED, so a purchase may be reported. Only on the `recorded` path - the
+    # `already_recorded` branch above is a webhook or a retry seeing a payment that was already
+    # counted, and reporting it again would double a conversion in somebody's ad account.
+    #
+    # The hook is gated on the workspace having connected a dataset and can never raise: a
+    # payment must not be refused because Meta could not be told about it.
+    from app.capi_hooks import on_payment_recorded
+
+    await on_payment_recorded(
+        organization_id=organization_id,
+        payment=payment,
+        invoice=updated or invoice,
+        db_override=database,
+    )
+
     return {"outcome": "recorded", "payment": payment, "invoice": updated}
 
 

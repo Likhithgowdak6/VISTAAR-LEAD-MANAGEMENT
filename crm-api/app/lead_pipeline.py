@@ -412,6 +412,31 @@ class LeadPipeline:
             reason=REALTIME_REASONS["IMPORTED"],
         )
 
+        # The RAW LEAD event for Meta's Conversions API.
+        #
+        # Reported here rather than inferred later, because this is the only place that knows a
+        # Meta lead arrived at all - and without it Meta sees qualified leads appearing for leads
+        # it was never told about, which is what holds Lead Coverage below the 60% it requires.
+        #
+        # Failure-isolated like the owner alert below it: a lead must be imported whether or not
+        # Meta can be told about it.
+        try:
+            from app.capi_hooks import on_lead_imported
+
+            await on_lead_imported(
+                organization_id=org_id,
+                conversation=conversation,
+                contact_id=conversation.get("contactId"),
+                external_id=lead.external_id,
+                occurred_at=lead.submitted_at,
+            )
+        except Exception as capi_err:
+            logger.warning(
+                "Conversions API lead event failed safely for conversation %s: %s",
+                str(conversation["_id"]),
+                describe_error(capi_err),
+            )
+
         # 🔔 Owner ping: failure-isolated courtesy alert.
         if self._send_new_lead_alert:
             try:

@@ -280,12 +280,22 @@ async def update_stage(
         update_doc["lastHandledBy"] = _to_object_id(last_handled_by) or last_handled_by
         update_doc["lastHandledAt"] = now_dt
 
-    return await db.get_database()[CONVERSATIONS].find_one_and_update(
+    updated = await db.get_database()[CONVERSATIONS].find_one_and_update(
         {"_id": cid, "organizationId": oid},
         {"$set": update_doc},
         session=session,
         return_document=True,
     )
+
+    # Reported from HERE rather than from each caller, because `update_stage` has several and a
+    # missed one is a conversion Meta never hears about - a silence nobody notices. The hook
+    # returns immediately for a workspace with no Conversions API dataset, and can never raise.
+    if updated is not None:
+        from app.capi_hooks import on_stage_changed
+
+        await on_stage_changed(updated, stage=stage)
+
+    return updated
 
 
 async def set_ai_category(
