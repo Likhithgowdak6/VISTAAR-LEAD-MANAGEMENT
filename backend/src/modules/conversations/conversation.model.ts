@@ -2,6 +2,11 @@ import mongoose, { type Model, type Types } from 'mongoose';
 
 import { type AiIntent, DEFAULT_AI_INTENT } from '../../constants/ai-intents.js';
 import { AI_MODE_VALUES, AI_MODES, type AiMode } from '../../constants/call-outcomes.js';
+import {
+  CONVERSATION_CHANNEL_VALUES,
+  CONVERSATION_CHANNELS,
+  type ConversationChannel,
+} from '../../constants/channels.js';
 import { CONVERSATION_STAGES } from '../../constants/conversation-stages.js';
 import {
   SALES_REJECTION_SOURCE_VALUES,
@@ -34,7 +39,23 @@ export interface ConversationAiSummary {
 export interface ConversationDocument {
   _id: Types.ObjectId;
   organizationId: Types.ObjectId;
+  /**
+   * Which messaging surface this thread lives on.
+   *
+   * OPTIONAL IN THE TYPE because it is absent from every conversation written before the field
+   * existed. Read it through `channelOf()` from constants/channels.ts, never directly - a direct
+   * read gives `undefined` for most of the database.
+   */
+  channel?: ConversationChannel;
+  /**
+   * Required for WhatsApp, absent for Instagram.
+   *
+   * Conditionally required rather than relaxed to optional, so every existing row and every
+   * WhatsApp write keeps the invariant it has always had.
+   */
   whatsappAccountId: Types.ObjectId;
+  /** Set only on Instagram threads. The workspace's connected Instagram professional account. */
+  instagramAccountId?: Types.ObjectId | null;
   contactId: Types.ObjectId;
   leadId: string;
   displayName: string;
@@ -299,10 +320,32 @@ const conversationSchema = new mongoose.Schema<ConversationDocument>(
       index: true,
     },
 
+    channel: {
+      type: String,
+      enum: CONVERSATION_CHANNEL_VALUES,
+      // No `default`. A default would write 'whatsapp' onto every new document, which is
+      // harmless - but it would also tempt readers into trusting the field directly, and the
+      // historical rows still have nothing. Absent stays absent, and `channelOf()` is the single
+      // place that decides what absent means.
+      index: true,
+    },
+
     whatsappAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'WhatsAppAccount',
-      required: true,
+      // CONDITIONALLY REQUIRED, not optional. Relaxing it outright would let a WhatsApp thread be
+      // written without an account - the invariant every existing query depends on - to make room
+      // for a channel that does not use the field at all.
+      required(this: { channel?: unknown }) {
+        return this.channel !== CONVERSATION_CHANNELS.INSTAGRAM;
+      },
+      index: true,
+    },
+
+    instagramAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'InstagramAccount',
+      default: null,
       index: true,
     },
 

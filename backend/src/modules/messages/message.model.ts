@@ -87,9 +87,21 @@ const messageCloudTemplateSchema = new mongoose.Schema<MessageCloudTemplate>(
 export interface MessageDocument {
   _id: Types.ObjectId;
   organizationId: Types.ObjectId;
-  whatsappAccountId: Types.ObjectId;
+  /**
+   * Required for WhatsApp, null for Instagram.
+   *
+   * Left null rather than relaxed away because the unique index on
+   * (organizationId, whatsappAccountId, providerMessageId) is what stops a redelivered webhook
+   * writing a message twice. With every Instagram message sharing a null here, that index still
+   * reads as "one message per provider id per workspace" - which is exactly the guarantee
+   * Instagram needs. Dropping the field from the key would have cost that for both channels.
+   */
+  whatsappAccountId: Types.ObjectId | null;
+  /** Set only on Instagram messages. */
+  instagramAccountId?: Types.ObjectId | null;
   conversationId: Types.ObjectId;
   contactId: Types.ObjectId;
+  channel?: 'whatsapp' | 'instagram';
   providerMessageId: string | null;
   idempotencyKey: string | null;
   direction: MessageDirection;
@@ -177,7 +189,27 @@ const messageSchema = new mongoose.Schema<MessageDocument>(
     whatsappAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'WhatsAppAccount',
-      required: true,
+      // Conditionally required, matching the Conversation model: a WhatsApp message without an
+      // account is still the bug it always was, while an Instagram message legitimately has none.
+      required(this: { channel?: unknown }) {
+        return this.channel !== 'instagram';
+      },
+      default: null,
+      index: true,
+    },
+
+    channel: {
+      type: String,
+      enum: ['whatsapp', 'instagram'],
+      // No default, for the same reason as the Conversation model: absent is the historical
+      // state and `channelOf()` is the one place that decides what absent means.
+      index: true,
+    },
+
+    instagramAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'InstagramAccount',
+      default: null,
       index: true,
     },
 

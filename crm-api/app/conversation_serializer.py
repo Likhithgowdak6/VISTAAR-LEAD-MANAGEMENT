@@ -143,6 +143,14 @@ def serialize_conversation(conversation: Any) -> dict[str, Any] | None:
         "id": serialize_id(value.get("_id") or value.get("id")),
         "organizationId": serialize_id(value.get("organizationId")),
         "whatsappAccountId": serialize_id(value.get("whatsappAccountId")),
+        # ABSENT MEANS WHATSAPP. Every conversation written before this field existed has no
+        # channel at all, and there are far more of those than there will ever be Instagram
+        # threads. Serialising `None` would make the dashboard decide what absent means, in two
+        # places that would then drift; resolving it here means one answer for every reader.
+        "channel": (
+            "instagram" if value.get("channel") == "instagram" else "whatsapp"
+        ),
+        "instagramAccountId": serialize_id(value.get("instagramAccountId")),
         "lastInboundAt": serialize_date(_to_date(value.get("lastInboundAt"))),
         "contactId": serialize_id(value.get("contactId")),
         "leadId": value.get("leadId"),

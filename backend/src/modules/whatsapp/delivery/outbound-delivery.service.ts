@@ -761,8 +761,19 @@ export const createOutboundDeliveryService = ({
         body: tracePreview(message.body),
       }));
 
+      // `whatsappAccountId` became nullable when messages gained a channel, and an Instagram
+      // message legitimately has none - but this is the WhatsApp delivery path, reached only for
+      // a message that named an account. Narrowed rather than asserted with `!`, because the
+      // echo guard is what stops Baileys reflecting this send back as a new inbound message:
+      // skipping it silently would duplicate the message in the customer's thread.
+      const echoAccountId = message.whatsappAccountId;
+
+      if (!echoAccountId) {
+        throw new Error('OUTBOUND_MESSAGE_MISSING_ACCOUNT');
+      }
+
       await echoGuardService.remember({
-        accountId: message.whatsappAccountId,
+        accountId: echoAccountId,
         providerMessageId: result?.providerMessageId ?? null,
       });
 
