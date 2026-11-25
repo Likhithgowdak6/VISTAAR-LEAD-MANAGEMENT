@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import ai_draft, db
+from app.instagram_send import InstagramSendUnavailable, send_instagram_reply
 from app.cloud_templates import validate_send as validate_cloud_send
 from app.activity import create_activity, find_activity_for_conversation, serialize_activity_log
 from app.category_playbooks import CATEGORY_PLAYBOOKS, SELECTABLE_AI_CATEGORIES
@@ -693,6 +694,158 @@ async def post_restore_conversation(
     return {"data": serialize_conversation(updated)}
 
 
+async def _post_instagram_message(
+    *,
+    conversation: dict,
+    body: Any,
+    auth: AuthContext,
+    organization_id: Any,
+) -> JSONResponse:
+    """
+    A manual reply on an Instagram thread.
+
+    SENT SYNCHRONOUSLY, unlike WhatsApp. WhatsApp queues and a delivery runner drains, because a
+    Baileys socket may be down and a template may need approval. Instagram is one HTTPS call with
+    a token that either works or does not, and a reply an agent is watching should either go or
+    say why - not sit in a queue they cannot see.
+
+    THE ROW IS WRITTEN BEFORE THE SEND so a failure is visible in the thread rather than vanishing.
+    That is the same ordering the automation uses, for the same reason.
+    """
+    text = (body.body or "").strip()
+
+    if not text:
+        raise _error(400, "MESSAGE_BODY_REQUIRED", "Type something to send.")
+
+    if body.media:
+        # Text DMs only this release. Refused explicitly rather than silently dropping the
+        # attachment and sending a caption nobody meant to send alone.
+        raise _error(
+            400,
+            "INSTAGRAM_MEDIA_UNSUPPORTED",
+            "Attachments are not supported on Instagram yet. Send text, or reply on WhatsApp.",
+        )
+
+    instagram_account_id = conversation.get("instagramAccountId")
+
+    if not instagram_account_id:
+        raise _error(
+            409,
+            "INSTAGRAM_ACCOUNT_MISSING",
+            "This Instagram thread has no connected account. Reconnect it in Settings.",
+        )
+
+    contact = await db.get_database()["contacts"].find_one(
+        {"_id": _to_object_id(conversation.get("contactId")), "organizationId": _to_object_id(organization_id)},
+        {"providerContactKey": 1},
+    )
+
+    provider_key = str((contact or {}).get("providerContactKey") or "")
+
+    # The Instagram-scoped id, which only ever comes from a delivery we received. Without it there
+    # is nobody to send to - Meta does not accept a handle.
+    recipient_id = provider_key[3:] if provider_key.startswith("ig:") else ""
+
+    if not recipient_id:
+        raise _error(
+            409,
+            "INSTAGRAM_RECIPIENT_UNKNOWN",
+            "This contact has no Instagram id, so there is nobody to reply to.",
+        )
+
+    now_dt = datetime.now(timezone.utc)
+
+    msg_doc = {
+        "organizationId": _to_object_id(organization_id),
+        "conversationId": _to_object_id(conversation["_id"]),
+        "channel": "instagram",
+        "instagramAccountId": _to_object_id(instagram_account_id),
+        # Null, not absent: the unique index on (organizationId, whatsappAccountId,
+        # providerMessageId) is what stops a duplicate, and a null participates in it.
+        "whatsappAccountId": None,
+        "contactId": _to_object_id(conversation.get("contactId")),
+        "direction": "out",
+        "type": "text",
+        "senderType": "user",
+        "senderId": _to_object_id(auth.user_id),
+        "sentByUserId": _to_object_id(auth.user_id),
+        "authoredBy": "human",
+        "status": "queued",
+        "body": text,
+        "idempotencyKey": body.idempotencyKey,
+        "sentAt": now_dt,
+        "createdAt": now_dt,
+        "updatedAt": now_dt,
+    }
+
+    result = await db.get_database()["messages"].insert_one(msg_doc)
+    msg_doc["_id"] = result.inserted_id
+
+    status_value = "sent"
+    failure: str | None = None
+    provider_message_id = None
+
+    try:
+        provider_message_id = await send_instagram_reply(
+            organization_id=organization_id,
+            instagram_account_id=instagram_account_id,
+            recipient_id=recipient_id,
+            text=text,
+            last_inbound_at=conversation.get("lastInboundAt"),
+        )
+    except InstagramSendUnavailable as exc:
+        status_value = "failed" if exc.retryable else "failed_permanent"
+        failure = exc.code
+
+    await db.get_database()["messages"].update_one(
+        {"_id": msg_doc["_id"]},
+        {
+            "$set": {
+                "status": status_value,
+                "providerMessageId": provider_message_id,
+                "lastDeliveryError": failure,
+                "updatedAt": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    await db.get_database()["conversations"].update_one(
+        {"_id": _to_object_id(conversation["_id"])},
+        {
+            "$set": {
+                "lastMessageAt": now_dt,
+                "lastMessagePreview": text,
+                "lastHandledBy": _to_object_id(auth.user_id),
+                "lastHandledAt": now_dt,
+                "updatedAt": now_dt,
+            }
+        },
+    )
+
+    if failure:
+        # The message row stays, marked failed, so the thread shows what was attempted. The error
+        # is still raised so the composer can say why rather than appearing to succeed.
+        raise _error(
+            503 if status_value == "failed" else 409,
+            failure,
+            "Instagram would not accept that reply.",
+            details={"messageId": str(msg_doc["_id"])},
+        )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "data": {
+                "id": str(msg_doc["_id"]),
+                "conversationId": str(msg_doc["conversationId"]),
+                "body": text,
+                "status": status_value,
+                "channel": "instagram",
+            },
+            "meta": {"queued": False},
+        },
+    )
+
 @router.post("/{conversationId}/messages")
 async def post_message(
     conversationId: str,
@@ -738,6 +891,17 @@ async def post_message(
                 },
                 "meta": {"queued": False},
             },
+        )
+
+    # INSTAGRAM THREADS TAKE A DIFFERENT PATH, and the branch is here rather than in a separate
+    # endpoint on purpose: permissions, conversation visibility and the idempotency check above
+    # are identical for both channels, and duplicating them is how two send paths drift.
+    #
+    # ABSENT CHANNEL MEANS WHATSAPP. Every conversation written before the field existed has none,
+    # so this must be an equality test against 'instagram' and never a test for "not whatsapp".
+    if conv.get("channel") == "instagram":
+        return await _post_instagram_message(
+            conversation=conv, body=body, auth=auth, organization_id=org_id
         )
 
     target_id = _to_object_id(body.whatsappAccountId) if body.whatsappAccountId else _to_object_id(conv.get("whatsappAccountId"))
